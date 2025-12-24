@@ -1,0 +1,26 @@
+{
+  "repository": {
+    "owner": "milesmadeitfye-creator",
+    "name": "Myghoste",
+    "branch": "main",
+    "url": "https://github.com/milesmadeitfye-creator/Myghoste.git"
+  },
+  "build": {
+    "command": "npm run build",
+    "outputDirectory": "dist",
+    "framework": "vite"
+  },
+  "deployment": {
+    "platform": "netlify",
+    "sites": [
+      "https://ghoste.one",
+      "https://myghoste.netlify.app"
+    ],
+    "note": "Netlify handles all deployment and DNS. No custom domain configuration in Bolt."
+  },
+  "workflow": {
+    "editor": "Bolt",
+    "hosting": "Netlify",
+    "publishAction": "Commit to main branch → Netlify auto-deploys"
+  }
+}

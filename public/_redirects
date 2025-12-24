@@ -1,0 +1,39 @@
+# Smart Link landing pages - React SPA will handle these
+# Single segment after /s/ or /l/ = landing page (e.g., /s/my-song, /l/my-track)
+
+# Link shortener - Direct platform redirects (specific pattern)
+# Pattern: /l/:track_id/:platform (e.g., /l/abc123/spotify)
+/l/*/*                            /.netlify/functions/click                      200
+
+# Stats analytics
+/stats                            /.netlify/functions/stats                      200
+
+# Marketing and Pre-save
+/api/marketing-link-create        /.netlify/functions/marketing-link-create      200
+/api/presave-create               /.netlify/functions/presave-create             200
+/api/capture                      /.netlify/functions/capture                    200
+
+# OAuth Integrations
+/api/mailchimp/start              /.netlify/functions/mailchimp-oauth-start      200
+/api/mailchimp/callback           /.netlify/functions/mailchimp-oauth-callback   200
+/mailchimp/callback               /.netlify/functions/mailchimp-oauth-callback   200
+/api/tiktok/start                 /.netlify/functions/tiktok-oauth-start         200
+/api/tiktok/callback              /.netlify/functions/tiktok-oauth-callback      200
+
+# Wallet Management
+/api/wallet/read                  /.netlify/functions/wallet-read                200
+/api/wallet/allocate              /.netlify/functions/wallet-allocate            200
+/api/wallet/ledger                /.netlify/functions/wallet-ledger              200
+
+# Health Check
+/api/health                       /.netlify/functions/health                     200
+
+# Debug Endpoints
+/api/debug/link-clicks            /.netlify/functions/debug-link-clicks          200
+
+# Auth Callback
+/auth/callback                    /index.html                                    200
+
+# SPA Catch-all (MUST be last)
+# This serves the React app for all unmatched routes including /s/:slug and /l/:slug
+/*                                /index.html                                    200

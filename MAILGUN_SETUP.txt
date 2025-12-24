@@ -1,0 +1,222 @@
+╔══════════════════════════════════════════════════════════════════╗
+║                MAILGUN EMAIL SETUP - QUICK GUIDE                 ║
+║                   Production Ready ✅                             ║
+╚══════════════════════════════════════════════════════════════════╝
+
+┌────────────────────────────────────────────────────────────────┐
+│ WHAT WAS CREATED                                               │
+└────────────────────────────────────────────────────────────────┘
+
+✅ Centralized Email Function: netlify/functions/send-email.ts
+✅ HTTP API (no SDK bloat, more reliable)
+✅ Request ID tracing for debugging
+✅ US/EU region support
+✅ Tags for email tracking
+✅ Clear error messages
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 1: ADD TO NETLIFY (REQUIRED)                             │
+└────────────────────────────────────────────────────────────────┘
+
+Go to: Netlify Dashboard → Site Settings → Environment Variables
+
+Add these 4 required variables:
+
+1. MAILGUN_API_KEY
+   Value: key-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   Get from: https://app.mailgun.com/settings/api_security
+
+2. MAILGUN_DOMAIN
+   Value: mg.ghoste.one (YOUR verified domain)
+   Get from: https://app.mailgun.com/sending/domains
+
+3. MAILGUN_FROM_EMAIL
+   Value: hello@mg.ghoste.one (MUST use Mailgun domain)
+   ⚠️  CRITICAL: Must match verified domain
+
+4. MAILGUN_FROM_NAME
+   Value: Ghoste One
+   (Display name users see)
+
+Optional (good defaults):
+
+5. MAILGUN_REGION
+   Value: us (or eu if your domain is EU)
+
+6. MAILGUN_REPLY_TO
+   Value: support@ghoste.one
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 2: VERIFY MAILGUN DOMAIN                                 │
+└────────────────────────────────────────────────────────────────┘
+
+1. Go to: https://app.mailgun.com/sending/domains
+2. Click on your domain (mg.ghoste.one)
+3. Check DNS verification status
+4. All records should be ✅ green
+5. Status should say "Active"
+
+If not verified, add these DNS records to your domain:
+
+TXT: v=spf1 include:mailgun.org ~all
+TXT: (DKIM key - provided by Mailgun)
+CNAME: email.mg.ghoste.one → mailgun.org
+MX: Priority 10 → mxa.mailgun.org
+MX: Priority 10 → mxb.mailgun.org
+
+Wait 5-10 minutes, then click "Verify DNS Settings"
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 3: DEPLOY                                                │
+└────────────────────────────────────────────────────────────────┘
+
+git add .
+git commit -m "Add: Centralized Mailgun email sender"
+git push origin main
+
+Wait ~2 minutes for Netlify deployment
+
+┌────────────────────────────────────────────────────────────────┐
+│ STEP 4: TEST (60 SECOND VERIFICATION)                         │
+└────────────────────────────────────────────────────────────────┘
+
+Option A: Using curl
+
+curl https://ghoste.one/.netlify/functions/send-email \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "to": "YOUR_EMAIL@example.com",
+    "subject": "Mailgun Test",
+    "html": "<h1>Works!</h1>",
+    "text": "Works!",
+    "tags": ["test"]
+  }'
+
+Expected: {"ok":true,"reqId":"req_..."}
+
+Option B: From Browser Console
+
+fetch("/.netlify/functions/send-email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: "YOUR_EMAIL@example.com",
+    subject: "Test",
+    html: "<h1>Works!</h1>"
+  })
+}).then(r => r.json()).then(console.log);
+
+┌────────────────────────────────────────────────────────────────┐
+│ VERIFY SUCCESS                                                 │
+└────────────────────────────────────────────────────────────────┘
+
+✅ Email arrives in inbox within 30 seconds
+✅ From: "Ghoste One <hello@mg.ghoste.one>"
+✅ curl returns: {"ok":true,"reqId":"..."}
+✅ Netlify logs show: [send-email] Email sent successfully
+✅ Mailgun logs show: Status "Delivered"
+
+┌────────────────────────────────────────────────────────────────┐
+│ USAGE FROM CODE                                                │
+└────────────────────────────────────────────────────────────────┘
+
+// Send email from any function or client
+await fetch("/.netlify/functions/send-email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: "user@example.com",
+    subject: "Welcome!",
+    html: "<h1>Welcome to Ghoste!</h1>",
+    text: "Welcome to Ghoste!",
+    tags: ["welcome", "onboarding"]
+  })
+});
+
+// Multiple recipients
+await fetch("/.netlify/functions/send-email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: ["user1@example.com", "user2@example.com"],
+    subject: "Team Update",
+    html: htmlContent,
+    cc: ["manager@example.com"],
+    bcc: ["archive@example.com"],
+    replyTo: "custom@example.com",
+    tags: ["team"]
+  })
+});
+
+┌────────────────────────────────────────────────────────────────┐
+│ TROUBLESHOOTING                                                │
+└────────────────────────────────────────────────────────────────┘
+
+❌ missing_env → Add env vars to Netlify, redeploy
+
+❌ mailgun_failed 401 → Invalid API key, check for typos
+
+❌ mailgun_failed 403 → FROM email doesn't match verified domain
+   Fix: Change MAILGUN_FROM_EMAIL to use mg.ghoste.one
+
+❌ Email not arriving → Check:
+   1. Spam folder
+   2. Mailgun logs (should show "Delivered")
+   3. DNS records (all ✅ in Mailgun)
+   4. Wait 5 minutes
+
+┌────────────────────────────────────────────────────────────────┐
+│ DEBUGGING                                                      │
+└────────────────────────────────────────────────────────────────┘
+
+Every email has a unique reqId for tracing:
+
+Netlify Logs:
+[send-email] Sending email: reqId=req_123, to=user@example.com
+[send-email] Email sent successfully: reqId=req_123
+
+On Error:
+[send-email] Mailgun error: { reqId, status, response }
+
+Use reqId to:
+- Track email through system
+- Correlate with Mailgun logs
+- Debug specific sends
+
+┌────────────────────────────────────────────────────────────────┐
+│ BENEFITS                                                       │
+└────────────────────────────────────────────────────────────────┘
+
+✅ Single point of configuration
+✅ No mailgun.js SDK bundle size
+✅ Better error messages
+✅ Request tracing
+✅ Works from any function/client
+✅ Tags for analytics
+✅ US/EU support
+✅ Production-ready
+
+┌────────────────────────────────────────────────────────────────┐
+│ NEXT STEPS                                                     │
+└────────────────────────────────────────────────────────────────┘
+
+1. Update split invite emails to use send-email
+2. Update welcome emails to use send-email
+3. Update all automation to use send-email
+4. Remove old mailgun.js SDK imports
+5. Test each email type
+
+┌────────────────────────────────────────────────────────────────┐
+│ FILES CREATED                                                  │
+└────────────────────────────────────────────────────────────────┘
+
+✅ netlify/functions/send-email.ts (main function)
+✅ .env (added Mailgun config)
+✅ MAILGUN_EMAIL_SETUP_COMPLETE.md (full docs)
+✅ MAILGUN_QUICK_TEST.md (test guide)
+✅ MAILGUN_SETUP.txt (this file)
+
+═══════════════════════════════════════════════════════════════════
+Ready to configure Netlify env vars and test! 🚀
+═══════════════════════════════════════════════════════════════════

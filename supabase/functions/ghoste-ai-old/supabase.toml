@@ -1,0 +1,9 @@
+# Supabase Edge Function Configuration for ghoste-ai
+# This configures CORS and JWT verification at the platform level
+
+[functions.ghoste-ai]
+# Verify JWT tokens to ensure only authenticated users can call this function
+verify_jwt = true
+
+# Allow requests from production and development origins
+cors_origins = ["https://ghoste.one", "https://myghoste.netlify.app", "http://localhost:5173"]

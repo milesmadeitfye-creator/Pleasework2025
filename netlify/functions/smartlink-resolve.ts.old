@@ -1,0 +1,92 @@
+import type { Handler } from "@netlify/functions";
+import {
+  auddRecognizeByUrl,
+  auddSearchByText,
+  mapAuddToSmartLinks,
+} from "./_auddClient";
+
+type ManualLinks = {
+  spotify?: string;
+  appleMusic?: string;
+  youtubeMusic?: string;
+  tidal?: string;
+  soundcloud?: string;
+};
+
+export const handler: Handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ success: false, error: "Method Not Allowed" }),
+    };
+  }
+
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
+    const artist: string | undefined = body.artist;
+    const title: string | undefined = body.title;
+    const sourceUrl: string | undefined = body.sourceUrl;
+    const manual: ManualLinks = body.manual || {};
+
+    if (!sourceUrl && !(artist && title)) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          success: false,
+          error:
+            "Missing input. Provide either a sourceUrl or artist + title.",
+        }),
+      };
+    }
+
+    let result = null;
+    let auddError = null;
+
+    try {
+      if (sourceUrl && sourceUrl.trim()) {
+        result = await auddRecognizeByUrl(sourceUrl.trim());
+      } else if (artist && title) {
+        result = await auddSearchByText(`${artist} ${title}`);
+      }
+    } catch (err: any) {
+      console.warn("[smartlink-resolve] Audd error (non-blocking):", err);
+      auddError = err.message || "Audd API error";
+      // Don't return error - continue with manual links
+    }
+
+    const mapped = mapAuddToSmartLinks(result);
+
+    const links = {
+      spotify: manual.spotify || mapped.links.spotify || null,
+      appleMusic: manual.appleMusic || mapped.links.appleMusic || null,
+      youtubeMusic:
+        manual.youtubeMusic || mapped.links.youtubeMusic || null,
+      tidal: manual.tidal || mapped.links.tidal || null,
+      soundcloud:
+        manual.soundcloud || mapped.links.soundcloud || null,
+    };
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        success: true,
+        artist: mapped.artist || artist || null,
+        title: mapped.title || title || null,
+        isrc: mapped.isrc || null,
+        cover: mapped.cover || null,
+        links,
+        deeplinks: mapped.deeplinks,
+        auddWarning: auddError, // Non-blocking warning if Audd failed
+      }),
+    };
+  } catch (error: any) {
+    console.error("[smartlink-resolve] Fatal error:", error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        success: false,
+        error: error.message || "Internal Server Error",
+      }),
+    };
+  }
+};

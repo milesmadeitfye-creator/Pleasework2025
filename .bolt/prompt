@@ -1,0 +1,46 @@
+# Bolt Project Configuration
+
+## Repository Connection
+- **GitHub Repo**: milesmadeitfye-creator/Myghostev5
+- **Branch**: main
+- **Remote URL**: https://github.com/milesmadeitfye-creator/Myghostev5
+## Build Configuration
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+- **Framework**: Vite + React + TypeScript
+
+## Deployment Workflow
+1. Edit code in **Bolt** (this editor)
+2. Click **Publish** → commits to `main` branch
+3. **Netlify** automatically detects changes and deploys
+4. Live at:
+   - Primary: https://ghoste.one
+   - Secondary: https://myghoste.netlify.app
+
+## Important Notes
+- ✅ Bolt is ONLY the editor
+- ✅ Netlify handles ALL hosting and DNS
+- ✅ NO custom domain settings in Bolt
+- ✅ NO bolt.host deployments
+- ✅ Changes push to GitHub → Netlify auto-deploys
+
+## Environment Variables
+Set these in **Netlify Dashboard** (NOT in Bolt):
+- VITE_SUPABASE_URL
+- VITE_SUPABASE_ANON_KEY
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+- META_APP_ID
+- META_APP_SECRET
+- META_REDIRECT_URI
+- STRIPE_SECRET_KEY
+- STRIPE_WEBHOOK_SECRET
+- STRIPE_PRICE_PRO_MONTHLY
+
+## Verification Checklist
+✅ Repo linked to milesmadeitfye-creator/Myghoste
+✅ Branch set to main
+✅ Build command: npm run build
+✅ Output directory: dist
+✅ No conflicting domain settings in Bolt
+✅ Netlify handles continuous deployment

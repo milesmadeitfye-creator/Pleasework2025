@@ -1,0 +1,264 @@
+[build]
+command = "npm ci && npm run build"
+publish = "dist"
+functions = "netlify/functions"
+
+[build.environment]
+NODE_VERSION = "20"
+VITE_GIT_BRANCH = "$BRANCH"
+VITE_GIT_COMMIT_SHA = "$COMMIT_REF"
+VITE_BUILD_TIME = "$BUILD_ID"
+VITE_FUNCTIONS_ORIGIN = "https://app.ghoste.one"
+VITE_META_APP_ID = "1378729573873020"
+VITE_META_REDIRECT_URI = "https://ghoste.one/.netlify/functions/meta-auth-callback"
+VITE_META_SCOPES = "public_profile,email,ads_read,ads_management,business_management,pages_show_list"
+VITE_OAUTH_REDIRECT = "https://ghoste.one/auth/callback"
+VITE_SITE_URL = "https://ghoste.one"
+VITE_SUPABASE_URL = "https://knvvdeomfncujsiiqxsg.supabase.co"
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtudnZkZW9tZm5jdWpzaWlxeHNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2MjUyMzksImV4cCI6MjA3ODIwMTIzOX0.PKJoXHVgIRbmgTX6wi1i7UYu7pmxmNXqzTqPDYOpxGY"
+
+[dev]
+framework = "vite"
+
+[functions]
+node_bundler = "esbuild"
+
+[functions.meta-activity-kickoff]
+schedule = "*/5 * * * *"
+
+[functions.task-reminders]
+schedule = "*/5 * * * *"
+
+[functions.email-flow-engine]
+schedule = "*/10 * * * *"
+
+[functions.notifications-scheduler]
+schedule = "*/5 * * * *"
+
+[functions.agent-enqueue]
+schedule = "*/15 * * * *"
+
+[functions.agent-runner]
+schedule = "*/5 * * * *"
+
+[functions.meta-activity-pinger]
+node_bundler = "none"
+schedule = "*/30 * * * *"
+
+[functions.marketing-email-scheduler]
+schedule = "*/10 * * * *"
+
+[functions.marketing-email-backfill]
+schedule = "0 * * * *"
+
+[functions.ai-video-poll]
+schedule = "* * * * *"
+
+[functions.email-automation-runner]
+schedule = "*/5 * * * *"
+
+[[redirects]]
+from = "/api/meta/status"
+to = "/.netlify/functions/meta-status"
+status = 200
+
+[[redirects]]
+from = "/api/meta/connection-status"
+to = "/.netlify/functions/meta-connection-status"
+status = 200
+
+[[redirects]]
+from = "/api/meta/disconnect"
+to = "/.netlify/functions/meta-disconnect"
+status = 200
+
+[[redirects]]
+from = "/api/meta/update-pixel"
+to = "/.netlify/functions/meta-update-pixel"
+status = 200
+
+[[redirects]]
+from = "/api/meta/create-ad"
+to = "/.netlify/functions/meta-create-ad"
+status = 200
+
+[[redirects]]
+from = "/api/meta/upload-image"
+to = "/.netlify/functions/meta-upload-image"
+status = 200
+
+[[redirects]]
+from = "/api/meta/accounts"
+to = "/.netlify/functions/meta-accounts"
+status = 200
+
+[[redirects]]
+from = "/api/meta/audiences"
+to = "/.netlify/functions/meta-audiences"
+status = 200
+
+[[redirects]]
+from = "/api/song-resolve"
+to = "/.netlify/functions/song-resolve"
+status = 200
+
+[[redirects]]
+from = "/api/split/public"
+to = "/.netlify/functions/split-negotiation-public"
+status = 200
+
+[[redirects]]
+from = "/api/split/public/:token"
+to = "/.netlify/functions/split-negotiation-public?token=:token"
+status = 200
+
+[[redirects]]
+from = "/api/presave/spotify"
+to = "/.netlify/functions/presave-spotify"
+status = 200
+
+[[redirects]]
+from = "/api/ai/recommendations"
+to = "/.netlify/functions/ai-recommendations"
+status = 200
+
+[[redirects]]
+from = "/api/ai/cover-art"
+to = "/.netlify/functions/cover-art-generate"
+status = 200
+
+[[redirects]]
+from = "/api/ai/video-poll"
+to = "/.netlify/functions/ai-video-poll"
+status = 200
+
+[[redirects]]
+from = "/api/ai/video-register-job"
+to = "/.netlify/functions/ai-video-register-job"
+status = 200
+
+[[redirects]]
+from = "/api/music-visual/create"
+to = "/.netlify/functions/music-visual-create"
+status = 200
+
+[[redirects]]
+from = "/api/music-visual/render"
+to = "/.netlify/functions/music-visual-render"
+status = 200
+
+[[redirects]]
+from = "/api/metrics/spotify"
+to = "/.netlify/functions/spotify-metrics-sync"
+status = 200
+
+[[redirects]]
+from = "/api/metrics/apple-music"
+to = "/.netlify/functions/apple-music-metrics-sync"
+status = 200
+
+[[redirects]]
+from = "/api/health/supabase"
+to = "/.netlify/functions/supabase-health"
+status = 200
+
+[[redirects]]
+from = "/api/health"
+to = "/.netlify/functions/health"
+status = 200
+
+[[redirects]]
+from = "/api/billing/create-checkout-session"
+to = "/.netlify/functions/create-checkout-session"
+status = 200
+
+[[redirects]]
+from = "/api/billing/stripe-webhook"
+to = "/.netlify/functions/stripe-webhook"
+status = 200
+
+[[redirects]]
+from = "/api/post-auth"
+to = "/.netlify/functions/post-auth"
+status = 200
+
+[[redirects]]
+from = "/api/wallet/read"
+to = "/.netlify/functions/wallet-read"
+status = 200
+
+[[redirects]]
+from = "/api/wallet/allocate"
+to = "/.netlify/functions/wallet-allocate"
+status = 200
+
+[[redirects]]
+from = "/api/wallet/ledger"
+to = "/.netlify/functions/wallet-ledger"
+status = 200
+
+[[redirects]]
+from = "/api/links/create"
+to = "/.netlify/functions/link-create"
+status = 200
+
+[[redirects]]
+from = "/api/links/public"
+to = "/.netlify/functions/link-public"
+status = 200
+
+[[redirects]]
+from = "/api/track-smart-link-click"
+to = "/.netlify/functions/track-smart-link-click"
+status = 200
+
+[[redirects]]
+from = "/api/smartlink-capi"
+to = "/.netlify/functions/smartlink-capi"
+status = 200
+
+[[redirects]]
+from = "/c/:code"
+to = "/.netlify/functions/oneclick-redirect"
+status = 200
+force = true
+
+[[redirects]]
+from = "/go/:code"
+to = "/.netlify/functions/oneclick-redirect"
+status = 200
+
+[[redirects]]
+from = "/auth/callback/meta"
+to = "/.netlify/functions/meta-auth-callback"
+status = 200
+
+[[redirects]]
+from = "/mailchimp/callback"
+to = "/.netlify/functions/mailchimp-oauth-callback"
+status = 200
+
+[[redirects]]
+from = "/api/mailchimp/lists"
+to = "/.netlify/functions/mailchimp-lists"
+status = 200
+
+[[redirects]]
+from = "/auth/callback"
+to = "/index.html"
+status = 200
+
+[[redirects]]
+from = "/api/split/send-invite"
+to = "/.netlify/functions/split-send-invite"
+status = 200
+
+[[redirects]]
+from = "/api/tasks/create"
+to = "/.netlify/functions/tasks-create"
+status = 200
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200

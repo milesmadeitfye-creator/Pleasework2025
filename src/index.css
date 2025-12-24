@@ -1,0 +1,564 @@
+/* High-end SaaS font */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    font-family: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    @apply bg-ghoste-bg text-ghoste-text antialiased;
+  }
+
+  * {
+    @apply border-ghoste-border;
+  }
+
+  /* App header height variable (mobile: ~90px with 2 rows, desktop: 64px) */
+  :root {
+    --app-header-height: 90px;
+  }
+
+  @media (min-width: 768px) {
+    :root {
+      --app-header-height: 64px;
+    }
+  }
+}
+
+/* Safe area utilities for header offset (iOS notch support) */
+.safe-top {
+  padding-top: calc(var(--app-header-height) + env(safe-area-inset-top));
+}
+
+.safe-top-margin {
+  margin-top: calc(var(--app-header-height) + env(safe-area-inset-top));
+}
+
+/* Hide scrollbars but keep scrolling functionality */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Ghoste-style scrollbar for modals */
+.custom-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 9999px;
+}
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Timeline vertical line styling */
+[style*='--before-bg']::before {
+  background: var(--before-bg);
+}
+
+/* Animated Wavy Background */
+@keyframes wave {
+  0% {
+    transform: translateX(0) translateY(0);
+  }
+  50% {
+    transform: translateX(-25%) translateY(-5%);
+  }
+  100% {
+    transform: translateX(0) translateY(0);
+  }
+}
+
+@keyframes wave-reverse {
+  0% {
+    transform: translateX(0) translateY(0);
+  }
+  50% {
+    transform: translateX(25%) translateY(5%);
+  }
+  100% {
+    transform: translateX(0) translateY(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-20px);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-wave {
+  animation: wave 15s ease-in-out infinite;
+}
+
+.animate-wave-reverse {
+  animation: wave-reverse 12s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.8s ease-out forwards;
+  opacity: 0;
+}
+
+/* Gradient meshes */
+.gradient-mesh-1 {
+  background: radial-gradient(
+    ellipse at 20% 30%,
+    rgba(59, 130, 246, 0.15) 0%,
+    transparent 50%
+  );
+}
+
+.gradient-mesh-2 {
+  background: radial-gradient(
+    ellipse at 80% 70%,
+    rgba(37, 99, 235, 0.2) 0%,
+    transparent 50%
+  );
+}
+
+.gradient-mesh-3 {
+  background: radial-gradient(
+    ellipse at 50% 50%,
+    rgba(59, 130, 246, 0.1) 0%,
+    transparent 50%
+  );
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* Caption Animation Styles */
+
+/* Basic fade-in */
+.caption-anim-fade {
+  animation: captionFadeIn 0.35s ease-out;
+}
+
+@keyframes captionFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pop-in scale animation */
+.caption-anim-pop {
+  animation: captionPopIn 0.3s ease-out;
+}
+
+@keyframes captionPopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.9);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Bounce / beat effect */
+.caption-anim-bounce {
+  animation: captionBounce 0.45s ease-out;
+}
+
+@keyframes captionBounce {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.9);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Slide down from top */
+.caption-anim-slide-down {
+  animation: captionSlideDown 0.35s ease-out;
+}
+
+@keyframes captionSlideDown {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Neon glow effect */
+.caption-neon-glow {
+  text-shadow:
+    0 0 6px rgba(96, 165, 250, 0.9),
+    0 0 14px rgba(59, 130, 246, 0.9),
+    0 0 24px rgba(37, 99, 235, 0.9);
+}
+
+/* Karaoke-style subtle glow */
+.caption-karaoke-glow {
+  text-shadow:
+    0 0 8px rgba(255, 255, 255, 0.9),
+    0 0 16px rgba(59, 130, 246, 0.6);
+}
+
+/* Typewriter / reveal effect (line-based) */
+.caption-anim-typewriter {
+  overflow: hidden;
+  white-space: nowrap;
+  animation: captionTypewriter 1.2s steps(18, end) 0s 1 normal both,
+    captionFadeIn 0.3s ease-out;
+}
+
+@keyframes captionTypewriter {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* Fade up animation for Ghoste Spotlight */
+.caption-anim-fadeup {
+  animation: captionFadeUp 0.4s ease-out;
+}
+
+@keyframes captionFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Breathing animation for mobile background - subtle opacity change only */
+@keyframes breathing {
+  0%, 100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-breathing {
+  animation: breathing 10s ease-in-out infinite;
+}
+
+/* Glass-smooth micro-interactions - CSS only, no JS */
+@layer utilities {
+  .glass-card-hover {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-card-hover:hover {
+    transform: translateY(-2px);
+  }
+
+  .glass-card-hover:active {
+    transform: translateY(0);
+  }
+
+  .glass-button {
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .glass-button:hover {
+    transform: scale(1.02);
+  }
+
+  .glass-button:active {
+    transform: scale(0.98);
+  }
+}
+
+/* ============================================================
+   Landing Page Slider & Ghoste AI Try Section
+   ============================================================ */
+
+/* Slider */
+.showcaseSliderWrap {
+  width: 100%;
+  max-width: 980px;
+  margin: 0 auto;
+  border-radius: 18px;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.slideImg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Ensure any overlay doesn't steal touches */
+.decorOverlay {
+  pointer-events: none;
+}
+
+/* Larger pagination bullets for mobile thumbs */
+.swiper-pagination-bullet {
+  width: 10px;
+  height: 10px;
+  background: rgba(96, 165, 250, 0.5);
+}
+
+.swiper-pagination-bullet-active {
+  background: rgba(96, 165, 250, 1);
+}
+
+/* Sticky mobile CTA */
+.mobileStickyCta {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: rgba(10, 15, 41, 0.75);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 50;
+}
+
+@media (min-width: 900px) {
+  .mobileStickyCta {
+    display: none;
+  }
+}
+
+.pagePadForSticky {
+  padding-bottom: 92px;
+}
+
+@media (min-width: 900px) {
+  .pagePadForSticky {
+    padding-bottom: 0;
+  }
+}
+
+/* Ghoste AI Try */
+.aiTrySection {
+  width: 100%;
+  max-width: 980px;
+  margin: 60px auto 0;
+  padding: 0 16px;
+}
+
+.aiTryHeader h2 {
+  margin: 0 0 6px 0;
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .aiTryHeader h2 {
+    font-size: 22px;
+  }
+}
+
+.aiTryHeader p {
+  margin: 0 0 14px 0;
+  opacity: 0.75;
+  color: #fff;
+  font-size: 16px;
+}
+
+.aiCard {
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  position: relative;
+}
+
+.aiCard::before {
+  content: "";
+  position: absolute;
+  inset: -40%;
+  background: radial-gradient(circle, rgba(88, 155, 255, 0.18), transparent 55%);
+  animation: glowMove 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes glowMove {
+  0%,
+  100% {
+    transform: translate(-6%, -4%) scale(1);
+  }
+  50% {
+    transform: translate(6%, 6%) scale(1.08);
+  }
+}
+
+.aiChat {
+  position: relative;
+  padding: 16px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 1;
+}
+
+.bubble {
+  max-width: 92%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.4;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 15, 41, 0.55);
+  color: #fff;
+}
+
+.bubble.user {
+  align-self: flex-end;
+  background: rgba(88, 155, 255, 0.18);
+  border-color: rgba(88, 155, 255, 0.3);
+}
+
+.bubble.ai {
+  align-self: flex-start;
+}
+
+.aiComposer {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 15, 41, 0.35);
+  z-index: 1;
+}
+
+.aiComposer input {
+  flex: 1;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  padding: 0 12px;
+  font-size: 14px;
+}
+
+.aiComposer input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.aiComposer input:focus {
+  outline: none;
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.aiComposer button {
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(96, 165, 250, 0.35);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.aiComposer button:hover:not(:disabled) {
+  background: rgba(96, 165, 250, 0.5);
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.aiComposer button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,0 +1,715 @@
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { supabase } from '../lib/supabase';
+import { ArrowLeft, Check, X, FileText, Plus, Edit2, Trash2, Download } from 'lucide-react';
+
+interface Negotiation {
+  id: string;
+  project_name: string;
+  beat_fee?: number;
+  status: string;
+  created_at: string;
+  completed_at?: string;
+  pdf_url?: string;
+}
+
+interface Participant {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  how_to_credit?: string;
+  master_rights_pct: number;
+  publishing_rights_pct: number;
+  performing_rights_org?: string;
+  ipi_number?: string;
+  status: string;
+  signed_at?: string;
+  signature_name?: string;
+}
+
+const COLORS = ['bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-red-500', 'bg-purple-500', 'bg-pink-500', 'bg-teal-500', 'bg-indigo-500'];
+
+export default function SplitNegotiationView() {
+  const { negotiationId } = useParams<{ negotiationId: string }>();
+  const navigate = useNavigate();
+
+  const [negotiation, setNegotiation] = useState<Negotiation | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
+  const [completing, setCompleting] = useState(false);
+  const [downloadingPDF, setDownloadingPDF] = useState(false);
+  const [inviteLoadingId, setInviteLoadingId] = useState<string | null>(null);
+  const [inviteMessage, setInviteMessage] = useState<string>('');
+
+  // Participant form
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [participantForm, setParticipantForm] = useState({
+    name: '',
+    email: '',
+    role: '',
+    how_to_credit: '',
+    master_rights_pct: 0,
+    publishing_rights_pct: 0,
+    performing_rights_org: '',
+    ipi_number: '',
+  });
+
+  useEffect(() => {
+    if (!negotiationId) {
+      setError('No negotiation ID provided');
+      setLoading(false);
+      return;
+    }
+
+    loadNegotiationData();
+  }, [negotiationId]);
+
+  const loadNegotiationData = async () => {
+    try {
+      setLoading(true);
+
+      // Load negotiation
+      const { data: negData, error: negError } = await supabase
+        .from('split_negotiations')
+        .select('*')
+        .eq('id', negotiationId)
+        .single();
+
+      if (negError || !negData) {
+        console.error('Failed to load negotiation:', negError);
+        setError('Negotiation not found');
+        setLoading(false);
+        return;
+      }
+
+      setNegotiation(negData);
+
+      // Load participants
+      const { data: partData, error: partError } = await supabase
+        .from('split_participants')
+        .select('*')
+        .eq('negotiation_id', negotiationId)
+        .order('created_at', { ascending: true });
+
+      if (partError) {
+        console.error('Failed to load participants:', partError);
+      } else {
+        setParticipants(partData || []);
+      }
+
+      setLoading(false);
+    } catch (err) {
+      console.error('Error loading negotiation:', err);
+      setError('Failed to load negotiation data');
+      setLoading(false);
+    }
+  };
+
+  const masterTotal = participants.reduce((sum, p) => sum + (p.master_rights_pct || 0), 0);
+  const publishingTotal = participants.reduce((sum, p) => sum + (p.publishing_rights_pct || 0), 0);
+  const signedCount = participants.filter((p) => p.status === 'signed').length;
+  const totalCount = participants.length;
+
+  const splitDisplayData = participants.map((p) => ({
+    id: p.id,
+    name: p.name || 'Unknown',
+    master: p.master_rights_pct || 0,
+    publishing: p.publishing_rights_pct || 0,
+  }));
+
+  const canMarkCompleted = () => {
+    if (masterTotal !== 100 || publishingTotal !== 100) return false;
+    return participants
+      .filter((p) => (p.master_rights_pct || 0) > 0 || (p.publishing_rights_pct || 0) > 0)
+      .every((p) => p.status === 'signed');
+  };
+
+  const handleSendInvite = async (participant: Participant) => {
+    try {
+      setInviteLoadingId(participant.id);
+      setInviteMessage('');
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const res = await fetch('/.netlify/functions/split-send-invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          negotiationId: negotiationId,
+          participantId: participant.id,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.success) {
+        console.error('[SplitNegotiationView] Invite error response:', {
+          status: res.status,
+          data,
+          error: data?.error,
+          message: data?.message,
+          code: data?.code,
+          details: data?.details,
+          hint: data?.hint,
+        });
+
+        const errorMsg = data?.message || data?.error || 'Failed to send invite. Please try again.';
+        const errorDetails = data?.details ? ` (${data.details})` : '';
+        const errorHint = data?.hint ? ` Hint: ${data.hint}` : '';
+
+        throw new Error(errorMsg + errorDetails + errorHint);
+      }
+
+      setParticipants((prev) =>
+        prev.map((p) =>
+          p.id === participant.id ? { ...p, status: 'invited' } : p
+        )
+      );
+
+      setInviteMessage(`Invite sent to ${participant.email}`);
+      setTimeout(() => setInviteMessage(''), 3000);
+    } catch (err: any) {
+      console.error('Failed to send invite:', err);
+      setInviteMessage(`Failed to send invite: ${err.message}`);
+      setTimeout(() => setInviteMessage(''), 5000);
+    } finally {
+      setInviteLoadingId(null);
+    }
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      setDownloadingPDF(true);
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const res = await fetch(`/.netlify/functions/split-generate-pdf?negotiation_id=${negotiationId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data?.success) {
+        console.error('[SplitNegotiationView] PDF generation error:', {
+          status: res.status,
+          data,
+          error: data?.error,
+          message: data?.message,
+        });
+        const errorMsg = data?.message || data?.error || 'Failed to generate PDF. Please try again.';
+        throw new Error(errorMsg);
+      }
+
+      if (data.pdf_url) {
+        window.open(data.pdf_url, '_blank', 'noopener,noreferrer');
+        loadNegotiationData();
+      } else {
+        throw new Error('PDF URL not returned from server');
+      }
+    } catch (err: any) {
+      console.error('Failed to download PDF:', err);
+      alert(`Failed to generate PDF: ${err.message}`);
+    } finally {
+      setDownloadingPDF(false);
+    }
+  };
+
+  const handleAddParticipant = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!participantForm.name.trim() || !participantForm.email.trim() || !participantForm.role.trim()) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('split_participants')
+      .insert({
+        negotiation_id: negotiationId,
+        name: participantForm.name.trim(),
+        email: participantForm.email.trim(),
+        role: participantForm.role.trim(),
+        how_to_credit: participantForm.how_to_credit.trim() || null,
+        master_rights_pct: Number(participantForm.master_rights_pct) || 0,
+        publishing_rights_pct: Number(participantForm.publishing_rights_pct) || 0,
+        performing_rights_org: participantForm.performing_rights_org.trim() || null,
+        ipi_number: participantForm.ipi_number.trim() || null,
+        status: 'pending',
+      });
+
+    if (error) {
+      console.error('Failed to add participant:', error);
+      alert(error.message || 'Failed to add participant');
+    } else {
+      setParticipantForm({
+        name: '',
+        email: '',
+        role: '',
+        how_to_credit: '',
+        master_rights_pct: 0,
+        publishing_rights_pct: 0,
+        performing_rights_org: '',
+        ipi_number: '',
+      });
+      setShowAddForm(false);
+      loadNegotiationData();
+    }
+  };
+
+  const handleFinalize = async () => {
+    if (!canMarkCompleted()) {
+      const issues: string[] = [];
+      if (masterTotal !== 100) issues.push(`Master splits total ${masterTotal}% (needs 100%)`);
+      if (publishingTotal !== 100) issues.push(`Publishing splits total ${publishingTotal}% (needs 100%)`);
+
+      const unsignedWithShares = participants.filter(
+        p => ((p.master_rights_pct || 0) > 0 || (p.publishing_rights_pct || 0) > 0) && p.status !== 'signed'
+      );
+      if (unsignedWithShares.length > 0) {
+        issues.push(`${unsignedWithShares.length} participant(s) with shares need to sign`);
+      }
+
+      alert('Cannot finalize:\n\n' + issues.join('\n'));
+      return;
+    }
+
+    if (!confirm('Finalize this negotiation and mark as completed?')) {
+      return;
+    }
+
+    setCompleting(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error('Not authenticated');
+
+      const res = await fetch(`/.netlify/functions/split-generate-pdf?negotiation_id=${negotiationId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        alert(data?.message || 'Failed to generate split sheet');
+        setCompleting(false);
+        return;
+      }
+
+      const { error } = await supabase
+        .from('split_negotiations')
+        .update({ status: 'completed', completed_at: new Date().toISOString() })
+        .eq('id', negotiationId);
+
+      if (error) {
+        console.error('Failed to mark as completed:', error);
+        alert('Failed to mark as completed');
+        setCompleting(false);
+      } else {
+        alert('Negotiation completed successfully!');
+        navigate('/split-negotiations');
+      }
+    } catch (err) {
+      console.error('Finalize error:', err);
+      alert('Failed to finalize negotiation');
+      setCompleting(false);
+    }
+  };
+
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+          <p className="text-gray-400">Loading negotiation...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !negotiation) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 flex items-center justify-center p-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 max-w-md w-full text-center">
+          <h2 className="text-2xl font-bold mb-2">Negotiation Not Found</h2>
+          <p className="text-gray-400 mb-6">{error || 'The negotiation you are looking for does not exist.'}</p>
+          <button
+            onClick={() => navigate('/split-negotiations')}
+            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            Back to Split Negotiations
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-900 text-white">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="mb-6">
+          <button
+            onClick={() => navigate('/split-negotiations')}
+            className="text-gray-400 hover:text-white transition-colors inline-flex items-center gap-2 mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Split Negotiations
+          </button>
+          <div className="flex items-start justify-between flex-wrap gap-4">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">{negotiation.project_name}</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  negotiation.status === 'completed'
+                    ? 'bg-green-900/20 text-green-400 border border-green-700'
+                    : 'bg-blue-900/20 text-blue-400 border border-blue-700'
+                }`}>
+                  {negotiation.status === 'completed' ? 'Completed' : 'In Progress'}
+                </span>
+                {negotiation.beat_fee && (
+                  <span className="text-gray-400">Beat Fee: ${negotiation.beat_fee.toLocaleString()}</span>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              {negotiation.status === 'completed' && (
+                <button
+                  onClick={handleDownloadPDF}
+                  disabled={downloadingPDF}
+                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-5 h-5" />
+                  {downloadingPDF ? 'Generating...' : 'Download Split Sheet'}
+                </button>
+              )}
+              {negotiation.status !== 'completed' && canMarkCompleted() && (
+                <button
+                  onClick={handleFinalize}
+                  disabled={completing}
+                  className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Check className="w-5 h-5" />
+                  {completing ? 'Finalizing...' : 'Finalize & Mark Completed'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Overview */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+            <h3 className="text-sm text-gray-400 mb-2">Master Rights</h3>
+            <p className="text-2xl font-bold mb-2">{masterTotal}%</p>
+            <div className="w-full bg-gray-800 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  masterTotal === 100 ? 'bg-green-500' : masterTotal > 100 ? 'bg-red-500' : 'bg-blue-500'
+                }`}
+                style={{ width: `${Math.min(masterTotal, 100)}%` }}
+              />
+            </div>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+            <h3 className="text-sm text-gray-400 mb-2">Publishing Rights</h3>
+            <p className="text-2xl font-bold mb-2">{publishingTotal}%</p>
+            <div className="w-full bg-gray-800 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  publishingTotal === 100 ? 'bg-green-500' : publishingTotal > 100 ? 'bg-red-500' : 'bg-blue-500'
+                }`}
+                style={{ width: `${Math.min(publishingTotal, 100)}%` }}
+              />
+            </div>
+          </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+            <h3 className="text-sm text-gray-400 mb-2">Signatures</h3>
+            <p className="text-2xl font-bold mb-2">{signedCount} / {totalCount}</p>
+            <div className="w-full bg-gray-800 rounded-full h-2">
+              <div
+                className={`h-2 rounded-full transition-all ${
+                  signedCount === totalCount ? 'bg-green-500' : 'bg-blue-500'
+                }`}
+                style={{ width: `${totalCount > 0 ? (signedCount / totalCount) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Participants & Signatures */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold">Participants & Signatures</h2>
+                {negotiation.status !== 'completed' && (
+                  <button
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="px-4 py-2 bg-blue-900/20 text-blue-400 border border-blue-700 hover:bg-blue-900/30 rounded-lg transition-colors inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Participant
+                  </button>
+                )}
+              </div>
+
+              {inviteMessage && (
+                <div className={`mb-4 p-3 rounded-lg ${inviteMessage.includes('Failed') ? 'bg-red-900/20 text-red-400' : 'bg-green-900/20 text-green-400'}`}>
+                  <p className="text-sm">{inviteMessage}</p>
+                </div>
+              )}
+
+              {showAddForm && negotiation.status !== 'completed' && (
+                <form onSubmit={handleAddParticipant} className="mb-6 p-4 bg-black border border-gray-700 rounded-lg space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      placeholder="Name *"
+                      value={participantForm.name}
+                      onChange={(e) => setParticipantForm({ ...participantForm, name: e.target.value })}
+                      className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="email"
+                      placeholder="Email *"
+                      value={participantForm.email}
+                      onChange={(e) => setParticipantForm({ ...participantForm, email: e.target.value })}
+                      className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Role *"
+                      value={participantForm.role}
+                      onChange={(e) => setParticipantForm({ ...participantForm, role: e.target.value })}
+                      className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="How to Credit"
+                      value={participantForm.how_to_credit}
+                      onChange={(e) => setParticipantForm({ ...participantForm, how_to_credit: e.target.value })}
+                      className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        Master % (Sound Recording)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        placeholder="0"
+                        value={participantForm.master_rights_pct || ''}
+                        onChange={(e) => setParticipantForm({ ...participantForm, master_rights_pct: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        Publishing % (Songwriting)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        step="0.01"
+                        placeholder="0"
+                        value={participantForm.publishing_rights_pct || ''}
+                        onChange={(e) => setParticipantForm({ ...participantForm, publishing_rights_pct: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="PRO"
+                      value={participantForm.performing_rights_org}
+                      onChange={(e) => setParticipantForm({ ...participantForm, performing_rights_org: e.target.value })}
+                      className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="IPI Number"
+                      value={participantForm.ipi_number}
+                      onChange={(e) => setParticipantForm({ ...participantForm, ipi_number: e.target.value })}
+                      className="px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddForm(false)}
+                      className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-800">
+                      <th className="text-left py-3 px-2 text-sm text-gray-400 font-medium">Name</th>
+                      <th className="text-left py-3 px-2 text-sm text-gray-400 font-medium">Role</th>
+                      <th className="text-left py-3 px-2 text-sm text-gray-400 font-medium">Master %</th>
+                      <th className="text-left py-3 px-2 text-sm text-gray-400 font-medium">Pub %</th>
+                      <th className="text-left py-3 px-2 text-sm text-gray-400 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {participants.map((p) => (
+                      <tr key={p.id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                        <td className="py-3 px-2">
+                          <div>
+                            <p className="font-medium">{p.name}</p>
+                            <p className="text-xs text-gray-400">{p.email}</p>
+                          </div>
+                        </td>
+                        <td className="py-3 px-2 text-sm">{p.role}</td>
+                        <td className="py-3 px-2 text-sm">{p.master_rights_pct}%</td>
+                        <td className="py-3 px-2 text-sm">{p.publishing_rights_pct}%</td>
+                        <td className="py-3 px-2">
+                          {p.status === 'signed' ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-900/20 text-green-400 text-xs rounded w-fit">
+                                <Check className="w-3 h-3" />
+                                Signed
+                              </span>
+                              {p.signed_at && (
+                                <span className="text-xs text-gray-500">
+                                  {new Date(p.signed_at).toLocaleDateString()}
+                                </span>
+                              )}
+                            </div>
+                          ) : p.status === 'invited' ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-900/20 text-yellow-400 text-xs rounded w-fit">
+                                Invite Sent
+                              </span>
+                              <button
+                                onClick={() => handleSendInvite(p)}
+                                disabled={inviteLoadingId === p.id}
+                                className="px-2 py-1 rounded text-xs font-medium bg-sky-500/20 hover:bg-sky-500/30 text-sky-400 disabled:opacity-60 transition-colors w-fit"
+                              >
+                                {inviteLoadingId === p.id ? 'Sending...' : 'Resend'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => handleSendInvite(p)}
+                              disabled={inviteLoadingId === p.id}
+                              className="px-2 py-1 rounded text-xs font-medium bg-sky-500 hover:bg-sky-400 text-slate-900 disabled:opacity-60 transition-colors"
+                            >
+                              {inviteLoadingId === p.id ? 'Sending...' : 'Send Invite'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Split Overview - CSS Bars */}
+          <div className="space-y-6">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
+              <h3 className="text-lg font-bold mb-4">Split Overview</h3>
+              {splitDisplayData.length === 0 ? (
+                <p className="text-center text-gray-400 py-8">No participants yet. Add collaborators to see split overview.</p>
+              ) : (
+                <div className="space-y-6">
+                  {/* Master Rights Bar */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-gray-400">
+                      <span>Master Rights</span>
+                      <span className={masterTotal === 100 ? 'text-green-400' : masterTotal > 100 ? 'text-red-400' : 'text-yellow-400'}>
+                        Total: {masterTotal}%
+                      </span>
+                    </div>
+                    <div className="overflow-hidden rounded-full bg-gray-800">
+                      <div className="flex h-6">
+                        {splitDisplayData.map((p, index) =>
+                          p.master > 0 ? (
+                            <div
+                              key={`master-${p.id}`}
+                              className={`h-full ${COLORS[index % COLORS.length]} transition-all hover:opacity-80`}
+                              style={{ width: `${p.master}%` }}
+                              title={`${p.name} – ${p.master}%`}
+                            />
+                          ) : null
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Publishing Rights Bar */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-wide text-gray-400">
+                      <span>Publishing Rights</span>
+                      <span className={publishingTotal === 100 ? 'text-green-400' : publishingTotal > 100 ? 'text-red-400' : 'text-yellow-400'}>
+                        Total: {publishingTotal}%
+                      </span>
+                    </div>
+                    <div className="overflow-hidden rounded-full bg-gray-800">
+                      <div className="flex h-6">
+                        {splitDisplayData.map((p, index) =>
+                          p.publishing > 0 ? (
+                            <div
+                              key={`pub-${p.id}`}
+                              className={`h-full ${COLORS[index % COLORS.length]} transition-all hover:opacity-80`}
+                              style={{ width: `${p.publishing}%` }}
+                              title={`${p.name} – ${p.publishing}%`}
+                            />
+                          ) : null
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Legend */}
+                  <div className="space-y-2 pt-4 border-t border-gray-800">
+                    <p className="text-xs uppercase tracking-wide text-gray-400 mb-3">Participants</p>
+                    {splitDisplayData.map((p, index) => (
+                      <div
+                        key={`legend-${p.id}`}
+                        className="flex items-center justify-between text-sm"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className={`w-3 h-3 rounded-full ${COLORS[index % COLORS.length]}`} />
+                          <span className="truncate text-white">{p.name}</span>
+                        </div>
+                        <span className="ml-2 shrink-0 text-gray-400">
+                          {p.master}% master · {p.publishing}% pub
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

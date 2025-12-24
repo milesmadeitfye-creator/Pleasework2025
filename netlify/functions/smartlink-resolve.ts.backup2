@@ -1,0 +1,419 @@
+/**
+ * Smart Link Resolver - Unified Function
+ *
+ * Resolution Priority (NO SEARCH):
+ * 1. Spotify input → Spotify API → ISRC → AudD Links → Deep Links
+ * 2. Audio input → ACRCloud → ISRC + IDs → AudD Links → Deep Links
+ * 3. Fallback: Construct deep links from IDs (no search/guessing)
+ *
+ * Endpoint: POST /.netlify/functions/smartlink-resolve
+ *
+ * Request body:
+ * {
+ *   spotify?: string;           // Spotify URL/URI/ID
+ *   audio_url?: string;          // Audio file URL for ACRCloud
+ *   title?: string;              // Optional metadata hint
+ *   artist?: string;             // Optional metadata hint
+ * }
+ *
+ * Response:
+ * {
+ *   canonical: {
+ *     isrc: string;
+ *     title: string;
+ *     artist: string;
+ *     spotify_track_id: string;
+ *     source: "spotify" | "acrcloud";
+ *   };
+ *   links: {
+ *     spotify: string;
+ *     apple_music: string;
+ *     youtube_music: string;
+ *     deezer: string;
+ *     tidal: string;
+ *     amazon_music: string;
+ *     soundcloud: string;
+ *   };
+ *   confidence: number;
+ *   debug: { steps: string[] };
+ * }
+ */
+
+import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
+import { resolveSpotifyTrack } from "./_lib/resolverSpotify";
+import { fetchAuddLinks } from "./_lib/resolverAudd";
+import { validateAllLinks } from "./_lib/resolverValidateLinks";
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL!;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function jsonResponse(statusCode: number, data: any) {
+  return {
+    statusCode,
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  };
+}
+
+export const handler: Handler = async (event) => {
+  // Handle CORS preflight
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 200, headers: CORS_HEADERS, body: "" };
+  }
+
+  if (event.httpMethod !== "POST") {
+    return jsonResponse(405, { error: "Method not allowed" });
+  }
+
+  try {
+    const body = event.body ? JSON.parse(event.body) : {};
+    const { spotify, audio_url, title, artist } = body;
+
+    if (!spotify && !audio_url) {
+      return jsonResponse(400, {
+        error: "Missing input. Provide either 'spotify' (URL/URI/ID) or 'audio_url'",
+      });
+    }
+
+    console.log("[smartlink-resolve] Input:", {
+      has_spotify: !!spotify,
+      has_audio_url: !!audio_url,
+      has_metadata: !!(title && artist),
+    });
+
+    const debug: string[] = [];
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    // ========== PATH A: Spotify Input ==========
+    if (spotify) {
+      debug.push("Input: Spotify URL/URI/ID");
+
+      // Step 1: Get Spotify metadata + ISRC
+      debug.push("Step 1: Fetching Spotify track metadata");
+      const spotifyData = await resolveSpotifyTrack(spotify);
+
+      if (!spotifyData) {
+        return jsonResponse(404, {
+          error: "Spotify track not found",
+          debug: { steps: debug },
+        });
+      }
+
+      debug.push(`Step 1: ✓ Found track: ${spotifyData.title} by ${spotifyData.artist}`);
+      debug.push(`Step 1: ✓ ISRC: ${spotifyData.isrc || "N/A"}`);
+
+      // Step 2: Check cache
+      if (spotifyData.isrc) {
+        debug.push("Step 2: Checking cache by ISRC");
+        const { data: cached } = await supabase
+          .from("track_resolutions")
+          .select("*")
+          .eq("isrc", spotifyData.isrc)
+          .eq("status", "resolved")
+          .order("confidence", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (cached && cached.confidence >= 0.8) {
+          debug.push("Step 2: ✓ Cache hit");
+
+          const cachedLinks = {
+            spotify: cached.spotify_url,
+            apple_music: cached.apple_music_url,
+            youtube: cached.youtube_url,
+            deezer: cached.deezer_url,
+          };
+
+          return jsonResponse(200, {
+            canonical: {
+              isrc: cached.isrc,
+              title: cached.title,
+              artist: cached.artist,
+              spotify_track_id: cached.spotify_track_id,
+              source: "spotify",
+            },
+            links: validateAllLinks(cachedLinks),
+            confidence: cached.confidence,
+            debug: { steps: debug },
+          });
+        }
+
+        debug.push("Step 2: Cache miss or low confidence");
+      } else {
+        debug.push("Step 2: No ISRC, skipping cache");
+      }
+
+      // Step 3: Expand via AudD Links
+      let auddLinks: Record<string, string | undefined> = {};
+
+      if (spotifyData.isrc) {
+        debug.push("Step 3: Expanding links via AudD (using ISRC)");
+        try {
+          auddLinks = await fetchAuddLinks({ isrc: spotifyData.isrc });
+          debug.push(`Step 3: ✓ AudD returned ${Object.keys(auddLinks).length} links`);
+        } catch (err: any) {
+          debug.push(`Step 3: AudD failed: ${err.message}`);
+        }
+      } else {
+        debug.push("Step 3: Expanding links via AudD (using Spotify URL)");
+        try {
+          auddLinks = await fetchAuddLinks({ spotify_url: spotifyData.spotify_url });
+          debug.push(`Step 3: ✓ AudD returned ${Object.keys(auddLinks).length} links`);
+        } catch (err: any) {
+          debug.push(`Step 3: AudD failed: ${err.message}`);
+        }
+      }
+
+      // Step 4: Merge Spotify + AudD links
+      const mergedLinks = {
+        spotify: spotifyData.spotify_url,
+        ...auddLinks,
+      };
+
+      // Step 5: Validate all links
+      debug.push("Step 5: Validating links");
+      const validatedLinks = validateAllLinks(mergedLinks);
+      debug.push(`Step 5: ✓ ${Object.keys(validatedLinks).length} valid links`);
+
+      // Step 6: Cache result
+      if (spotifyData.isrc) {
+        debug.push("Step 6: Caching result");
+        await supabase.from("track_resolutions").upsert({
+          isrc: spotifyData.isrc,
+          title: spotifyData.title,
+          artist: spotifyData.artist,
+          album: spotifyData.album,
+          duration_ms: spotifyData.duration_ms,
+          spotify_track_id: spotifyData.spotify_track_id,
+          spotify_url: spotifyData.spotify_url,
+          apple_music_url: validatedLinks.apple_music || null,
+          youtube_url: validatedLinks.youtube || validatedLinks.youtube_music || null,
+          deezer_url: validatedLinks.deezer || null,
+          resolver_sources: ["spotify", "audd"],
+          confidence: 0.95,
+          status: "resolved",
+        }, {
+          onConflict: "isrc",
+        });
+        debug.push("Step 6: ✓ Cached");
+      }
+
+      // Return result
+      return jsonResponse(200, {
+        canonical: {
+          isrc: spotifyData.isrc,
+          title: spotifyData.title,
+          artist: spotifyData.artist,
+          spotify_track_id: spotifyData.spotify_track_id,
+          source: "spotify",
+        },
+        links: validatedLinks,
+        confidence: 0.95,
+        debug: { steps: debug },
+      });
+    }
+
+    // ========== PATH B: Audio Input (ACRCloud) ==========
+    if (audio_url) {
+      debug.push("Input: Audio URL");
+
+      // Step 1: Identify via ACRCloud
+      debug.push("Step 1: Identifying audio via ACRCloud");
+
+      const params = new URLSearchParams({ source_url: audio_url });
+      const siteUrl = process.env.URL || process.env.DEPLOY_URL || "http://localhost:8888";
+      const acrUrl = `${siteUrl}/.netlify/functions/acrcloud-metadata-links?${params.toString()}`;
+
+      const acrResponse = await fetch(acrUrl, { method: "GET" });
+
+      if (!acrResponse.ok) {
+        return jsonResponse(500, {
+          error: "ACRCloud identification failed",
+          debug: { steps: debug },
+        });
+      }
+
+      const acrData = await acrResponse.json();
+
+      if (!acrData.data || acrData.data.length === 0) {
+        return jsonResponse(404, {
+          error: "Track not identified by ACRCloud",
+          debug: { steps: debug },
+        });
+      }
+
+      const track = acrData.data[0];
+      const isrc = track.external_ids?.isrc || track.isrc;
+      const confidence = (track.score || 100) / 100;
+
+      debug.push(`Step 1: ✓ Identified: ${track.name} by ${track.artists?.[0]?.name}`);
+      debug.push(`Step 1: ✓ ISRC: ${isrc || "N/A"}`);
+      debug.push(`Step 1: ✓ Confidence: ${confidence}`);
+
+      // Step 2: Check cache
+      if (isrc) {
+        debug.push("Step 2: Checking cache by ISRC");
+        const { data: cached } = await supabase
+          .from("track_resolutions")
+          .select("*")
+          .eq("isrc", isrc)
+          .eq("status", "resolved")
+          .order("confidence", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (cached && cached.confidence >= 0.8) {
+          debug.push("Step 2: ✓ Cache hit");
+
+          const cachedLinks = {
+            spotify: cached.spotify_url,
+            apple_music: cached.apple_music_url,
+            youtube: cached.youtube_url,
+            deezer: cached.deezer_url,
+          };
+
+          return jsonResponse(200, {
+            canonical: {
+              isrc: cached.isrc,
+              title: cached.title,
+              artist: cached.artist,
+              spotify_track_id: cached.spotify_track_id,
+              source: "acrcloud",
+            },
+            links: validateAllLinks(cachedLinks),
+            confidence: cached.confidence,
+            debug: { steps: debug },
+          });
+        }
+
+        debug.push("Step 2: Cache miss or low confidence");
+      } else {
+        debug.push("Step 2: No ISRC, skipping cache");
+      }
+
+      // Step 3: Extract platform IDs from ACRCloud external_metadata
+      const externalMeta = track.external_metadata || {};
+      const spotifyId = externalMeta.spotify?.track?.id;
+      const spotifyUrl = spotifyId ? `https://open.spotify.com/track/${spotifyId}` : null;
+
+      debug.push("Step 3: Extracting platform IDs from ACRCloud");
+      if (spotifyId) debug.push(`Step 3: ✓ Spotify ID: ${spotifyId}`);
+
+      // Step 4: Expand via AudD Links
+      let auddLinks: Record<string, string | undefined> = {};
+
+      if (isrc) {
+        debug.push("Step 4: Expanding links via AudD (using ISRC)");
+        try {
+          auddLinks = await fetchAuddLinks({ isrc });
+          debug.push(`Step 4: ✓ AudD returned ${Object.keys(auddLinks).length} links`);
+        } catch (err: any) {
+          debug.push(`Step 4: AudD failed: ${err.message}`);
+        }
+      } else if (spotifyUrl) {
+        debug.push("Step 4: Expanding links via AudD (using Spotify URL)");
+        try {
+          auddLinks = await fetchAuddLinks({ spotify_url: spotifyUrl });
+          debug.push(`Step 4: ✓ AudD returned ${Object.keys(auddLinks).length} links`);
+        } catch (err: any) {
+          debug.push(`Step 4: AudD failed: ${err.message}`);
+        }
+      } else {
+        debug.push("Step 4: No ISRC or Spotify URL, skipping AudD");
+      }
+
+      // Step 5: Construct fallback links from external IDs (if AudD failed)
+      const fallbackLinks: Record<string, string | undefined> = {};
+
+      if (Object.keys(auddLinks).length === 0) {
+        debug.push("Step 5: Constructing fallback links from ACRCloud IDs");
+
+        if (externalMeta.spotify?.track?.id) {
+          fallbackLinks.spotify = `https://open.spotify.com/track/${externalMeta.spotify.track.id}`;
+        }
+
+        if (externalMeta.deezer?.track?.id) {
+          fallbackLinks.deezer = `https://www.deezer.com/track/${externalMeta.deezer.track.id}`;
+        }
+
+        if (externalMeta.youtube?.vid) {
+          fallbackLinks.youtube = `https://www.youtube.com/watch?v=${externalMeta.youtube.vid}`;
+        }
+
+        debug.push(`Step 5: ✓ Constructed ${Object.keys(fallbackLinks).length} fallback links`);
+      } else {
+        debug.push("Step 5: Skipping fallback (AudD succeeded)");
+      }
+
+      // Step 6: Merge and validate
+      const mergedLinks = {
+        ...fallbackLinks,
+        ...auddLinks,
+      };
+
+      debug.push("Step 6: Validating links");
+      const validatedLinks = validateAllLinks(mergedLinks);
+      debug.push(`Step 6: ✓ ${Object.keys(validatedLinks).length} valid links`);
+
+      // Step 7: Cache result
+      if (isrc) {
+        debug.push("Step 7: Caching result");
+        await supabase.from("track_resolutions").upsert({
+          isrc,
+          title: track.name,
+          artist: track.artists?.[0]?.name,
+          album: track.album?.name,
+          duration_ms: track.duration_ms,
+          spotify_track_id: spotifyId || null,
+          spotify_url: validatedLinks.spotify || null,
+          apple_music_url: validatedLinks.apple_music || null,
+          youtube_url: validatedLinks.youtube || validatedLinks.youtube_music || null,
+          deezer_url: validatedLinks.deezer || null,
+          acrid: track.acrid,
+          acrcloud_raw: track,
+          resolver_sources: ["acrcloud", "audd"],
+          confidence,
+          status: confidence >= 0.8 ? "resolved" : "partial",
+        }, {
+          onConflict: "isrc",
+        });
+        debug.push("Step 7: ✓ Cached");
+      }
+
+      // Return result
+      return jsonResponse(200, {
+        canonical: {
+          isrc: isrc || null,
+          title: track.name,
+          artist: track.artists?.[0]?.name,
+          spotify_track_id: spotifyId || null,
+          source: "acrcloud",
+        },
+        links: validatedLinks,
+        confidence,
+        debug: { steps: debug },
+      });
+    }
+
+    // Should never reach here
+    return jsonResponse(400, { error: "Invalid request" });
+  } catch (err: any) {
+    console.error("[smartlink-resolve] Error:", err);
+    return jsonResponse(500, {
+      error: "Internal server error",
+      message: err?.message || "Unknown error",
+    });
+  }
+};
+
+export default handler;
