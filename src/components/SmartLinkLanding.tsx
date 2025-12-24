@@ -100,19 +100,64 @@ export default function SmartLinkLanding() {
   }, [link]);
 
   const fetchLink = async () => {
-    const { data, error } = await supabase
-      .from('smart_links')
-      .select('*')
-      .eq('slug', slug)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (error || !data) {
+    if (!slug) {
       setError(true);
-    } else {
-      setLink(data);
+      setLoading(false);
+      return;
     }
+
+    try {
+      // Normalize slug: trim, decode, and lowercase
+      const normalizedSlug = decodeURIComponent(slug).trim().toLowerCase();
+
+      // Try to fetch from stable view first, then fallback to base table
+      const linkData = await fetchSmartLinkBySlugClient(normalizedSlug);
+
+      if (!linkData) {
+        console.warn('[SmartLinkLanding] Link not found for slug:', normalizedSlug);
+        setError(true);
+      } else {
+        setLink(linkData);
+      }
+    } catch (e: any) {
+      console.error('[SmartLinkLanding] Failed to fetch link:', e.message);
+      setError(true);
+    }
+
     setLoading(false);
+  };
+
+  /**
+   * Fetch smart link by slug with fallback strategy
+   */
+  const fetchSmartLinkBySlugClient = async (slug: string): Promise<SmartLink | null> => {
+    const tables = ['smart_links_v', 'smart_links', 'smartlinks', 'links'];
+
+    for (const table of tables) {
+      try {
+        const { data, error } = await supabase
+          .from(table)
+          .select('*')
+          .eq('slug', slug)
+          .eq('is_active', true)
+          .maybeSingle();
+
+        if (error) {
+          // Table/view doesn't exist or query failed - try next
+          continue;
+        }
+
+        if (data) {
+          console.log(`[SmartLinkLanding] Found link in ${table}`);
+          return data as SmartLink;
+        }
+      } catch (e) {
+        // Table doesn't exist - try next
+        continue;
+      }
+    }
+
+    return null;
   };
 
   const initializeTracking = async () => {

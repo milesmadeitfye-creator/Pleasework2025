@@ -42,6 +42,7 @@ export default function SmartLinkRedirect() {
       let destination = `https://ghoste.one/r/${slug}`;
       let pixelId: string | null = null;
       let ownerUserId: string | null = null;
+      let linkNotFound = false;
 
       try {
         const response = await fetch("/.netlify/functions/smartlink-track", {
@@ -57,7 +58,14 @@ export default function SmartLinkRedirect() {
         const data = await response.json();
         setDebug(data);
 
-        destination = data?.destination_url || destination;
+        // Check if we got a valid destination
+        if (data?.destination_url && data.destination_url !== destination) {
+          destination = data.destination_url;
+        } else if (!data?.ok || !data?.destination_url) {
+          // Link not properly configured
+          linkNotFound = true;
+        }
+
         pixelId = data?.pixel_id || null;
         ownerUserId = data?.owner_user_id || null;
       } catch (e: any) {
@@ -66,6 +74,7 @@ export default function SmartLinkRedirect() {
           stage: "client_exception",
           error: e?.message || String(e)
         });
+        linkNotFound = true;
       }
 
       // ✅ Send CAPI event (server-side tracking alongside Pixel)
@@ -105,9 +114,28 @@ export default function SmartLinkRedirect() {
         console.warn("[SmartLinkRedirect] Pixel load failed:", e);
       }
 
-      setTimeout(() => {
-        window.location.replace(destination);
-      }, 350);
+      // Don't redirect if link not found or not configured
+      if (linkNotFound) {
+        console.error("[SmartLinkRedirect] Link not found or not configured");
+        setDebug(prev => ({
+          ...prev,
+          error: "Link not found or not configured. Please check the Smart Link settings.",
+        }));
+        return;
+      }
+
+      // Only redirect if we have a valid destination
+      if (destination && destination !== `https://ghoste.one/r/${slug}`) {
+        setTimeout(() => {
+          window.location.replace(destination);
+        }, 350);
+      } else {
+        console.error("[SmartLinkRedirect] No valid destination URL");
+        setDebug(prev => ({
+          ...prev,
+          error: "No destination URL configured for this link.",
+        }));
+      }
     };
 
     run();

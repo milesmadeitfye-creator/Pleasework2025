@@ -4,6 +4,123 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+/**
+ * Fetch smart link by slug with fallback strategy:
+ * 1. Try smart_links_v view (stable compatibility view)
+ * 2. Try smart_links table (base table)
+ * 3. Try smartlinks table (legacy naming)
+ * 4. Try links table (alternative naming)
+ */
+async function fetchSmartLinkBySlug(supabase: any, slug: string): Promise<any | null> {
+  const tables = ["smart_links_v", "smart_links", "smartlinks", "links"];
+
+  for (const table of tables) {
+    try {
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .eq("slug", slug)
+        .maybeSingle();
+
+      if (error) {
+        // Table/view doesn't exist or query failed - try next
+        continue;
+      }
+
+      if (data) {
+        console.log(`[fetchSmartLinkBySlug] Found link in ${table}`);
+        return data;
+      }
+    } catch (e) {
+      // Table doesn't exist - try next
+      continue;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Select destination URL with priority order:
+ * 1. destination_url (explicit destination)
+ * 2. Platform URLs in priority order (Spotify, Apple Music, YouTube, etc.)
+ * 3. config.spotify_url / config.apple_music_url (legacy JSON config)
+ * 4. null (caller should use fallback)
+ */
+function selectDestinationUrl(linkData: any): string | null {
+  // Priority 1: Explicit destination_url
+  if (linkData.destination_url && isValidUrl(linkData.destination_url)) {
+    return linkData.destination_url;
+  }
+
+  // Priority 2: Platform URLs (check direct columns first)
+  const platformUrls = [
+    linkData.spotify_url,
+    linkData.apple_music_url,
+    linkData.youtube_url,
+    linkData.soundcloud_url,
+    linkData.tidal_url,
+    linkData.amazon_music_url,
+    linkData.deezer_url,
+  ];
+
+  for (const url of platformUrls) {
+    if (url && isValidUrl(url)) {
+      return url;
+    }
+  }
+
+  // Priority 3: Legacy config JSON field (backward compatibility)
+  if (linkData.config) {
+    try {
+      const config = typeof linkData.config === "string"
+        ? JSON.parse(linkData.config)
+        : linkData.config;
+
+      const configUrls = [
+        config.destination_url,
+        config.spotify_url,
+        config.apple_music_url,
+        config.youtube_url,
+        config.soundcloud_url,
+        config.tidal_url,
+      ];
+
+      for (const url of configUrls) {
+        if (url && isValidUrl(url)) {
+          return url;
+        }
+      }
+    } catch (e) {
+      // Invalid JSON - skip
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Validate URL is safe and well-formed
+ */
+function isValidUrl(url: string): boolean {
+  if (!url || typeof url !== "string") return false;
+
+  const trimmed = url.trim();
+  if (trimmed.length === 0) return false;
+
+  // Only allow http:// or https:// URLs
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    return false;
+  }
+
+  try {
+    new URL(trimmed);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const handler: Handler = async (event) => {
   const headers = {
     "Content-Type": "application/json",
@@ -96,30 +213,30 @@ export const handler: Handler = async (event) => {
     // Legacy slug-based tracking (for backward compatibility)
     if (slug && !link_id) {
       try {
-        const { data: linkData } = await supabase
-          .from("smart_links")
-          .select("id, slug, config, user_id")
-          .eq("slug", slug)
-          .maybeSingle();
+        // Normalize slug: trim, decode, and lowercase
+        const normalizedSlug = decodeURIComponent(slug).trim().toLowerCase();
+
+        // Try to fetch link data using stable view first, then fallback to base table
+        const linkData = await fetchSmartLinkBySlug(supabase, normalizedSlug);
 
         if (linkData) {
           owner_user_id = linkData.user_id || null;
           link_id = linkData.id;
 
-          if (linkData.config) {
-            const config = typeof linkData.config === "string"
-              ? JSON.parse(linkData.config)
-              : linkData.config;
+          // Select destination URL with priority order
+          destination_url = selectDestinationUrl(linkData) || destination_url;
 
-            if (config.spotify_url) {
-              destination_url = config.spotify_url;
-            } else if (config.apple_music_url) {
-              destination_url = config.apple_music_url;
-            }
-          }
+          console.log("[smartlink-track] Resolved destination:", {
+            slug: normalizedSlug,
+            destination: destination_url.substring(0, 50) + "...",
+            link_id: link_id?.substring(0, 8)
+          });
+        } else {
+          console.warn("[smartlink-track] Link not found for slug:", normalizedSlug);
         }
-      } catch (e) {
-        console.warn("[smartlink-track] Failed to resolve destination:", e);
+      } catch (e: any) {
+        console.error("[smartlink-track] Failed to resolve destination:", e.message);
+        // Don't throw - use fallback URL
       }
     }
 
