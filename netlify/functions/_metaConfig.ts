@@ -2,10 +2,13 @@
 // Ghoste Media API Ad Config - App ID: 1378729573873020
 // Reads from server-side environment variables
 
-// ✅ ✅ ✅ EDIT ONLY THESE TWO LINES FOR CONVERSIONS API ✅ ✅ ✅
-const META_PIXEL_ID = "852830327354589";
-const META_CONVERSIONS_TOKEN = "EAAwCTBMfZADcBQJZBkHvSLg4XU3yfNoxGubQeMdICVqZAbkFKTU91XRHZBZC3LtYiPgBwa7FS96Vc5OO9279DfelUnWw7VRkGSayFjvjKlTlGTIkjrzzCnPdO8aBLkZCJcenxfL5ZBPXBATHLbrZBP2uXLlzLwt3M6EZApAPh4hItD4lIyZBJ4C3KfnjVOulUYcl4ZAPQZDZD";
-// ⚠️ DO NOT EDIT BELOW THIS LINE ⚠️
+// Conversions API credentials - now read from environment
+const META_PIXEL_ID = process.env.META_PIXEL_ID || "852830327354589";
+const META_CONVERSIONS_TOKEN = process.env.META_CONVERSIONS_TOKEN || "";
+
+if (!META_CONVERSIONS_TOKEN) {
+  console.warn("[_metaConfig] META_CONVERSIONS_TOKEN not set - Conversions API will not work");
+}
 
 export function getMetaConfig() {
   const META_APP_ID = process.env.META_APP_ID!;
