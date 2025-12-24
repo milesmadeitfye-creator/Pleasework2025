@@ -42,14 +42,27 @@ Apple Music integration is **COMPLETE** and ready to use.
 
 ## Credentials Configuration
 
-Credentials must be stored in the `app_secrets` table:
+Credentials must be stored in the `app_secrets` table using these exact key names:
 
-- **Team ID:** (from Apple Developer account)
-- **Key ID:** (from Apple Music API Key)
-- **Media ID:** (your MusicKit identifier)
-- **Private Key:** (P8 format from Apple)
+- **APPLE_MUSIC_TEAM_ID:** Your Apple Developer Team ID (10 characters)
+- **APPLE_MUSIC_KEY_ID:** Your MusicKit API Key ID (10 characters)
+- **APPLE_MUSIC_PRIVATE_KEY_P8:** Your .p8 private key content (base64 or PEM format)
 
-See migration file for insert instructions. Never commit actual credentials to source control.
+**Insert via Supabase SQL Editor:**
+```sql
+INSERT INTO public.app_secrets (key, value) VALUES
+  ('APPLE_MUSIC_TEAM_ID', 'YOUR_TEAM_ID'),
+  ('APPLE_MUSIC_KEY_ID', 'YOUR_KEY_ID'),
+  ('APPLE_MUSIC_PRIVATE_KEY_P8', 'YOUR_P8_KEY_CONTENT')
+ON CONFLICT (key) DO UPDATE
+SET value = EXCLUDED.value, updated_at = now();
+```
+
+**SECURITY:**
+- NEVER commit credentials to source control
+- NEVER print or log the private key
+- JWT signing happens server-side only via `apple-music-token` function
+- Client never receives the raw private key, only the signed token
 
 ---
 

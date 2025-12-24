@@ -1,9 +1,6 @@
 import type { Handler } from "@netlify/functions";
 import { getSupabaseAdmin } from "./_supabaseAdmin";
 
-const APPLE_MUSIC_KEY_ID = process.env.APPLE_MUSIC_KEY_ID;
-const APPLE_MUSIC_TEAM_ID = process.env.APPLE_MUSIC_TEAM_ID;
-
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return {
@@ -36,13 +33,19 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    if (!APPLE_MUSIC_KEY_ID || !APPLE_MUSIC_TEAM_ID) {
+    // Check if Apple Music credentials are configured (read from app_secrets)
+    const { data: secrets } = await supabase
+      .from('app_secrets')
+      .select('key')
+      .in('key', ['APPLE_MUSIC_TEAM_ID', 'APPLE_MUSIC_KEY_ID', 'APPLE_MUSIC_PRIVATE_KEY_P8']);
+
+    if (!secrets || secrets.length < 3) {
       return {
         statusCode: 503,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           success: false,
-          message: "Apple Music credentials not configured"
+          message: "Apple Music credentials not configured in app_secrets"
         })
       };
     }

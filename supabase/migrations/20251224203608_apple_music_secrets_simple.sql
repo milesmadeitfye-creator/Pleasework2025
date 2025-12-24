@@ -9,9 +9,13 @@
   2. Security
     - RLS enabled
     - Service-role only access
+    - Private key never exposed to client
+    - JWT signing server-side only
 
   3. Apple Music Credentials
-    - Insert Team ID, Key ID, Media ID, Private Key
+    - APPLE_MUSIC_TEAM_ID: Your Apple Developer Team ID
+    - APPLE_MUSIC_KEY_ID: Your MusicKit API Key ID
+    - APPLE_MUSIC_PRIVATE_KEY_P8: Your .p8 private key content
 */
 
 -- Drop existing table if using composite key
@@ -34,14 +38,15 @@ REVOKE ALL ON public.app_secrets FROM anon, authenticated;
 -- Use Supabase SQL Editor or psql to run:
 --
 -- INSERT INTO public.app_secrets (key, value) VALUES
---   ('APPLE_TEAM_ID', 'your_team_id'),
---   ('APPLE_KEY_ID', 'your_key_id'),
---   ('APPLE_MEDIA_ID', 'your_media_id'),
---   ('APPLE_PRIVATE_KEY_P8', 'your_p8_private_key_content')
+--   ('APPLE_MUSIC_TEAM_ID', 'your_team_id_here'),
+--   ('APPLE_MUSIC_KEY_ID', 'your_key_id_here'),
+--   ('APPLE_MUSIC_PRIVATE_KEY_P8', 'your_p8_private_key_content_here')
 -- ON CONFLICT (key) DO UPDATE
 -- SET value = EXCLUDED.value, updated_at = now();
 --
--- NEVER commit actual secrets to source control.
+-- SECURITY WARNING: NEVER commit actual secrets to source control.
+-- NEVER print or log the private key content.
+-- Token signing happens server-side only via apple-music-token function.
 
 -- Create index
 CREATE INDEX IF NOT EXISTS idx_app_secrets_key ON public.app_secrets(key);

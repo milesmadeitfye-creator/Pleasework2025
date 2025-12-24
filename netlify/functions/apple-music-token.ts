@@ -88,7 +88,7 @@ async function generateAppleMusicToken(): Promise<string> {
   const { data, error } = await supabase
     .from('app_secrets')
     .select('key, value')
-    .in('key', ['APPLE_TEAM_ID', 'APPLE_KEY_ID', 'APPLE_PRIVATE_KEY_P8']);
+    .in('key', ['APPLE_MUSIC_TEAM_ID', 'APPLE_MUSIC_KEY_ID', 'APPLE_MUSIC_PRIVATE_KEY_P8']);
 
   if (error) {
     throw new Error(`Failed to fetch Apple credentials: ${error.message}`);
@@ -103,13 +103,23 @@ async function generateAppleMusicToken(): Promise<string> {
     secrets[row.key] = row.value;
   });
 
-  const teamId = secrets.APPLE_TEAM_ID;
-  const keyId = secrets.APPLE_KEY_ID;
-  let privateKey = secrets.APPLE_PRIVATE_KEY_P8;
+  const teamId = secrets.APPLE_MUSIC_TEAM_ID;
+  const keyId = secrets.APPLE_MUSIC_KEY_ID;
+  let privateKey = secrets.APPLE_MUSIC_PRIVATE_KEY_P8;
 
   if (!teamId || !keyId || !privateKey) {
-    throw new Error('Missing required Apple Music credentials');
+    const missing = [];
+    if (!teamId) missing.push('APPLE_MUSIC_TEAM_ID');
+    if (!keyId) missing.push('APPLE_MUSIC_KEY_ID');
+    if (!privateKey) missing.push('APPLE_MUSIC_PRIVATE_KEY_P8');
+    throw new Error(`Missing Apple Music credentials: ${missing.join(', ')}`);
   }
+
+  console.log('[apple-music-token] Using credentials:', {
+    teamId: teamId.slice(0, 4) + '***',
+    keyId: keyId.slice(0, 4) + '***',
+    privateKeyLength: privateKey.length
+  });
 
   if (!privateKey.includes('-----BEGIN')) {
     privateKey = `-----BEGIN PRIVATE KEY-----\n${privateKey}\n-----END PRIVATE KEY-----`;
