@@ -40,16 +40,16 @@ Apple Music integration is **COMPLETE** and ready to use.
 
 ---
 
-## Credentials Already Configured
+## Credentials Configuration
 
-The following credentials are stored in the `app_secrets` table:
+Credentials must be stored in the `app_secrets` table:
 
-- **Team ID:** `VLZAPU5PL6`
-- **Key ID:** `6AJB2CGP8N`
-- **Media ID:** `media.GhosteoneV1`
-- **Private Key:** ✓ (P8 format, stored securely)
+- **Team ID:** (from Apple Developer account)
+- **Key ID:** (from Apple Music API Key)
+- **Media ID:** (your MusicKit identifier)
+- **Private Key:** (P8 format from Apple)
 
-Migration already applied. No manual setup needed.
+See migration file for insert instructions. Never commit actual credentials to source control.
 
 ---
 

@@ -30,29 +30,18 @@ ALTER TABLE public.app_secrets ENABLE ROW LEVEL SECURITY;
 -- Revoke all access from anon and authenticated
 REVOKE ALL ON public.app_secrets FROM anon, authenticated;
 
--- Insert Apple Music credentials
-INSERT INTO public.app_secrets (key, value) VALUES
-  ('APPLE_TEAM_ID', 'VLZAPU5PL6'),
-  ('APPLE_KEY_ID', '6AJB2CGP8N'),
-  ('APPLE_MEDIA_ID', 'media.GhosteoneV1')
-ON CONFLICT (key) DO UPDATE
-SET value = EXCLUDED.value,
-    updated_at = now();
-
--- Insert private key (multi-line)
-INSERT INTO public.app_secrets (key, value)
-VALUES (
-  'APPLE_PRIVATE_KEY_P8',
-  '-----BEGIN PRIVATE KEY-----
-MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg3NbasAwv167hLUal
-1vk0zVQbk+fb9nVgqFw+Dd2V4BqgCgYIKoZIzj0DAQehRANCAAQu2HECgJFhpOSh
-cikWZN+ewPF0OgcRQD/W75EhlDRR+9ckzAYbshxRRSzKRNbmhs/WtHxccfvQXIyt
-FOLewA8b
------END PRIVATE KEY-----'
-)
-ON CONFLICT (key) DO UPDATE
-SET value = EXCLUDED.value,
-    updated_at = now();
+-- NOTE: Apple Music credentials must be inserted manually after rotating keys.
+-- Use Supabase SQL Editor or psql to run:
+--
+-- INSERT INTO public.app_secrets (key, value) VALUES
+--   ('APPLE_TEAM_ID', 'your_team_id'),
+--   ('APPLE_KEY_ID', 'your_key_id'),
+--   ('APPLE_MEDIA_ID', 'your_media_id'),
+--   ('APPLE_PRIVATE_KEY_P8', 'your_p8_private_key_content')
+-- ON CONFLICT (key) DO UPDATE
+-- SET value = EXCLUDED.value, updated_at = now();
+--
+-- NEVER commit actual secrets to source control.
 
 -- Create index
 CREATE INDEX IF NOT EXISTS idx_app_secrets_key ON public.app_secrets(key);
