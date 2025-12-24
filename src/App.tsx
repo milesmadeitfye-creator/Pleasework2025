@@ -364,6 +364,16 @@ function App() {
             }
           />
           <Route
+            path="/studio/listening-parties/host/:partyId"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <ListeningPartyHostPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/studio/splits"
             element={
               <ProtectedRoute>
