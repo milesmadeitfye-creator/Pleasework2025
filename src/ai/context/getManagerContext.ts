@@ -53,6 +53,8 @@ export interface ManagerContext {
   tracking: {
     clicks7d: number;
     clicks30d: number;
+    smartLinksCount: number;
+    smartLinks: Array<{ id: string; title: string | null; slug: string; created_at: string }>;
     topLinks: Array<{ slug: string; clicks: number }>;
     topPlatforms: Array<{ platform: string; clicks: number }>;
     errors: string[];
@@ -94,6 +96,8 @@ export async function getManagerContext(userId: string): Promise<ManagerContext>
     tracking: {
       clicks7d: 0,
       clicks30d: 0,
+      smartLinksCount: 0,
+      smartLinks: [],
       topLinks: [],
       topPlatforms: [],
       errors: [],
@@ -158,10 +162,10 @@ async function fetchMetaContext(userId: string) {
   };
 
   try {
-    // Check Meta credentials - this determines connection status
+    // Check Meta credentials - this determines connection status AND selected assets
     const { data: creds, error: credsError } = await supabase
       .from('meta_credentials')
-      .select('access_token, expires_at, updated_at')
+      .select('access_token, expires_at, updated_at, ad_account_id, ad_account_name, page_id, facebook_page_name, instagram_id, instagram_username, pixel_id, business_id, business_name, configuration_complete')
       .eq('user_id', userId)
       .maybeSingle();
 
@@ -180,6 +184,15 @@ async function fetchMetaContext(userId: string) {
         if (expiresAt < new Date()) {
           meta.errors.push('Access token expired - please reconnect Meta');
         }
+      }
+
+      // If connected, add selected assets info to adAccounts for context
+      if (creds.ad_account_id) {
+        meta.adAccounts.push({
+          id: creds.ad_account_id,
+          name: creds.ad_account_name || 'Selected Ad Account',
+          accountId: creds.ad_account_id,
+        });
       }
     }
 
@@ -319,12 +332,51 @@ async function fetchTrackingContext(userId: string) {
   const tracking: ManagerContext['tracking'] = {
     clicks7d: 0,
     clicks30d: 0,
+    smartLinksCount: 0,
+    smartLinks: [],
     topLinks: [],
     topPlatforms: [],
     errors: [],
   };
 
   try {
+    // Fetch smart links count and recent links
+    const { data: smartLinks, error: smartLinksError } = await supabase
+      .from('smart_links')
+      .select('id, title, slug, created_at')
+      .eq('owner_user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (!smartLinksError && smartLinks) {
+      tracking.smartLinksCount = smartLinks.length;
+      tracking.smartLinks = smartLinks;
+    } else if (smartLinksError) {
+      console.warn('[fetchTrackingContext] Smart links query failed:', smartLinksError.message);
+      // Try alternative user_id column
+      const { data: altSmartLinks, error: altError } = await supabase
+        .from('smart_links')
+        .select('id, title, slug, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      if (!altError && altSmartLinks) {
+        tracking.smartLinksCount = altSmartLinks.length;
+        tracking.smartLinks = altSmartLinks;
+      }
+    }
+
+    // Get full count of smart links
+    const { count: totalCount } = await supabase
+      .from('smart_links')
+      .select('*', { count: 'exact', head: true })
+      .eq('owner_user_id', userId);
+
+    if (totalCount !== null) {
+      tracking.smartLinksCount = totalCount;
+    }
+
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -428,7 +480,9 @@ function buildSummary(context: ManagerContext): ManagerContext['summary'] {
     summary.opportunities.push('Launch your first Meta ad campaign');
   }
 
-  if (context.tracking.topLinks.length > 0 && context.meta.campaigns.length > 0) {
+  if (context.tracking.smartLinksCount === 0) {
+    summary.opportunities.push('Create your first smart link to track your music');
+  } else if (context.tracking.topLinks.length > 0 && context.meta.campaigns.length > 0) {
     summary.opportunities.push(`Promote top SmartLink "${context.tracking.topLinks[0].slug}" with ads`);
   }
 
@@ -471,10 +525,21 @@ export function formatManagerContextForAI(context: ManagerContext): string {
   sections.push(`${context.ghoste.drafts} drafts pending`);
   sections.push(`${context.ghoste.rules} autopilot rules active`);
 
-  sections.push('\n=== TRACKING (SmartLinks) ===');
+  sections.push('\n=== SMART LINKS ===');
+  sections.push(`Total smart links: ${context.tracking.smartLinksCount}`);
+  if (context.tracking.smartLinks.length > 0) {
+    sections.push(`Recent links:`);
+    context.tracking.smartLinks.forEach(link => {
+      sections.push(`- "${link.title || 'Untitled'}" (slug: ${link.slug})`);
+    });
+  } else if (context.tracking.smartLinksCount === 0) {
+    sections.push('No smart links created yet. User can create their first smart link.');
+  }
+
+  sections.push('\n=== LINK CLICKS & TRACKING ===');
   sections.push(`${context.tracking.clicks7d} clicks (7d), ${context.tracking.clicks30d} clicks (30d)`);
   if (context.tracking.topLinks.length > 0) {
-    sections.push(`Top links: ${context.tracking.topLinks.map(l => `${l.slug} (${l.clicks})`).join(', ')}`);
+    sections.push(`Top performing links: ${context.tracking.topLinks.map(l => `${l.slug} (${l.clicks})`).join(', ')}`);
   }
   if (context.tracking.topPlatforms.length > 0) {
     sections.push(`Top platforms: ${context.tracking.topPlatforms.map(p => `${p.platform} (${p.clicks})`).join(', ')}`);
