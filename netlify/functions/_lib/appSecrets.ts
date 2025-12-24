@@ -8,25 +8,24 @@ export function getAdminSupabase() {
   );
 }
 
-export async function upsertAppSecret(user_id: string, key: string, value: string) {
+export async function upsertGlobalSecret(key: string, value: string) {
   const supabase = getAdminSupabase();
 
   const { error } = await supabase
     .from("app_secrets")
     .upsert(
-      { user_id, key, value, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,key" }
+      { key, value, updated_at: new Date().toISOString() },
+      { onConflict: "key" }
     );
 
   if (error) throw error;
 }
 
-export async function getAppSecret(user_id: string, key: string): Promise<string | null> {
+export async function getGlobalSecret(key: string): Promise<string | null> {
   const supabase = getAdminSupabase();
   const { data, error } = await supabase
     .from("app_secrets")
     .select("value")
-    .eq("user_id", user_id)
     .eq("key", key)
     .maybeSingle();
 
@@ -34,12 +33,11 @@ export async function getAppSecret(user_id: string, key: string): Promise<string
   return data?.value ?? null;
 }
 
-export async function getAppSecrets(user_id: string, keys: string[]): Promise<Record<string, string | null>> {
+export async function getGlobalSecrets(keys: string[]): Promise<Record<string, string | null>> {
   const supabase = getAdminSupabase();
   const { data, error } = await supabase
     .from("app_secrets")
     .select("key, value")
-    .eq("user_id", user_id)
     .in("key", keys);
 
   if (error) throw error;

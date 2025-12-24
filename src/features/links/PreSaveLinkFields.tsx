@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import type { PreSaveLinkConfig, PreSavePlatformConfig } from '../../types/links';
-import { Calendar, Music, Image as ImageIcon, FileText, Upload, X } from 'lucide-react';
+import { Calendar, Music, Image as ImageIcon, FileText, Upload, X, Loader2 } from 'lucide-react';
 import { uploadMediaToSupabase } from '../../lib/uploadMedia';
 
 type PreSaveLinkFieldsProps = {
@@ -11,6 +11,7 @@ type PreSaveLinkFieldsProps = {
 export function PreSaveLinkFields({ value, onChange }: PreSaveLinkFieldsProps) {
   const config = value || {};
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [lookupLoading, setLookupLoading] = useState(false);
 
   const update = <K extends keyof PreSaveLinkConfig>(
     key: K,
@@ -60,6 +61,37 @@ export function PreSaveLinkFields({ value, onChange }: PreSaveLinkFieldsProps) {
       ...config,
       [platform]: { ...current, ...partial }
     });
+  };
+
+  const handleAppleMusicUrlChange = async (url: string) => {
+    updatePlatform('appleMusic', { url });
+
+    if (url && url.includes('music.apple.com')) {
+      setLookupLoading(true);
+      try {
+        const response = await fetch(
+          `/.netlify/functions/apple-music-lookup?url=${encodeURIComponent(url)}`
+        );
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[PreSave] Apple Music lookup success:', data);
+
+          if (!config.releaseTitle && data.title) {
+            update('releaseTitle', data.title);
+          }
+          if (!config.coverImageUrl && data.artwork) {
+            update('coverImageUrl', data.artwork);
+          }
+        } else {
+          console.warn('[PreSave] Apple Music lookup failed:', await response.text());
+        }
+      } catch (error) {
+        console.error('[PreSave] Apple Music lookup error:', error);
+      } finally {
+        setLookupLoading(false);
+      }
+    }
   };
 
   return (
@@ -238,9 +270,10 @@ export function PreSaveLinkFields({ value, onChange }: PreSaveLinkFieldsProps) {
             platform={config.appleMusic}
             color="bg-pink-600"
             onToggle={(enabled) => updatePlatform('appleMusic', { enabled })}
-            onUrlChange={(url) => updatePlatform('appleMusic', { url })}
-            isOAuth={true}
-            note="Fans connect Apple - auto-adds on release"
+            onUrlChange={handleAppleMusicUrlChange}
+            isOAuth={false}
+            note="Paste Apple Music track URL (auto-lookup)"
+            loading={lookupLoading}
           />
         </div>
 
@@ -323,7 +356,8 @@ function PlatformRow({
   onToggle,
   onUrlChange,
   isOAuth = false,
-  note
+  note,
+  loading = false
 }: {
   label: string;
   platform?: PreSavePlatformConfig;
@@ -332,6 +366,7 @@ function PlatformRow({
   onUrlChange: (url: string) => void;
   isOAuth?: boolean;
   note?: string;
+  loading?: boolean;
 }) {
   // For OAuth platforms (Spotify, Apple), default to enabled
   // For one-click links, default to enabled
@@ -360,13 +395,21 @@ function PlatformRow({
         </button>
       </div>
       {enabled && !isOAuth && (
-        <input
-          type="url"
-          value={url}
-          onChange={(e) => onUrlChange(e.target.value)}
-          placeholder={`Optional: ${label} direct link`}
-          className="w-full px-3 py-2 bg-gray-900/80 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
-        />
+        <div className="relative">
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => onUrlChange(e.target.value)}
+            placeholder={`${label} track URL`}
+            disabled={loading}
+            className="w-full px-3 py-2 bg-gray-900/80 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-50"
+          />
+          {loading && (
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+            </div>
+          )}
+        </div>
       )}
       {enabled && isOAuth && note && (
         <p className="text-xs text-green-400/80">{note}</p>
