@@ -158,34 +158,52 @@ async function fetchMetaContext(userId: string) {
   };
 
   try {
-    // Check if Meta is connected (DO NOT check expires_at - column may not exist)
-    const { data: creds } = await supabase
+    // Check Meta credentials - this determines connection status
+    const { data: creds, error: credsError } = await supabase
       .from('meta_credentials')
-      .select('access_token, updated_at')
+      .select('access_token, expires_at, updated_at')
       .eq('user_id', userId)
       .maybeSingle();
 
-    // Fetch ad accounts
-    const { data: adAccounts } = await supabase
+    if (credsError) {
+      console.warn('[fetchMetaContext] Credentials check failed:', credsError.message);
+      meta.errors.push(`Credentials check failed: ${credsError.message}`);
+    }
+
+    // Meta is CONNECTED if access token exists
+    if (creds && creds.access_token) {
+      meta.connected = true;
+
+      // Check if token is expired (warning only, still connected)
+      if (creds.expires_at) {
+        const expiresAt = new Date(creds.expires_at);
+        if (expiresAt < new Date()) {
+          meta.errors.push('Access token expired - please reconnect Meta');
+        }
+      }
+    }
+
+    // Fetch ad accounts (errors here should NOT affect connection status)
+    const { data: adAccounts, error: adAccountsError } = await supabase
       .from('meta_ad_accounts')
       .select('*')
       .eq('user_id', userId);
 
-    // Fetch campaigns
-    const { data: campaigns } = await supabase
+    if (adAccountsError) {
+      console.warn('[fetchMetaContext] Ad accounts fetch error (non-fatal):', adAccountsError.message);
+    }
+
+    // Fetch campaigns (errors here should NOT affect connection status)
+    const { data: campaigns, error: campaignsError } = await supabase
       .from('meta_ad_campaigns')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(50);
 
-    // Determine connection status
-    // Connected if ANY of these are true:
-    const hasToken = creds && creds.access_token;
-    const hasAdAccounts = adAccounts && adAccounts.length > 0;
-    const hasCampaigns = campaigns && campaigns.length > 0;
-
-    meta.connected = !!(hasToken || hasAdAccounts || hasCampaigns);
+    if (campaignsError) {
+      console.warn('[fetchMetaContext] Campaigns fetch error (non-fatal):', campaignsError.message);
+    }
 
     if (adAccounts && adAccounts.length > 0) {
       meta.adAccounts = adAccounts.map(acc => ({
@@ -234,14 +252,15 @@ async function fetchMetaContext(userId: string) {
       }
     }
 
-    // Add helpful context messages
-    if (meta.connected && meta.campaigns.length === 0) {
-      meta.errors.push('Meta connected but no campaigns found yet');
-    }
+    // Add helpful context messages (only if truly not connected)
     if (!meta.connected) {
-      meta.errors.push('Meta not connected');
+      meta.errors.push('Meta not connected - no access token found');
+    } else if (meta.campaigns.length === 0) {
+      // Connected but no campaigns yet (informational, not an error)
+      console.log('[fetchMetaContext] Meta connected but no campaigns found yet');
     }
   } catch (error: any) {
+    console.error('[fetchMetaContext] Unexpected error:', error);
     meta.errors.push(`Meta error: ${error.message}`);
   }
 

@@ -6,6 +6,7 @@ export type MetaCredentials = {
   ad_account_id: string | null;
   page_id: string | null;
   access_token: string | null;
+  expires_at?: string | null;
   system_user_token: string | null;
   pixel_id: string | null;
   conversion_api_token: string | null;
@@ -35,7 +36,7 @@ export function useMetaCredentials(userId?: string) {
       const { data, error } = await supabase
         .from("meta_credentials")
         .select(
-          "user_id, access_token, ad_account_id, page_id, instagram_accounts, pixel_id, conversion_api_token, pixel_verified"
+          "user_id, access_token, expires_at, ad_account_id, page_id, instagram_accounts, pixel_id, conversion_api_token, pixel_verified, created_at, updated_at"
         )
         .eq("user_id", userId)
         .maybeSingle();
@@ -48,6 +49,14 @@ export function useMetaCredentials(userId?: string) {
         setMeta(null);
       } else {
         setMeta((data as any) ?? null);
+
+        // Log warning if token is expired (but still return data)
+        if (data && data.expires_at) {
+          const expiresAt = new Date(data.expires_at);
+          if (expiresAt < new Date()) {
+            console.warn('[useMetaCredentials] Access token expired - user should reconnect Meta');
+          }
+        }
       }
 
       setLoading(false);
