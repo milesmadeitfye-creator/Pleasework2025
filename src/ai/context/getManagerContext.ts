@@ -341,39 +341,31 @@ async function fetchTrackingContext(userId: string) {
 
   try {
     // Fetch smart links count and recent links
+    // IMPORTANT: Database uses 'user_id' column, not 'owner_user_id'
     const { data: smartLinks, error: smartLinksError } = await supabase
       .from('smart_links')
       .select('id, title, slug, created_at')
-      .eq('owner_user_id', userId)
+      .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .limit(5);
 
-    if (!smartLinksError && smartLinks) {
-      tracking.smartLinksCount = smartLinks.length;
+    if (smartLinksError) {
+      console.error('[fetchTrackingContext] Smart links query failed:', smartLinksError.message);
+      tracking.errors.push(`Smart links query failed: ${smartLinksError.message}`);
+    } else if (smartLinks) {
       tracking.smartLinks = smartLinks;
-    } else if (smartLinksError) {
-      console.warn('[fetchTrackingContext] Smart links query failed:', smartLinksError.message);
-      // Try alternative user_id column
-      const { data: altSmartLinks, error: altError } = await supabase
-        .from('smart_links')
-        .select('id, title, slug, created_at')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (!altError && altSmartLinks) {
-        tracking.smartLinksCount = altSmartLinks.length;
-        tracking.smartLinks = altSmartLinks;
-      }
     }
 
     // Get full count of smart links
-    const { count: totalCount } = await supabase
+    const { count: totalCount, error: countError } = await supabase
       .from('smart_links')
       .select('*', { count: 'exact', head: true })
-      .eq('owner_user_id', userId);
+      .eq('user_id', userId);
 
-    if (totalCount !== null) {
+    if (countError) {
+      console.error('[fetchTrackingContext] Smart links count failed:', countError.message);
+      tracking.errors.push(`Smart links count failed: ${countError.message}`);
+    } else if (totalCount !== null) {
       tracking.smartLinksCount = totalCount;
     }
 
@@ -542,7 +534,8 @@ export function formatManagerContextForAI(context: ManagerContext): string {
       sections.push(`   - "${link.title || 'Untitled'}" → ghoste.one/s/${link.slug}`);
     });
   } else if (context.tracking.smartLinksCount === 0) {
-    sections.push('ℹ️ No smart links created yet. User can create their first smart link.');
+    sections.push('ℹ️ No smart links yet. User should create a smart link to promote with ads.');
+    sections.push('ℹ️ Suggest: "Create a smart link for your track so we can promote it."');
   }
 
   sections.push('\n=== LINK CLICKS & TRACKING ===');

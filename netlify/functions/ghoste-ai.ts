@@ -202,9 +202,11 @@ USE THIS DATA to answer questions like:
 CRITICAL RULES FOR AD REQUESTS:
 - If Meta is CONNECTED: You can create ads, campaigns, drafts - proceed confidently
 - If Meta is NOT CONNECTED: Tell user to connect Meta first in Profile → Connected Accounts
+- If Smart Links count = 0: Tell user to create a smart link first before running ads
 - If Smart Links exist: Reference them by title/slug when suggesting promotions
 - Always use REAL campaign names from "Active Campaigns" list
 - DO NOT make up campaign names, metrics, or smart link URLs
+- If user asks "make me some ads" but has no smart links: Say "Create a smart link first so I know what to promote"
 ${operatorSection ? '\n- Reference AI Operator scan results when discussing optimizations' : ''}
 
 `;

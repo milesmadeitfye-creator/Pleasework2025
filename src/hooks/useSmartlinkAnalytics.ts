@@ -103,6 +103,7 @@ export function useSmartlinkAnalytics(options: UseSmartlinkAnalyticsOptions) {
           })(),
 
           // Fetch smart links for titles
+          // IMPORTANT: Database uses 'user_id' column, not 'owner_user_id'
           supabase
             .from('smart_links')
             .select('id, title, slug, total_clicks')
