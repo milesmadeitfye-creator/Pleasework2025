@@ -501,23 +501,32 @@ export function formatManagerContextForAI(context: ManagerContext): string {
 
   sections.push('=== META ADS STATUS ===');
   if (context.meta.connected) {
-    sections.push(`Connected: YES (${context.meta.adAccounts.length} accounts)`);
+    sections.push(`✅ Connected: YES`);
+    sections.push(`📊 Ad Accounts: ${context.meta.adAccounts.length} detected`);
+
+    if (context.meta.adAccounts.length > 0) {
+      sections.push(`   Accounts: ${context.meta.adAccounts.map(a => a.name).join(', ')}`);
+    }
 
     if (context.meta.campaigns.length > 0) {
-      sections.push(`\nCampaigns (${context.meta.campaigns.length} total):`);
+      sections.push(`\n📢 Campaigns (${context.meta.campaigns.length} total):`);
       context.meta.campaigns.slice(0, 10).forEach(c => {
         sections.push(
-          `- "${c.name}" (${c.status}): $${c.spend.toFixed(2)} spent, ${c.clicks} clicks, ${c.ctr.toFixed(2)}% CTR, $${c.cpc.toFixed(2)} CPC`
+          `   - "${c.name}" (${c.status}): $${c.spend.toFixed(2)} spent, ${c.clicks} clicks, ${c.ctr.toFixed(2)}% CTR, $${c.cpc.toFixed(2)} CPC`
         );
       });
 
-      sections.push(`\n7-Day Totals: $${context.meta.insights.spend7d.toFixed(2)} spend, ${context.meta.insights.clicks7d} clicks, ${context.meta.insights.ctr7d.toFixed(2)}% CTR`);
+      sections.push(`\n💰 7-Day Totals: $${context.meta.insights.spend7d.toFixed(2)} spend, ${context.meta.insights.clicks7d} clicks, ${context.meta.insights.ctr7d.toFixed(2)}% CTR`);
     } else {
-      sections.push('No campaigns found. User can create their first campaign.');
+      sections.push('\n📢 No campaigns found yet. Ready to create first campaign.');
+    }
+
+    if (context.meta.errors.length > 0) {
+      sections.push(`\n⚠️ Warnings: ${context.meta.errors.join('; ')}`);
     }
   } else {
-    sections.push('Connected: NO');
-    sections.push('User should connect Meta Ads to track campaigns.');
+    sections.push('❌ Connected: NO');
+    sections.push('ℹ️ User needs to connect Meta Ads in Profile → Connected Accounts.');
   }
 
   sections.push('\n=== GHOSTE ADS (Internal) ===');
@@ -526,14 +535,14 @@ export function formatManagerContextForAI(context: ManagerContext): string {
   sections.push(`${context.ghoste.rules} autopilot rules active`);
 
   sections.push('\n=== SMART LINKS ===');
-  sections.push(`Total smart links: ${context.tracking.smartLinksCount}`);
+  sections.push(`🔗 Total smart links: ${context.tracking.smartLinksCount}`);
   if (context.tracking.smartLinks.length > 0) {
-    sections.push(`Recent links:`);
+    sections.push(`\n📎 Recent links (promote these with ads):`);
     context.tracking.smartLinks.forEach(link => {
-      sections.push(`- "${link.title || 'Untitled'}" (slug: ${link.slug})`);
+      sections.push(`   - "${link.title || 'Untitled'}" → ghoste.one/s/${link.slug}`);
     });
   } else if (context.tracking.smartLinksCount === 0) {
-    sections.push('No smart links created yet. User can create their first smart link.');
+    sections.push('ℹ️ No smart links created yet. User can create their first smart link.');
   }
 
   sections.push('\n=== LINK CLICKS & TRACKING ===');

@@ -61,45 +61,41 @@ export async function getUserMetaConfig(userId: string): Promise<UserMetaConfig>
     );
   }
 
-  // 2. Check if configuration is complete
+  // 2. Check if configuration has MINIMAL requirements (access token + ad account)
+  // This allows AI to work with connected accounts even if setup isn't 100% complete
+  const hasAccessToken = !!metaCreds.access_token;
+  const hasAdAccount = !!metaCreds.ad_account_id;
+
+  // Minimal config: just need access token and ad account to run ads
+  const minimalConfigReady = hasAccessToken && hasAdAccount;
+
+  // Full config: all assets selected (optional for AI context, required for some operations)
   const hasBusiness = !!metaCreds.business_id;
   const hasProfile = !!metaCreds.profile_id;
   const hasPage = !!metaCreds.page_id;
   const hasInstagram = !!metaCreds.instagram_id;
-  const hasAdAccount = !!metaCreds.ad_account_id;
+  const hasPixel = !!metaCreds.pixel_id;
 
-  const trackingReady =
-    !!metaCreds.pixel_id ||
-    !!metaCreds.capi_enabled ||
-    !!metaCreds.conversion_api_token;
-
-  const configurationComplete =
+  const fullConfigComplete =
+    minimalConfigReady &&
     hasBusiness &&
     hasProfile &&
     hasPage &&
     hasInstagram &&
-    hasAdAccount &&
-    trackingReady;
+    hasPixel;
 
-  const metaConfigured = !!metaCreds.configuration_complete || configurationComplete;
+  // Accept either: explicit flag OR minimal requirements met
+  const metaConfigured = !!metaCreds.configuration_complete || minimalConfigReady;
 
   if (!metaConfigured) {
     const missingFields: string[] = [];
-    if (!hasBusiness) missingFields.push('business');
-    if (!hasProfile) missingFields.push('profile');
-    if (!hasPage) missingFields.push('page');
-    if (!hasInstagram) missingFields.push('instagram');
+    if (!hasAccessToken) missingFields.push('access_token');
     if (!hasAdAccount) missingFields.push('ad_account');
-    if (!trackingReady) missingFields.push('tracking_pixel');
 
-    console.warn('[getUserMetaConfig] Meta not configured:', {
+    console.warn('[getUserMetaConfig] Meta not configured (minimal check):', {
       userId,
-      hasBusiness,
-      hasProfile,
-      hasPage,
-      hasInstagram,
+      hasAccessToken: !!hasAccessToken,
       hasAdAccount,
-      trackingReady,
       configurationComplete: metaCreds.configuration_complete,
     });
 
@@ -107,6 +103,18 @@ export async function getUserMetaConfig(userId: string): Promise<UserMetaConfig>
       'META_NOT_CONFIGURED',
       `Meta account is not fully configured. Missing: ${missingFields.join(', ')}. Please complete setup in your Profile settings.`
     );
+  }
+
+  // Log warnings for missing optional fields (but don't block)
+  if (!fullConfigComplete) {
+    const optionalMissing: string[] = [];
+    if (!hasBusiness) optionalMissing.push('business');
+    if (!hasProfile) optionalMissing.push('profile');
+    if (!hasPage) optionalMissing.push('page');
+    if (!hasInstagram) optionalMissing.push('instagram');
+    if (!hasPixel) optionalMissing.push('pixel');
+
+    console.log('[getUserMetaConfig] Meta connected (minimal), but missing optional assets:', optionalMissing.join(', '));
   }
 
   // 3. Return complete config

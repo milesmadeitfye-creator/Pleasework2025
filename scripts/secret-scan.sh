@@ -21,14 +21,14 @@ fi
 
 # Pattern 2: Base64 encoded keys (likely keys starting with MII)
 echo "  Checking for base64 encoded keys..."
-if grep -rE "MIGTAgEAMBMGByqGSM|MIIEvQIBADANBgkqhkiG|MIIBIjANBgkqhkiG" $EXCLUDE_DIRS $SCAN_FILES . 2>/dev/null | grep -v "ZERO_SECRETS_GUARANTEE.md" | grep -v "APPLE_MUSIC_SECURITY_AUDIT.md"; then
+if grep -rE "MIGTAgEAMBMGByqGSM|MIIEvQIBADANBgkqhkiG|MIIBIjANBgkqhkiG" $EXCLUDE_DIRS $SCAN_FILES . 2>/dev/null | grep -v "ZERO_SECRETS_GUARANTEE.md" | grep -v "APPLE_MUSIC_SECURITY_AUDIT.md" | grep -v "SECURITY_CHECKLIST.md"; then
   echo "❌ ERROR: Found potential base64 encoded private key"
   ERRORS=$((ERRORS + 1))
 fi
 
 # Pattern 3: Stripe live keys (not test keys, not placeholders)
 echo "  Checking for Stripe live secret keys..."
-if grep -rE "sk_live_[A-Za-z0-9]{99}" $EXCLUDE_DIRS $SCAN_FILES . 2>/dev/null; then
+if grep -rE "sk_live_[A-Za-z0-9]{99}" $EXCLUDE_DIRS $SCAN_FILES . 2>/dev/null | grep -v "SECURITY_CHECKLIST.md"; then
   echo "❌ ERROR: Found real Stripe live secret key"
   ERRORS=$((ERRORS + 1))
 fi

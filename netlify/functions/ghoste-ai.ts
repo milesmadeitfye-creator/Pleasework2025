@@ -142,24 +142,35 @@ function buildSystemPrompt(task: string | undefined, meta?: Record<string, any>,
   let adsDataSection = '';
   if (adsContext) {
     const metaSummary = adsContext.meta.connected
-      ? `Meta connected: ${adsContext.meta.campaigns.length} campaigns, $${adsContext.meta.insights.spend7d.toFixed(2)} spent last 7d, ${adsContext.meta.insights.clicks7d} clicks (${adsContext.meta.insights.ctr7d.toFixed(2)}% CTR, $${adsContext.meta.insights.cpc7d.toFixed(2)} CPC)`
-      : 'Meta not connected';
+      ? `✅ Meta CONNECTED: ${adsContext.meta.adAccounts.length} ad accounts detected, ${adsContext.meta.campaigns.length} campaigns found`
+      : '❌ Meta NOT CONNECTED: User needs to connect Meta in Profile → Connected Accounts';
+
+    const metaStats = adsContext.meta.connected && adsContext.meta.campaigns.length > 0
+      ? `\n   Performance: $${adsContext.meta.insights.spend7d.toFixed(2)} spent (7d), ${adsContext.meta.insights.clicks7d} clicks, ${adsContext.meta.insights.ctr7d.toFixed(2)}% CTR, $${adsContext.meta.insights.cpc7d.toFixed(2)} CPC`
+      : '';
 
     // List top campaigns by spend (for AI to reference by name)
     const campaignList = adsContext.meta.campaigns && adsContext.meta.campaigns.length > 0
-      ? `\n\nActive Campaigns (top by spend):\n${adsContext.meta.campaigns
+      ? `\n\n📢 Active Campaigns (reference these by name):\n${adsContext.meta.campaigns
           .sort((a, b) => b.spend - a.spend)
           .slice(0, 5)
-          .map(c => `- "${c.name}": $${c.spend.toFixed(2)} spent, ${c.impressions.toLocaleString()} impressions, ${c.clicks} clicks (${c.ctr.toFixed(2)}% CTR, $${c.cpc.toFixed(2)} CPC) [${c.status}]`)
+          .map(c => `   - "${c.name}": $${c.spend.toFixed(2)} spent, ${c.impressions.toLocaleString()} impressions, ${c.clicks} clicks (${c.ctr.toFixed(2)}% CTR, $${c.cpc.toFixed(2)} CPC) [${c.status}]`)
           .join('\n')}`
       : '';
 
-    const ghosteSummary = `Ghoste: ${adsContext.ghoste.campaigns.length} internal campaigns, ${adsContext.ghoste.drafts} drafts pending`;
+    const ghosteSummary = `Ghoste Internal: ${adsContext.ghoste.campaigns.length} campaigns created, ${adsContext.ghoste.drafts} drafts pending`;
 
-    const trackingSummary = `Tracking: ${adsContext.tracking.clicks7d} smartlink clicks last 7d, ${adsContext.tracking.topLinks.length} active links`;
+    // Smart links - be explicit about what's available to promote
+    const smartLinksSummary = adsContext.tracking.smartLinksCount > 0
+      ? `🔗 Smart Links: ${adsContext.tracking.smartLinksCount} total, ${adsContext.tracking.clicks7d} clicks (7d)`
+      : '🔗 Smart Links: 0 created yet';
+
+    const smartLinksList = adsContext.tracking.smartLinks && adsContext.tracking.smartLinks.length > 0
+      ? `\n   Recent links (suggest promoting these):\n${adsContext.tracking.smartLinks.slice(0, 3).map(l => `   - "${l.title || 'Untitled'}" → ghoste.one/s/${l.slug}`).join('\n')}`
+      : '';
 
     const opportunities = adsContext.summary.opportunities.length > 0
-      ? `\n\nOpportunities:\n${adsContext.summary.opportunities.map(o => `- ${o}`).join('\n')}`
+      ? `\n\n💡 Opportunities:\n${adsContext.summary.opportunities.map(o => `   - ${o}`).join('\n')}`
       : '';
 
     // Add operator insights if available
@@ -174,23 +185,26 @@ function buildSystemPrompt(task: string | undefined, meta?: Record<string, any>,
 REAL-TIME ADS & PERFORMANCE DATA
 ====================================================
 
-${metaSummary}
+${metaSummary}${metaStats}
 ${campaignList}
+
 ${ghosteSummary}
-${trackingSummary}
+${smartLinksSummary}${smartLinksList}
 ${opportunities}
 ${operatorSection}
 
 USE THIS DATA to answer questions like:
-- "how are my ads doing"
-- "what should I improve"
-- "am I wasting money"
-- "which campaign is best"
+- "make me some ads" → Check Meta connection status first, suggest smart links to promote
+- "how are my ads doing" → Reference actual campaign names and metrics
+- "what should I improve" → Use opportunities list
+- "promote my new track" → Suggest creating smart link if none exist, or use existing
 
-IMPORTANT:
-- Always reference REAL campaign names from the "Active Campaigns" list above
-- Use actual metrics (spend, CTR, CPC) from the data
-- DO NOT make up campaign names or numbers
+CRITICAL RULES FOR AD REQUESTS:
+- If Meta is CONNECTED: You can create ads, campaigns, drafts - proceed confidently
+- If Meta is NOT CONNECTED: Tell user to connect Meta first in Profile → Connected Accounts
+- If Smart Links exist: Reference them by title/slug when suggesting promotions
+- Always use REAL campaign names from "Active Campaigns" list
+- DO NOT make up campaign names, metrics, or smart link URLs
 ${operatorSection ? '\n- Reference AI Operator scan results when discussing optimizations' : ''}
 
 `;
