@@ -36,7 +36,7 @@ const HeroShowcase = memo(function HeroShowcase({ onStartTrial, onSignIn, motion
               onClick={onStartTrial}
               className="glass-button bg-[#60a5fa] hover:bg-[#3b82f6] text-white font-bold px-8 py-4 rounded-xl text-base hover:shadow-xl hover:shadow-[#60a5fa]/30"
             >
-              Start 7-day trial — $59/mo
+              Get started free
             </button>
             <button
               onClick={onSignIn}
@@ -46,7 +46,7 @@ const HeroShowcase = memo(function HeroShowcase({ onStartTrial, onSignIn, motion
             </button>
           </div>
           <p className="text-sm text-white/50 mt-4">
-            Founding member pricing • Cancel anytime • No credit card for trial
+            Free to start • Flexible plans • Cancel anytime
           </p>
         </motion.div>
 

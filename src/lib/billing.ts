@@ -3,17 +3,10 @@
  */
 
 /**
- * Opens the Stripe checkout flow or billing page
- * Uses VITE_STRIPE_CHECKOUT_URL env var if available, otherwise falls back to /billing
+ * Opens the subscriptions page to view and select plans
  */
 export function openStripeCheckout() {
-  const url = import.meta.env.VITE_STRIPE_CHECKOUT_URL || '/billing';
-
-  if (url.startsWith('http')) {
-    window.location.href = url;
-  } else {
-    window.location.href = url;
-  }
+  window.location.href = '/subscriptions';
 }
 
 /**

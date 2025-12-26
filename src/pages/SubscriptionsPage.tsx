@@ -4,43 +4,47 @@ import { ArrowLeft, Check, Zap, AlertCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import * as ownerMetaPixel from '../lib/ownerMetaPixel';
+import { PLANS, type PlanId } from '../lib/plans';
 
-type PlanKey = 'operator' | 'growth' | 'scale';
-
-const plans: Array<{
-  key: PlanKey;
+type PlanData = {
+  key: PlanId;
   title: string;
   tagline: string;
   credits: string;
   price: string;
   bullets: string[];
   highlighted?: boolean;
-}> = [
+};
+
+const fallbackPlans: PlanData[] = [
   {
-    key: 'operator',
-    title: 'Operator',
-    tagline: 'Best for solo artists getting consistent motion.',
-    credits: '30,000 credits / month',
-    price: '$29/mo',
+    key: 'artist',
+    title: 'Artist',
+    tagline: 'For emerging artists',
+    credits: '10,000 credits / month',
+    price: '$9/mo',
     bullets: [
-      'Smart Links + tracking',
-      'Ghoste AI prompts',
-      'Core creator tools',
-      'Credit purchases enabled',
+      'Smart Links + Tracking',
+      'Pre-Save Campaigns',
+      'Basic Analytics',
+      'Email Capture',
+      'Fan Communication',
       '7-day free trial included',
     ],
   },
   {
     key: 'growth',
     title: 'Growth',
-    tagline: 'For artists + teams running multiple campaigns.',
-    credits: '65,000 credits / month',
-    price: '$59/mo',
+    tagline: 'For serious independents',
+    credits: '30,000 credits / month',
+    price: '$29/mo',
     bullets: [
-      'Everything in Operator',
-      'More automation + higher usage',
-      'Advanced analytics & workflows',
-      'Credit purchases enabled',
+      'Everything in Artist',
+      'Ad Campaign Manager',
+      'Advanced Analytics',
+      'Ghoste AI Assistant',
+      'Video Tools',
+      'Priority Support',
       '7-day free trial included',
     ],
     highlighted: true,
@@ -48,14 +52,16 @@ const plans: Array<{
   {
     key: 'scale',
     title: 'Scale',
-    tagline: 'For heavy usage / label-style operations.',
-    credits: 'Unlimited fair use',
-    price: '$149/mo',
+    tagline: 'For teams & labels',
+    credits: '100,000 credits / month',
+    price: '$59/mo',
     bullets: [
       'Everything in Growth',
-      'Highest limits',
-      'Priority handling',
-      'Credit purchases enabled',
+      'Team Collaboration',
+      'Unlimited Fair Use',
+      'Custom Integrations',
+      'Dedicated Support',
+      'White Label Options',
       '7-day free trial included',
     ],
   },
@@ -67,6 +73,8 @@ export default function SubscriptionsPage() {
   const { user } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
+  const [plans, setPlans] = useState<PlanData[]>(fallbackPlans);
+  const [pricesLoading, setPricesLoading] = useState(true);
 
   useEffect(() => {
     // Defensive pixel tracking - never crash if pixel fails
@@ -84,7 +92,52 @@ export default function SubscriptionsPage() {
     }
   }, [location.pathname]);
 
-  const onStartTrial = async (plan: PlanKey) => {
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const response = await fetch('/.netlify/functions/stripe-prices-list');
+        if (!response.ok) {
+          console.warn('[SubscriptionsPage] Failed to fetch Stripe prices, using fallback');
+          setPricesLoading(false);
+          return;
+        }
+
+        const data = await response.json();
+        if (!data.success || !data.plans || data.plans.length === 0) {
+          console.warn('[SubscriptionsPage] No plans returned from Stripe, using fallback');
+          setPricesLoading(false);
+          return;
+        }
+
+        // Map Stripe prices to our plan structure
+        const updatedPlans = fallbackPlans.map((fallbackPlan) => {
+          const stripePlan = data.plans.find((sp: any) => {
+            const planConfig = PLANS[fallbackPlan.key];
+            return sp.price_id === process.env[`VITE_${planConfig.stripePriceEnvKey}`];
+          });
+
+          if (stripePlan) {
+            return {
+              ...fallbackPlan,
+              price: `$${(stripePlan.unit_amount / 100).toFixed(0)}/mo`,
+            };
+          }
+
+          return fallbackPlan;
+        });
+
+        setPlans(updatedPlans);
+        setPricesLoading(false);
+      } catch (err) {
+        console.error('[SubscriptionsPage] Error fetching Stripe prices:', err);
+        setPricesLoading(false);
+      }
+    };
+
+    fetchPrices();
+  }, []);
+
+  const onStartTrial = async (plan: PlanId) => {
     if (!user) {
       navigate('/auth', { state: { returnTo: `/subscriptions?plan=${plan}` } });
       return;

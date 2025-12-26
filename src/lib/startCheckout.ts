@@ -3,10 +3,10 @@ import { supabase } from './supabase';
 
 /**
  * Start Stripe checkout for a subscription plan
- * @param planId - The plan to checkout (operator, growth, or label)
- * @default operator - The $59/mo plan used for all landing page CTAs
+ * @param planId - The plan to checkout (artist, growth, or scale)
+ * @default growth - The $29/mo most popular plan
  */
-export async function startCheckout(planId: PlanId = 'operator') {
+export async function startCheckout(planId: PlanId = 'growth') {
   try {
     // Check if user is authenticated
     const { data: { session } } = await supabase.auth.getSession();
@@ -58,10 +58,10 @@ export async function startCheckout(planId: PlanId = 'operator') {
 
 /**
  * Start checkout with pre-signup flow for unauthenticated users
- * @param planId - The plan to checkout (operator, growth, or label)
- * @default operator - The $59/mo plan used for all landing page CTAs
+ * @param planId - The plan to checkout (artist, growth, or scale)
+ * @default growth - The $29/mo most popular plan
  */
-export async function startCheckoutWithSignup(planId: PlanId = 'operator') {
+export async function startCheckoutWithSignup(planId: PlanId = 'growth') {
   try {
     const { data: { user } } = await supabase.auth.getUser();
 
@@ -82,8 +82,8 @@ export async function startCheckoutWithSignup(planId: PlanId = 'operator') {
 
 /**
  * Legacy function for backward compatibility
- * @deprecated Use startCheckout('operator') instead
+ * @deprecated Use startCheckout('growth') instead
  */
 export async function startCheckout59() {
-  return startCheckout('operator');
+  return startCheckout('growth');
 }

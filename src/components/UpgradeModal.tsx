@@ -62,7 +62,6 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
         <button
           onClick={handleMaybeLater}
           className="absolute top-3 right-3 text-gray-400 hover:text-white transition-colors"
-          disabled={loading}
         >
           <X className="w-5 h-5" />
         </button>
@@ -103,12 +102,6 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
             </ul>
           </div>
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-900/20 border border-red-700/50 rounded-lg">
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          )}
-
           <div className="flex gap-2">
             <button
               onClick={handleMaybeLater}
@@ -120,7 +113,7 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
               onClick={handleUpgrade}
               className="flex-1 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2"
             >
-              Start 7-day free trial
+              View Plans
             </button>
           </div>
         </div>

@@ -7,8 +7,6 @@ import { useMotionPolicy } from '../hooks/useMotionPolicy';
 import HeroShowcase from '../components/landing/HeroShowcase';
 import Pricing from '../components/landing/Pricing';
 import GhosteAiTry from '../components/landing/GhosteAiTry';
-import { startCheckout } from '../lib/startCheckout';
-
 const UseCases = lazy(() => import('../components/landing/UseCases'));
 const WalkthroughDemo = lazy(() => import('../components/landing/WalkthroughDemo'));
 const FeatureGrid = lazy(() => import('../components/landing/FeatureGrid'));
@@ -20,7 +18,6 @@ export default function LandingPageV2() {
   const { mode: motionMode, isMobile } = useMotionPolicy();
   const [showStickyCTA, setShowStickyCTA] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
 
   // DO NOT auto-redirect logged-in users - this causes redirect loops
   // when authenticated users hit the catch-all route or visit landing page directly
@@ -35,14 +32,11 @@ export default function LandingPageV2() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  const handleStartTrial = async () => {
-    setCheckoutLoading(true);
-    try {
-      await startCheckout('operator'); // Operator = $59/mo plan
-    } catch (error) {
-      console.error('Checkout error:', error);
-    } finally {
-      setCheckoutLoading(false);
+  const handleStartTrial = () => {
+    if (user) {
+      navigate('/dashboard/overview');
+    } else {
+      navigate('/auth?mode=signup');
     }
   };
 
@@ -136,10 +130,9 @@ export default function LandingPageV2() {
             </button>
             <button
               onClick={handleStartTrial}
-              disabled={checkoutLoading}
-              className="bg-[#60a5fa] hover:bg-[#3b82f6] text-white font-bold px-6 py-2.5 rounded-lg text-sm transition-all hover:shadow-lg hover:shadow-[#60a5fa]/30 disabled:opacity-50"
+              className="bg-[#60a5fa] hover:bg-[#3b82f6] text-white font-bold px-6 py-2.5 rounded-lg text-sm transition-all hover:shadow-lg hover:shadow-[#60a5fa]/30"
             >
-              {checkoutLoading ? 'Loading...' : 'Start your trial'}
+              {user ? 'Go to Dashboard' : 'Get started'}
             </button>
           </div>
 
@@ -203,7 +196,7 @@ export default function LandingPageV2() {
                   }}
                   className="block w-full text-center bg-[#60a5fa] hover:bg-[#3b82f6] text-white font-bold py-5 px-6 rounded-2xl text-xl shadow-xl"
                 >
-                  Start your trial
+                  {user ? 'Go to Dashboard' : 'Get started'}
                 </button>
               </div>
             </motion.div>
@@ -270,13 +263,13 @@ export default function LandingPageV2() {
           <div className="container mx-auto px-4 sm:px-6 flex items-center justify-between">
             <div className="hidden sm:block">
               <div className="font-bold">Ready to grow your music career?</div>
-              <div className="text-sm text-white/60">Start your 7-day trial today</div>
+              <div className="text-sm text-white/60">Join Ghoste today</div>
             </div>
             <button
               onClick={handleStartTrial}
               className="bg-[#60a5fa] hover:bg-[#3b82f6] text-white font-bold px-8 py-3 rounded-xl transition-all hover:shadow-xl hover:shadow-[#60a5fa]/30 w-full sm:w-auto"
             >
-              Start trial — $59/mo
+              {user ? 'Go to Dashboard' : 'Get started'}
             </button>
           </div>
         </motion.div>
@@ -295,7 +288,7 @@ export default function LandingPageV2() {
             onClick={handleStartTrial}
             className="bg-[#60a5fa] hover:bg-[#3b82f6] text-white font-bold px-8 py-3 rounded-xl transition-all hover:shadow-xl hover:shadow-[#60a5fa]/30 w-full"
           >
-            Start trial — $59/mo
+            {user ? 'Go to Dashboard' : 'Get started'}
           </button>
         </motion.div>
       )}

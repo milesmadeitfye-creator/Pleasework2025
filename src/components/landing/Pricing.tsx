@@ -13,43 +13,45 @@ const plans: Array<{
   features: string[];
 }> = [
   {
-    name: 'Operator',
-    price: 29,
+    name: 'Artist',
+    price: 9,
     description: 'For emerging artists',
     features: [
-      'Smart Links with tracking',
-      '3 active campaigns',
-      'Basic analytics',
-      'Email automation',
-      '1,000 credits/month',
+      'Smart Links + Tracking',
+      'Pre-Save Campaigns',
+      'Basic Analytics',
+      'Email Capture',
+      'Fan Communication',
+      '10,000 credits/month',
     ],
   },
   {
     name: 'Growth',
-    price: 59,
+    price: 29,
     description: 'For serious independents',
     popular: true,
     features: [
-      'Everything in Operator',
-      'Unlimited campaigns',
-      'Meta Ads integration',
-      'AI Manager insights',
-      'Advanced analytics',
-      'Split contracts',
-      '3,000 credits/month',
+      'Everything in Artist',
+      'Ad Campaign Manager',
+      'Advanced Analytics',
+      'Ghoste AI Assistant',
+      'Video Tools',
+      '30,000 credits/month',
+      'Priority Support',
     ],
   },
   {
-    name: 'Label',
-    price: 99,
+    name: 'Scale',
+    price: 59,
     description: 'For teams & labels',
     features: [
       'Everything in Growth',
-      'Multi-artist management',
-      'White-label options',
-      'Priority support',
-      'Custom integrations',
-      '10,000 credits/month',
+      'Team Collaboration',
+      'Unlimited Fair Use',
+      'Custom Integrations',
+      '100,000 credits/month',
+      'Dedicated Support',
+      'White Label Options',
     ],
   },
 ];
@@ -65,13 +67,13 @@ export default function Pricing({ onStartTrial }: PricingProps) {
         className="text-center mb-12"
       >
         <h2 className="text-3xl sm:text-4xl font-black mb-4">
-          Founding member pricing
+          Simple, transparent pricing
         </h2>
         <p className="text-lg text-white/60 max-w-2xl mx-auto mb-2">
-          Lock in early pricing. Cancel anytime. 7-day trial included.
+          Start free. Upgrade when you're ready. Cancel anytime.
         </p>
         <p className="text-sm text-[#60a5fa] font-medium">
-          Prices increase after soft launch period
+          All plans include 7-day trial
         </p>
       </motion.div>
 
@@ -123,7 +125,7 @@ export default function Pricing({ onStartTrial }: PricingProps) {
                   : 'bg-white/5 hover:bg-white/10 text-white border border-white/10'
               }`}
             >
-              Start 7-day trial
+              Get started
             </button>
           </motion.div>
         ))}

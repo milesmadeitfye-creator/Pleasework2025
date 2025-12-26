@@ -1,9 +1,11 @@
 /**
  * Centralized plan configuration for Stripe subscriptions
  * Maps plan IDs to Stripe price environment variables
+ *
+ * Updated pricing: Artist $9, Growth $29, Scale $59
  */
 
-export type PlanId = 'operator' | 'growth' | 'label';
+export type PlanId = 'artist' | 'growth' | 'scale';
 
 export interface Plan {
   id: PlanId;
@@ -17,52 +19,55 @@ export interface Plan {
 }
 
 export const PLANS: Record<PlanId, Plan> = {
-  operator: {
-    id: 'operator',
-    name: 'Operator',
+  artist: {
+    id: 'artist',
+    name: 'Artist',
     description: 'For emerging artists',
-    priceMonthly: 29,
-    stripePriceEnvKey: 'STRIPE_PRICE_OPERATOR_MONTHLY',
-    creditsPerMonth: 1000,
+    priceMonthly: 9,
+    stripePriceEnvKey: 'STRIPE_PRICE_ARTIST',
+    creditsPerMonth: 10000,
     features: [
-      'Smart Links',
+      'Smart Links + Tracking',
       'Pre-Save Campaigns',
       'Basic Analytics',
       'Email Capture',
-      '1,000 credits/month',
+      'Fan Communication',
+      '10,000 credits/month',
     ],
   },
   growth: {
     id: 'growth',
     name: 'Growth',
     description: 'For serious independents',
-    priceMonthly: 59,
-    stripePriceEnvKey: 'STRIPE_PRICE_GROWTH_MONTHLY',
-    creditsPerMonth: 3000,
+    priceMonthly: 29,
+    stripePriceEnvKey: 'STRIPE_PRICE_GROWTH',
+    creditsPerMonth: 30000,
     popular: true,
     features: [
-      'Everything in Operator',
+      'Everything in Artist',
       'Ad Campaign Manager',
       'Advanced Analytics',
       'Ghoste AI Assistant',
-      '3,000 credits/month',
+      'Video Tools',
+      '30,000 credits/month',
       'Priority Support',
     ],
   },
-  label: {
-    id: 'label',
-    name: 'Label',
+  scale: {
+    id: 'scale',
+    name: 'Scale',
     description: 'For teams & labels',
-    priceMonthly: 99,
-    stripePriceEnvKey: 'STRIPE_PRICE_LABEL_MONTHLY',
-    creditsPerMonth: 10000,
+    priceMonthly: 59,
+    stripePriceEnvKey: 'STRIPE_PRICE_SCALE',
+    creditsPerMonth: 100000,
     features: [
       'Everything in Growth',
       'Team Collaboration',
-      'White Label Options',
+      'Unlimited Fair Use',
       'Custom Integrations',
-      '10,000 credits/month',
+      '100,000 credits/month',
       'Dedicated Support',
+      'White Label Options',
     ],
   },
 };
@@ -71,6 +76,15 @@ export const PLANS: Record<PlanId, Plan> = {
  * Default plan for sticky CTA and primary marketing
  */
 export const DEFAULT_STICKY_PLAN: PlanId = 'growth';
+
+/**
+ * Free tier configuration
+ */
+export const FREE_TIER = {
+  name: 'Free',
+  creditsPerMonth: 7500,
+  description: 'Try Ghoste with limited credits',
+};
 
 /**
  * Get plan by ID with fallback to growth plan

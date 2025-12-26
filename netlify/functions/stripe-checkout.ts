@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 // Env vars validation
 const requiredEnvVars = {
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-  STRIPE_PRICE_OPERATOR: process.env.STRIPE_PRICE_OPERATOR,
+  STRIPE_PRICE_ARTIST: process.env.STRIPE_PRICE_ARTIST,
   STRIPE_PRICE_GROWTH: process.env.STRIPE_PRICE_GROWTH,
   STRIPE_PRICE_SCALE: process.env.STRIPE_PRICE_SCALE,
   SUPABASE_URL: process.env.SUPABASE_URL,
@@ -116,7 +116,7 @@ export const handler: Handler = async (event) => {
     const { plan } = body;
 
     // Validate plan
-    const validPlans = ['operator', 'growth', 'scale'];
+    const validPlans = ['artist', 'growth', 'scale'];
     if (!plan || !validPlans.includes(plan)) {
       return {
         statusCode: 400,
@@ -131,7 +131,7 @@ export const handler: Handler = async (event) => {
 
     // Map plan to Stripe price ID
     const priceIdMap: Record<string, string> = {
-      operator: requiredEnvVars.STRIPE_PRICE_OPERATOR!,
+      artist: requiredEnvVars.STRIPE_PRICE_ARTIST!,
       growth: requiredEnvVars.STRIPE_PRICE_GROWTH!,
       scale: requiredEnvVars.STRIPE_PRICE_SCALE!,
     };
