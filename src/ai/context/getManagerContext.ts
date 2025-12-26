@@ -1,13 +1,46 @@
 /**
- * SINGLE SOURCE OF TRUTH for all AI Manager context
- * This is the ONLY context the AI should use for My Manager responses
+ * CAMPAIGNS AND METRICS ONLY - NOT FOR CONNECTION STATUS
+ *
+ * CRITICAL: Meta connection and smart links status come from ai_get_setup_status RPC
+ * This context only fetches campaigns, clicks, and performance metrics
+ * DO NOT use meta.connected or tracking.smartLinksCount for connection decisions
  */
 
 import { supabase } from '../../lib/supabase';
 
-export interface ManagerContext {
+export interface SetupStatusInput {
   meta: {
     connected: boolean;
+    adAccounts: Array<{
+      id: string;
+      name: string;
+      accountId: string;
+      currency?: string;
+    }>;
+    pages: Array<{
+      id: string;
+      name: string;
+    }>;
+    pixels: Array<{
+      id: string;
+      name: string;
+    }>;
+  };
+  smartLinks: {
+    count: number;
+    recent: Array<{
+      id: string;
+      title: string;
+      slug: string;
+      destinationUrl: string;
+    }>;
+  };
+}
+
+export interface ManagerContext {
+  // Meta connection status (from RPC, DO NOT re-query)
+  meta: {
+    connected: boolean; // FROM SETUP STATUS RPC ONLY
     adAccounts: Array<{
       id: string;
       name: string;
@@ -50,10 +83,11 @@ export interface ManagerContext {
     lastCreatedAt: string | null;
     errors: string[];
   };
+  // Smart links tracking (FROM SETUP STATUS RPC ONLY for count/list)
   tracking: {
     clicks7d: number;
     clicks30d: number;
-    smartLinksCount: number;
+    smartLinksCount: number; // FROM SETUP STATUS RPC ONLY
     smartLinks: Array<{ id: string; title: string | null; slug: string; created_at: string }>;
     topLinks: Array<{ slug: string; clicks: number }>;
     topPlatforms: Array<{ platform: string; clicks: number }>;
@@ -70,11 +104,15 @@ export interface ManagerContext {
   };
 }
 
-export async function getManagerContext(userId: string): Promise<ManagerContext> {
+/**
+ * Get manager context using setupStatus as canonical source
+ * CRITICAL: Pass setupStatus from ai_get_setup_status RPC to avoid contradictions
+ */
+export async function getManagerContext(userId: string, setupStatus?: SetupStatusInput): Promise<ManagerContext> {
   const context: ManagerContext = {
     meta: {
-      connected: false,
-      adAccounts: [],
+      connected: setupStatus?.meta.connected ?? false, // FROM RPC
+      adAccounts: setupStatus?.meta.adAccounts ?? [],  // FROM RPC
       campaigns: [],
       insights: {
         spend7d: 0,
@@ -96,8 +134,13 @@ export async function getManagerContext(userId: string): Promise<ManagerContext>
     tracking: {
       clicks7d: 0,
       clicks30d: 0,
-      smartLinksCount: 0,
-      smartLinks: [],
+      smartLinksCount: setupStatus?.smartLinks.count ?? 0, // FROM RPC
+      smartLinks: setupStatus?.smartLinks.recent.map(l => ({
+        id: l.id,
+        title: l.title,
+        slug: l.slug,
+        created_at: '', // RPC doesn't need to provide this
+      })) ?? [], // FROM RPC
       topLinks: [],
       topPlatforms: [],
       errors: [],
@@ -113,11 +156,11 @@ export async function getManagerContext(userId: string): Promise<ManagerContext>
     },
   };
 
-  // Fetch all sources in parallel (non-blocking)
+  // Fetch campaign metrics and clicks only (NOT connection status)
   const results = await Promise.allSettled([
-    fetchMetaContext(userId),
+    fetchMetaCampaigns(userId, setupStatus?.meta.connected ?? false),
     fetchGhosteContext(userId),
-    fetchTrackingContext(userId),
+    fetchTrackingClicks(userId),
   ]);
 
   // Merge results
@@ -145,10 +188,14 @@ export async function getManagerContext(userId: string): Promise<ManagerContext>
   return context;
 }
 
-async function fetchMetaContext(userId: string) {
+/**
+ * Fetch Meta campaigns and metrics ONLY
+ * Connection status comes from setupStatus parameter (from RPC)
+ */
+async function fetchMetaCampaigns(userId: string, isConnected: boolean) {
   const meta: ManagerContext['meta'] = {
-    connected: false,
-    adAccounts: [],
+    connected: isConnected, // FROM RPC, DO NOT RE-QUERY
+    adAccounts: [], // FROM RPC, DO NOT RE-QUERY
     campaigns: [],
     insights: {
       spend7d: 0,
@@ -162,51 +209,13 @@ async function fetchMetaContext(userId: string) {
   };
 
   try {
-    // Check Meta credentials - this determines connection status AND selected assets
-    const { data: creds, error: credsError } = await supabase
-      .from('meta_credentials')
-      .select('access_token, expires_at, updated_at, ad_account_id, ad_account_name, page_id, facebook_page_name, instagram_id, instagram_username, pixel_id, business_id, business_name, configuration_complete')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (credsError) {
-      console.warn('[fetchMetaContext] Credentials check failed:', credsError.message);
-      meta.errors.push(`Credentials check failed: ${credsError.message}`);
+    // ONLY fetch campaigns if connected (from RPC)
+    if (!isConnected) {
+      console.log('[fetchMetaCampaigns] Skipping - Meta not connected per RPC');
+      return meta;
     }
 
-    // Meta is CONNECTED if access token exists
-    if (creds && creds.access_token) {
-      meta.connected = true;
-
-      // Check if token is expired (warning only, still connected)
-      if (creds.expires_at) {
-        const expiresAt = new Date(creds.expires_at);
-        if (expiresAt < new Date()) {
-          meta.errors.push('Access token expired - please reconnect Meta');
-        }
-      }
-
-      // If connected, add selected assets info to adAccounts for context
-      if (creds.ad_account_id) {
-        meta.adAccounts.push({
-          id: creds.ad_account_id,
-          name: creds.ad_account_name || 'Selected Ad Account',
-          accountId: creds.ad_account_id,
-        });
-      }
-    }
-
-    // Fetch ad accounts (errors here should NOT affect connection status)
-    const { data: adAccounts, error: adAccountsError } = await supabase
-      .from('meta_ad_accounts')
-      .select('*')
-      .eq('user_id', userId);
-
-    if (adAccountsError) {
-      console.warn('[fetchMetaContext] Ad accounts fetch error (non-fatal):', adAccountsError.message);
-    }
-
-    // Fetch campaigns (errors here should NOT affect connection status)
+    // Fetch campaigns ONLY (connection status already determined by RPC)
     const { data: campaigns, error: campaignsError } = await supabase
       .from('meta_ad_campaigns')
       .select('*')
@@ -215,16 +224,8 @@ async function fetchMetaContext(userId: string) {
       .limit(50);
 
     if (campaignsError) {
-      console.warn('[fetchMetaContext] Campaigns fetch error (non-fatal):', campaignsError.message);
-    }
-
-    if (adAccounts && adAccounts.length > 0) {
-      meta.adAccounts = adAccounts.map(acc => ({
-        id: acc.id,
-        name: acc.name || 'Unnamed Account',
-        accountId: acc.ad_account_id || acc.account_id || acc.id,
-        currency: acc.currency,
-      }));
+      console.warn('[fetchMetaCampaigns] Campaigns fetch error:', campaignsError.message);
+      meta.errors.push(`Campaigns fetch failed: ${campaignsError.message}`);
     }
 
     if (campaigns && campaigns.length > 0) {
@@ -263,18 +264,14 @@ async function fetchMetaContext(userId: string) {
       if (meta.insights.clicks7d > 0) {
         meta.insights.cpc7d = meta.insights.spend7d / meta.insights.clicks7d;
       }
-    }
 
-    // Add helpful context messages (only if truly not connected)
-    if (!meta.connected) {
-      meta.errors.push('Meta not connected - no access token found');
-    } else if (meta.campaigns.length === 0) {
-      // Connected but no campaigns yet (informational, not an error)
-      console.log('[fetchMetaContext] Meta connected but no campaigns found yet');
+      console.log('[fetchMetaCampaigns] Loaded', meta.campaigns.length, 'campaigns');
+    } else {
+      console.log('[fetchMetaCampaigns] No campaigns found (but Meta is connected per RPC)');
     }
   } catch (error: any) {
-    console.error('[fetchMetaContext] Unexpected error:', error);
-    meta.errors.push(`Meta error: ${error.message}`);
+    console.error('[fetchMetaCampaigns] Unexpected error:', error);
+    meta.errors.push(`Campaigns fetch error: ${error.message}`);
   }
 
   return meta;
@@ -328,47 +325,23 @@ async function fetchGhosteContext(userId: string) {
   return ghoste;
 }
 
-async function fetchTrackingContext(userId: string) {
+/**
+ * Fetch tracking clicks ONLY
+ * Smart links count/list comes from setupStatus parameter (from RPC)
+ */
+async function fetchTrackingClicks(userId: string) {
   const tracking: ManagerContext['tracking'] = {
     clicks7d: 0,
     clicks30d: 0,
-    smartLinksCount: 0,
-    smartLinks: [],
+    smartLinksCount: 0, // FROM RPC, DO NOT RE-QUERY
+    smartLinks: [], // FROM RPC, DO NOT RE-QUERY
     topLinks: [],
     topPlatforms: [],
     errors: [],
   };
 
   try {
-    // Fetch smart links count and recent links
-    // IMPORTANT: Database uses 'user_id' column, not 'owner_user_id'
-    const { data: smartLinks, error: smartLinksError } = await supabase
-      .from('smart_links')
-      .select('id, title, slug, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    if (smartLinksError) {
-      console.error('[fetchTrackingContext] Smart links query failed:', smartLinksError.message);
-      tracking.errors.push(`Smart links query failed: ${smartLinksError.message}`);
-    } else if (smartLinks) {
-      tracking.smartLinks = smartLinks;
-    }
-
-    // Get full count of smart links
-    const { count: totalCount, error: countError } = await supabase
-      .from('smart_links')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-
-    if (countError) {
-      console.error('[fetchTrackingContext] Smart links count failed:', countError.message);
-      tracking.errors.push(`Smart links count failed: ${countError.message}`);
-    } else if (totalCount !== null) {
-      tracking.smartLinksCount = totalCount;
-    }
-
+    // ONLY fetch click metrics, NOT smart links list/count
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
@@ -431,7 +404,14 @@ async function fetchTrackingContext(userId: string) {
       .gte('created_at', thirtyDaysAgo.toISOString());
 
     tracking.clicks30d = count || 0;
+
+    console.log('[fetchTrackingClicks] Clicks:', {
+      clicks7d: tracking.clicks7d,
+      clicks30d: tracking.clicks30d,
+      topLinks: tracking.topLinks.length,
+    });
   } catch (error: any) {
+    console.error('[fetchTrackingClicks] Error:', error);
     tracking.errors.push(`Tracking error: ${error.message}`);
   }
 

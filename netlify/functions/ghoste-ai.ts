@@ -216,17 +216,50 @@ USE THIS DATA to answer questions like:
 - "what should I improve" → Use opportunities list
 - "promote my new track" → Suggest creating smart link if none exist, or use existing
 
-CRITICAL RULES FOR AI (MANDATORY):
-1. CANONICAL SETUP STATUS (above) is the ONLY source of truth for Meta connection and Smart Links
-2. If "Meta connected = true" in setup status, NEVER claim Meta is not connected
-3. If "Smart links count = N" where N > 0, NEVER claim user has no smart links
-4. If setup status says connected=false, tell user: "Connect Meta in Profile → Connected Accounts first"
-5. If setup status says smart_links_count=0, tell user: "Create a smart link first, then I can run ads"
-6. DO NOT query meta_credentials or smart_links yourself - trust the setup status data above
-7. If setup status has errors, say: "I couldn't verify your setup status. Try again or check your connections."
-8. Always reference REAL campaign names from "Active Campaigns" list
-9. Always reference REAL smart link titles/slugs from setup status
-10. DO NOT make up campaign names, metrics, or smart link URLs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 CRITICAL RULES (ZERO TOLERANCE FOR VIOLATIONS) 🚨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. SETUP STATUS IS CANONICAL
+   The "CANONICAL SETUP STATUS (from RPC)" section above is THE ONLY source of truth.
+   DO NOT contradict it. DO NOT second-guess it. DO NOT query anything yourself.
+
+2. META CONNECTION
+   ${setupStatus?.meta.connected
+     ? `✅ Meta IS connected (verified). NEVER say "not connected" or "connect your Meta".
+        Ad accounts: ${setupStatus.meta.adAccounts.length}
+        Pages: ${setupStatus.meta.pages.length}
+        Pixels: ${setupStatus.meta.pixels.length}`
+     : `❌ Meta NOT connected. Guide user to Profile → Connected Accounts to connect.`}
+
+3. SMART LINKS
+   ${setupStatus?.smartLinks.count > 0
+     ? `✅ ${setupStatus.smartLinks.count} smart links exist (verified). NEVER say "no smart links" or "create a smart link".
+        Reference these by title/slug when user asks about promotion.`
+     : `❌ NO smart links yet. Tell user to create a smart link before running ads.`}
+
+4. CAMPAIGNS
+   ${adsContext && adsContext.meta.campaigns.length > 0
+     ? `✅ ${adsContext.meta.campaigns.length} campaigns found in DB.
+        Use REAL campaign names from list above. DO NOT make up campaign names.`
+     : `❌ No campaigns found yet. User hasn't created campaigns.`}
+
+5. PIXELS & CONVERSION TRACKING
+   ${setupStatus?.meta.pixels && setupStatus.meta.pixels.length > 0
+     ? `✅ ${setupStatus.meta.pixels.length} pixel(s) connected: ${setupStatus.meta.pixels.map(p => p.name).join(', ')}
+        If campaigns don't show pixel_id field, explain: "Your pixel is connected (${setupStatus.meta.pixels[0].name}). We attach it during ad set / conversion setup."`
+     : `⚠️  No pixels connected yet. Explain: "You need a Meta Pixel for conversion tracking. Connect one in Meta Ads Manager."`}
+
+6. IF YOU VIOLATE THESE RULES
+   Your response will be rejected and regenerated. Follow the data exactly.
+
+7. ALWAYS USE REAL DATA
+   - Campaign names: from "Active Campaigns" list
+   - Smart link slugs: from setup status
+   - Metrics: from campaign insights
+   - DO NOT fabricate any data
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - If user asks "make me some ads" but has no smart links: Say "Create a smart link first so I know what to promote"
 ${operatorSection ? '\n- Reference AI Operator scan results when discussing optimizations' : ''}
 
@@ -580,15 +613,17 @@ export const handler: Handler = async (event) => {
       await storeMessages(supabase, finalConversationId, user_id, userMessages);
     }
 
-    // Fetch canonical setup status (fail-safe)
-    // CRITICAL: Uses server-side RPC to bypass RLS issues
+    // STEP 1: Fetch canonical setup status from RPC (SINGLE SOURCE OF TRUTH)
+    // CRITICAL: This is the ONLY source for Meta connection and smart links status
     let setupStatus: AISetupStatus | null = null;
     try {
       setupStatus = await getAISetupStatus(user_id);
-      console.log('[ghoste-ai] Setup status loaded:', {
+      console.log('[ghoste-ai] Canonical setup status loaded (from RPC):', {
         metaConnected: setupStatus.meta.connected,
-        metaHasToken: setupStatus.meta.hasToken,
+        sourceTable: setupStatus.meta.sourceTable,
         metaAdAccounts: setupStatus.meta.adAccounts.length,
+        metaPages: setupStatus.meta.pages.length,
+        metaPixels: setupStatus.meta.pixels.length,
         smartLinksCount: setupStatus.smartLinks.count,
         errors: setupStatus.errors.length,
       });
@@ -597,16 +632,31 @@ export const handler: Handler = async (event) => {
       // Continue without setup status - chat still works
     }
 
-    // Fetch ads context for campaign details (fail-safe)
+    // STEP 2: Fetch campaign metrics (using setupStatus as input to avoid contradictions)
+    // CRITICAL: Pass setupStatus so getManagerContext doesn't re-query connection status
     let adsContext: ManagerContext | null = null;
     try {
-      adsContext = await getManagerContext(user_id);
-      console.log('[ghoste-ai] Ads context loaded:', {
+      const setupInput = setupStatus ? {
+        meta: {
+          connected: setupStatus.meta.connected,
+          adAccounts: setupStatus.meta.adAccounts,
+          pages: setupStatus.meta.pages,
+          pixels: setupStatus.meta.pixels,
+        },
+        smartLinks: {
+          count: setupStatus.smartLinks.count,
+          recent: setupStatus.smartLinks.recent,
+        },
+      } : undefined;
+
+      adsContext = await getManagerContext(user_id, setupInput);
+      console.log('[ghoste-ai] Campaign metrics loaded:', {
         campaigns: adsContext.meta.campaigns.length,
         spend7d: adsContext.summary.totalSpend7d,
+        metaConnectedViaInput: setupInput?.meta.connected,
       });
     } catch (error) {
-      console.error('[ghoste-ai] Failed to load ads context:', error);
+      console.error('[ghoste-ai] Failed to load campaign metrics:', error);
       // Continue without ads context - chat still works
     }
 
@@ -675,6 +725,75 @@ export const handler: Handler = async (event) => {
         reply: rawResponse,
         actions: null,
       };
+    }
+
+    // GUARDRAILS: Detect and fix contradictions
+    if (setupStatus && parsed.reply) {
+      const replyLower = parsed.reply.toLowerCase();
+      let hadContradiction = false;
+      const violations: string[] = [];
+
+      // Check 1: If RPC says Meta connected, AI must not say disconnected
+      if (setupStatus.meta.connected) {
+        const disconnectPhrases = [
+          'not connected',
+          'isn\'t connected',
+          'no meta account',
+          'connect your meta',
+          'no ad accounts connected',
+          'no pages connected',
+          'no pixels connected'
+        ];
+
+        for (const phrase of disconnectPhrases) {
+          if (replyLower.includes(phrase) && replyLower.includes('meta')) {
+            hadContradiction = true;
+            violations.push(`Meta is connected but AI claimed: "${phrase}"`);
+            break;
+          }
+        }
+      }
+
+      // Check 2: If RPC says smart links exist, AI must not say none
+      if (setupStatus.smartLinks.count > 0) {
+        const noLinksPhrases = ['no smart links', 'create a smart link', 'no links yet'];
+        for (const phrase of noLinksPhrases) {
+          if (replyLower.includes(phrase)) {
+            hadContradiction = true;
+            violations.push(`${setupStatus.smartLinks.count} smart links exist but AI claimed: "${phrase}"`);
+            break;
+          }
+        }
+      }
+
+      // If contradiction detected, log and apply correction
+      if (hadContradiction) {
+        console.error('[ghoste-ai] 🚨 CONTRADICTION DETECTED:', violations);
+
+        const facts = [
+          `Meta connected: ${setupStatus.meta.connected} (source: ${setupStatus.meta.sourceTable})`,
+          `Ad accounts: ${setupStatus.meta.adAccounts.length}`,
+          `Pages: ${setupStatus.meta.pages.length}`,
+          `Pixels: ${setupStatus.meta.pixels.length}`,
+          `Smart links: ${setupStatus.smartLinks.count}`,
+        ];
+
+        parsed.reply = `[System corrected contradictory response]
+
+I need to correct myself - I had the wrong information. Here are the facts:
+
+${facts.join('\n')}
+
+Based on this, ${setupStatus.meta.connected && setupStatus.smartLinks.count > 0
+  ? `you're all set to run campaigns! You have ${setupStatus.smartLinks.count} smart link${setupStatus.smartLinks.count === 1 ? '' : 's'} and Meta is connected with ${setupStatus.meta.adAccounts.length} ad account${setupStatus.meta.adAccounts.length === 1 ? '' : 's'}. What would you like to promote?`
+  : !setupStatus.meta.connected
+  ? `you need to connect Meta first (Profile → Connected Accounts), then you can launch campaigns.`
+  : setupStatus.smartLinks.count === 0
+  ? `you need to create a smart link first so I know what to promote with your ads.`
+  : `you're ready to rock. What do you want to do?`}`;
+
+        console.log('[ghoste-ai] Applied automatic contradiction correction');
+      }
     }
 
     // Store assistant message
