@@ -24,8 +24,8 @@ export interface TourAction {
 export const tourChapters: TourChapter[] = [
   {
     id: 1,
-    title: 'How Ghoste Works',
-    subtitle: 'The Big Picture',
+    title: 'This is your label control center',
+    subtitle: 'Everything you need to run your music like a professional label',
     description: `Welcome to Ghoste One — your complete label-in-a-box platform.
 
 Think of Ghoste as your music business operating system. Everything flows together:
@@ -53,8 +53,8 @@ Ghoste handles the marketing and business infrastructure so you can focus on mus
   },
   {
     id: 2,
-    title: 'Wallet & Credits',
-    subtitle: 'Understanding Your Fuel',
+    title: 'Credits are fuel, not a paywall',
+    subtitle: 'Understand how usage works before you start creating',
     description: `Before you start creating, let's talk about **credits**.
 
 **What are credits?**
@@ -94,8 +94,8 @@ Paid plans: Higher allocations based on tier
   },
   {
     id: 3,
-    title: 'Smart Links',
-    subtitle: 'Your Foundation Layer',
+    title: 'Everything starts with Smart Links',
+    subtitle: 'This is how you turn any song into trackable, shareable campaigns',
     description: `**Smart Links** are the foundation of your music marketing on Ghoste.
 
 Instead of sharing raw Spotify/Apple Music URLs, you create ONE link that:
@@ -131,8 +131,8 @@ Let's create your first Smart Link together. Don't worry — you can save it as 
   },
   {
     id: 4,
-    title: 'One-Click Links',
-    subtitle: 'The Power Tool',
+    title: 'One-click links convert better — here\'s why',
+    subtitle: 'Zero friction means more clicks turn into real streams',
     description: `**One-Click Links** are Ghoste's most versatile link type.
 
 Unlike Smart Links (which show a landing page), One-Click Links **redirect instantly** to your destination.
@@ -165,8 +165,8 @@ Unlike Smart Links (which show a landing page), One-Click Links **redirect insta
   },
   {
     id: 5,
-    title: 'Fan Communication',
-    subtitle: 'Turning Clicks into Fans',
+    title: 'This is where fans turn into money',
+    subtitle: 'Own your audience, control your revenue',
     description: `This is where the money is made.
 
 Streams are great. But **owned audience** (email, SMS) is 10x more valuable:
@@ -201,8 +201,8 @@ Let's look at the Inbox and Templates.`,
   },
   {
     id: 6,
-    title: 'Automations',
-    subtitle: 'Leverage Your Time',
+    title: 'Automation is how you stop doing this manually',
+    subtitle: 'Set it once, run it forever',
     description: `**Sequences** are automated message flows.
 
 Instead of manually sending "thanks for pre-saving" emails, create a sequence once and it runs forever.
@@ -236,8 +236,8 @@ You don't need to create one now — just know it exists when you're ready.`,
   },
   {
     id: 7,
-    title: 'Ads Manager',
-    subtitle: 'Not Scary, Seriously',
+    title: 'Ads aren\'t scary when the data is right',
+    subtitle: 'Reach new fans without guessing',
     description: `Most indie artists avoid ads because they're intimidating.
 
 Ghoste makes them simple.
@@ -275,8 +275,8 @@ You don't need to connect Meta right now. But when you're ready, it's here.`,
   },
   {
     id: 8,
-    title: 'Split Negotiations',
-    subtitle: 'The Business Side',
+    title: 'Splits are business — Ghoste handles the awkward part',
+    subtitle: 'Collaborate without confusion or conflict',
     description: `Most music involves collaboration. Ghoste handles the business.
 
 **What this does:**
@@ -311,8 +311,8 @@ You don't need to create one now — just know it's here when you collaborate.`,
   },
   {
     id: 9,
-    title: 'Analytics',
-    subtitle: 'Reading the Story',
+    title: 'Data tells you what\'s working',
+    subtitle: 'See everything, optimize what matters',
     description: `Data tells you what's working.
 
 **What Ghoste tracks:**
@@ -349,8 +349,8 @@ Let's take a quick look at your analytics dashboard.`,
   },
   {
     id: 10,
-    title: 'What To Do Next',
-    subtitle: 'Your Action Plan',
+    title: 'You\'re ready — here\'s where to start',
+    subtitle: 'Your roadmap from today to serious growth',
     description: `You now understand how Ghoste works. Here's your roadmap:
 
 **Immediate (Today):**

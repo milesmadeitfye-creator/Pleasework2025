@@ -5,6 +5,8 @@ import { lazyWithRecovery } from './lib/lazyWithRecovery';
 import { GlobalErrorBoundary } from './components/GlobalErrorBoundary';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { RUNTIME_CONFIG } from './runtimeConfig';
+import { TourProvider } from './contexts/TourContext';
+import MasterTour from './components/tour/MasterTour';
 
 // Public Pages
 import LandingPageV2 from './pages/LandingPageV2';
@@ -109,7 +111,9 @@ function App() {
   return (
     <GlobalErrorBoundary>
       <Router>
-        <Suspense fallback={<LoadingFallback />}>
+        <TourProvider>
+          <MasterTour />
+          <Suspense fallback={<LoadingFallback />}>
           <Routes>
           {/* ========================================
               DEBUG ROUTE - ALWAYS ACCESSIBLE (NO AUTH)
@@ -554,8 +558,9 @@ function App() {
             }
           />
         </Routes>
-      </Suspense>
-    </Router>
+        </Suspense>
+        </TourProvider>
+      </Router>
     </GlobalErrorBoundary>
   );
 }
