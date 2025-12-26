@@ -1,18 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
-
-// Env vars validation
-const requiredEnvVars = {
-  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-  SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-  APP_BASE_URL: process.env.APP_BASE_URL || 'https://ghoste.one',
-};
-
-const missingEnvVars = Object.entries(requiredEnvVars)
-  .filter(([key, value]) => !value && key !== 'APP_BASE_URL')
-  .map(([key]) => key);
+import { loadAppConfig } from './_lib/appSecrets';
 
 // Lookup keys for the 3 plans
 const LOOKUP_KEYS: Record<string, string> = {
@@ -49,17 +38,33 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Check for missing env vars
-    if (missingEnvVars.length > 0) {
-      console.error('[stripe-checkout] Missing env vars:', missingEnvVars);
+    // Load app configuration from app_secrets
+    let config;
+    try {
+      config = await loadAppConfig();
+    } catch (configErr: any) {
+      console.error('[stripe-checkout] Config load error:', configErr);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          ok: false,
+          error: 'Configuration error',
+          details: configErr.message || 'Failed to load app configuration',
+        }),
+      };
+    }
+
+    // Check for Stripe secret key
+    if (!config.STRIPE_SECRET_KEY) {
+      console.error('[stripe-checkout] Missing STRIPE_SECRET_KEY');
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           ok: false,
           error: 'Billing not configured',
-          details: `Missing environment variables: ${missingEnvVars.join(', ')}`,
-          missingEnvVars,
+          details: 'STRIPE_SECRET_KEY not found in app_secrets or environment variables',
         }),
       };
     }
@@ -82,8 +87,8 @@ export const handler: Handler = async (event) => {
 
     // Validate user session with Supabase
     const supabase = createClient(
-      requiredEnvVars.SUPABASE_URL!,
-      requiredEnvVars.SUPABASE_ANON_KEY!
+      config.SUPABASE_URL,
+      config.SUPABASE_ANON_KEY
     );
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(jwt);
@@ -143,7 +148,7 @@ export const handler: Handler = async (event) => {
     });
 
     // Initialize Stripe
-    const stripe = new Stripe(requiredEnvVars.STRIPE_SECRET_KEY!, {
+    const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
       apiVersion: '2024-11-20.acacia',
     });
 
@@ -192,8 +197,8 @@ export const handler: Handler = async (event) => {
           source: 'subscriptions_page',
         },
       },
-      success_url: `${requiredEnvVars.APP_BASE_URL}/dashboard/overview?checkout=success`,
-      cancel_url: `${requiredEnvVars.APP_BASE_URL}/subscriptions?checkout=cancel`,
+      success_url: `${config.APP_BASE_URL}/dashboard/overview?checkout=success`,
+      cancel_url: `${config.APP_BASE_URL}/subscriptions?checkout=cancel`,
       customer_email: user.email || undefined,
       metadata: {
         user_id: user.id,

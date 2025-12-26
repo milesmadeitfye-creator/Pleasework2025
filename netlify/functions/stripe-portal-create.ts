@@ -1,6 +1,7 @@
 import type { Handler } from '@netlify/functions';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
+import { loadAppConfig } from './_lib/appSecrets';
 
 /**
  * Create Stripe Customer Portal session
@@ -28,18 +29,30 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-    const SUPABASE_URL = process.env.SUPABASE_URL;
-    const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-    const APP_BASE_URL = process.env.APP_BASE_URL || 'https://ghoste.one';
+    // Load app configuration from app_secrets
+    let config;
+    try {
+      config = await loadAppConfig();
+    } catch (configErr: any) {
+      console.error('[stripe-portal-create] Config load error:', configErr);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          error: 'Configuration error',
+          details: configErr.message || 'Failed to load app configuration',
+        }),
+      };
+    }
 
-    if (!STRIPE_SECRET_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    if (!config.STRIPE_SECRET_KEY) {
+      console.error('[stripe-portal-create] Missing STRIPE_SECRET_KEY');
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           error: 'Billing not configured',
-          details: 'Missing required credentials',
+          details: 'STRIPE_SECRET_KEY not found in app_secrets or environment variables',
         }),
       };
     }
@@ -57,7 +70,7 @@ export const handler: Handler = async (event) => {
     const jwt = authHeader.replace('Bearer ', '');
 
     // Validate user session
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
     const { data: { user }, error: authError } = await supabase.auth.getUser(jwt);
 
     if (authError || !user) {
@@ -92,14 +105,14 @@ export const handler: Handler = async (event) => {
     }
 
     // Initialize Stripe
-    const stripe = new Stripe(STRIPE_SECRET_KEY, {
+    const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
       apiVersion: '2024-11-20.acacia',
     });
 
     // Create portal session
     const session = await stripe.billingPortal.sessions.create({
       customer: stripeCustomerId,
-      return_url: `${APP_BASE_URL}/subscriptions`,
+      return_url: `${config.APP_BASE_URL}/subscriptions`,
     });
 
     console.log('[stripe-portal-create] Portal session created:', {

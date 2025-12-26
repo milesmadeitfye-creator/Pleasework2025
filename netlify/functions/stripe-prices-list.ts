@@ -1,5 +1,6 @@
 import type { Handler } from '@netlify/functions';
 import Stripe from 'stripe';
+import { loadAppConfig } from './_lib/appSecrets';
 
 /**
  * List active Stripe prices using lookup keys (lookup IDs)
@@ -38,9 +39,24 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+    // Load app configuration from app_secrets
+    let config;
+    try {
+      config = await loadAppConfig();
+    } catch (configErr: any) {
+      console.error('[stripe-prices-list] Config load error:', configErr);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          ok: false,
+          error: 'Configuration error',
+          details: configErr.message || 'Failed to load app configuration',
+        }),
+      };
+    }
 
-    if (!STRIPE_SECRET_KEY) {
+    if (!config.STRIPE_SECRET_KEY) {
       console.error('[stripe-prices-list] Missing STRIPE_SECRET_KEY');
       return {
         statusCode: 500,
@@ -48,12 +64,12 @@ export const handler: Handler = async (event) => {
         body: JSON.stringify({
           ok: false,
           error: 'Billing not configured',
-          details: 'Missing STRIPE_SECRET_KEY environment variable',
+          details: 'STRIPE_SECRET_KEY not found in app_secrets or environment variables',
         }),
       };
     }
 
-    const stripe = new Stripe(STRIPE_SECRET_KEY, {
+    const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
       apiVersion: '2024-11-20.acacia',
     });
 
