@@ -123,10 +123,20 @@ export async function ghosteChat(args: {
       messageCount: args.messages.length,
     });
 
+    // Get Supabase session for auth
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+
+    if (!token) {
+      console.error('[ghosteChat] No auth token available');
+      throw new Error('Authentication required');
+    }
+
     const response = await fetch("/.netlify/functions/ghosteAgent", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
       },
       body: JSON.stringify({
         userId: args.userId,

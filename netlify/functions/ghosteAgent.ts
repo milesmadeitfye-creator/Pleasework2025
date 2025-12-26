@@ -158,6 +158,40 @@ export const handler: Handler = async (event) => {
   }
 
   try {
+    // Authenticate with Supabase JWT
+    const authHeader = event.headers.authorization || event.headers.Authorization;
+    if (!authHeader) {
+      console.error('[ghosteAgent] No Authorization header');
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: 'missing_auth', message: 'Authorization header required' })
+      };
+    }
+
+    if (!authHeader.startsWith('Bearer ')) {
+      console.error('[ghosteAgent] Invalid Authorization format');
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: 'invalid_auth_format', message: 'Authorization must be Bearer token' })
+      };
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    const supabase = getSupabaseAdminClient();
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error('[ghosteAgent] Auth verification failed:', authError);
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ error: 'invalid_token', message: 'Invalid or expired token' })
+      };
+    }
+
+    const authenticatedUserId = user.id;
+    console.log('[ghosteAgent] Authenticated user:', authenticatedUserId);
+
     const body = JSON.parse(event.body || '{}') as {
       userId?: string;
       messages?: { role: 'user' | 'assistant' | 'system'; content: string }[];
@@ -167,21 +201,14 @@ export const handler: Handler = async (event) => {
     };
 
     const {
-      userId,
       messages: clientMessages = [],
       context = {},
       conversationId,
       clientMessageId
     } = body;
 
-    if (!userId) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'missing_user_id' })
-      };
-    }
-
-    const supabase = getSupabaseAdminClient();
+    // Use authenticated user ID instead of trusting body
+    const userId = authenticatedUserId;
 
     // [DIAGNOSTICS] Log incoming request
     const debug = event.queryStringParameters?.debug === '1';
@@ -236,8 +263,39 @@ export const handler: Handler = async (event) => {
       // not fatal
     }
 
+    // Fetch setup status via RPC
+    let setupStatusText = '';
+    try {
+      const { data: setupStatus, error: setupError } = await supabase.rpc('ai_get_setup_status', {
+        p_user_id: userId
+      });
+
+      if (!setupError && setupStatus) {
+        console.log('[ghosteAgent] Setup status fetched:', setupStatus);
+        const metaStatus = setupStatus.meta?.has_meta
+          ? `✅ Meta CONNECTED (ad_account: ${setupStatus.meta.ad_account_id || 'N/A'}, page: ${setupStatus.meta.page_id || 'N/A'})`
+          : '❌ Meta NOT CONNECTED - User must connect in Profile → Connected Accounts';
+
+        setupStatusText = `
+INTEGRATIONS STATUS:
+${metaStatus}
+Spotify: ${setupStatus.spotify?.has_spotify ? '✅ Connected' : '❌ Not connected'}
+Apple Music: ${setupStatus.apple_music?.has_apple_music ? '✅ Connected' : '❌ Not connected'}
+Mailchimp: ${setupStatus.mailchimp?.has_mailchimp ? '✅ Connected' : '❌ Not connected'}
+
+IMPORTANT: Do NOT claim "Meta not connected" if has_meta=true.
+`;
+      } else {
+        console.warn('[ghosteAgent] Setup status RPC failed:', setupError);
+      }
+    } catch (setupErr) {
+      console.error('[ghosteAgent] Setup status exception:', setupErr);
+    }
+
     const systemLines: string[] = [
       'You are Ghoste AI, a music marketing manager agent inside the Ghoste One platform.',
+      '',
+      setupStatusText,
       '',
       'You can:',
       '- Plan releases, content, ads, and email campaigns.',

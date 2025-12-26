@@ -26,6 +26,7 @@ import { GhosteMediaUploader } from '../manager/GhosteMediaUploader';
 import { chargeCredits, InsufficientCreditsError, getWallet } from '../../lib/credits';
 import InsufficientCreditsModal from '../ui/InsufficientCreditsModal';
 import { getManagerContext, formatManagerContextForAI } from '../../ai/context/getManagerContext';
+import { AIDebugPanel } from './AIDebugPanel';
 
 const CONVERSATION_STORAGE_KEY = 'ghoste_ai_conversation_id';
 
@@ -135,6 +136,7 @@ export const GhosteAIChat: React.FC = () => {
     plan: string;
   }>({ open: false, cost: 0, remaining: 0, featureKey: '', plan: '' });
   const [creditsWarning, setCreditsWarning] = useState<string | null>(null);
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const didLoadRef = useRef(false);
@@ -769,27 +771,7 @@ ${managerContextText}
               </div>
               <div className="flex items-center gap-3">
                 <button
-                  onClick={async () => {
-                    try {
-                      const session = await supabase.auth.getSession();
-                      const token = session.data.session?.access_token;
-                      if (!token) {
-                        alert('Not authenticated');
-                        return;
-                      }
-                      const res = await fetch('/.netlify/functions/ai-debug-setup', {
-                        headers: { Authorization: `Bearer ${token}` },
-                      });
-                      const data = await res.json();
-                      const formatted = JSON.stringify(data, null, 2);
-                      const newWindow = window.open('', '_blank');
-                      if (newWindow) {
-                        newWindow.document.write(`<pre style="background:#111;color:#0f0;padding:20px;font-size:12px;">${formatted}</pre>`);
-                      }
-                    } catch (err: any) {
-                      alert('Debug fetch failed: ' + err.message);
-                    }
-                  }}
+                  onClick={() => setDebugPanelOpen(true)}
                   className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors"
                   title="Debug AI Setup"
                 >
@@ -1075,6 +1057,12 @@ ${managerContextText}
         remaining={insufficientModal.remaining}
         featureKey={insufficientModal.featureKey}
         plan={insufficientModal.plan}
+      />
+
+      {/* AI Debug Panel */}
+      <AIDebugPanel
+        isOpen={debugPanelOpen}
+        onClose={() => setDebugPanelOpen(false)}
       />
     </div>
   );
