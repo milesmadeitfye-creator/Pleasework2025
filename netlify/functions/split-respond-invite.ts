@@ -1,6 +1,9 @@
 /**
  * Split Respond Invite
- * Allows recipients to accept or decline split offers via invite token
+ * Handles recipient responses to split negotiation invites
+ *
+ * GET: Fetch negotiation details by participant invite token
+ * POST: Accept/decline/counter the invite
  */
 
 import type { Handler } from '@netlify/functions';
@@ -11,7 +14,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST,OPTIONS',
+  'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type,Authorization',
 };
 
@@ -27,7 +30,7 @@ function jsonResponse(statusCode: number, data: any) {
 }
 
 export const handler: Handler = async (event) => {
-  console.log('[split-respond-invite] Request received');
+  console.log('[split-respond-invite] Request received:', event.httpMethod);
 
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -37,163 +40,337 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  if (event.httpMethod !== 'POST') {
-    return jsonResponse(405, { error: 'METHOD_NOT_ALLOWED' });
+  const token = event.queryStringParameters?.token;
+  if (!token) {
+    return jsonResponse(400, { error: 'Missing token parameter' });
   }
 
-  try {
-    const body = event.body ? JSON.parse(event.body) : {};
-    const { inviteToken, status, counterOffer } = body;
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  });
 
-    if (!inviteToken || !status || !['accepted', 'declined', 'countered'].includes(status)) {
-      return jsonResponse(400, {
-        success: false,
-        error: 'Invalid data. inviteToken and status (accepted/declined/countered) required',
-      });
-    }
+  // GET: Fetch negotiation details
+  if (event.httpMethod === 'GET') {
+    try {
+      // Find participant by invite token
+      const { data: participant, error: participantError } = await supabase
+        .from('split_participants')
+        .select('*')
+        .eq('invite_token', token)
+        .maybeSingle();
 
-    // Validate counter offer data if status is countered
-    if (status === 'countered' && !counterOffer) {
-      return jsonResponse(400, {
-        success: false,
-        error: 'Counter offer data required when status is countered',
-      });
-    }
+      if (participantError || !participant) {
+        console.error('[split-respond-invite] Participant not found:', participantError);
+        return jsonResponse(404, {
+          error: 'INVITE_NOT_FOUND',
+          message: 'This invitation link is invalid or has expired.'
+        });
+      }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false },
-    });
-
-    // Find participant by invite token with full details
-    const { data: participant, error: participantError } = await supabase
-      .from('split_participants')
-      .select('id, invite_status, negotiation_id, name, email, role, master_percent, pub_percent')
-      .eq('invite_token', inviteToken)
-      .maybeSingle();
-
-    if (participantError || !participant) {
-      console.error('[split-respond-invite] Participant not found', participantError);
-      return jsonResponse(404, {
-        success: false,
-        error: 'Invite not found',
-      });
-    }
-
-    // Check if already responded
-    if (participant.invite_status !== 'pending') {
-      return jsonResponse(400, {
-        success: false,
-        error: 'Offer already responded to',
-        currentStatus: participant.invite_status,
-      });
-    }
-
-    // Handle counter offer
-    if (status === 'countered') {
-      const { master_percent, pub_percent, role, notes, reason } = counterOffer;
-
-      // Get negotiation details to fetch the owner
-      const { data: negotiation, error: negError } = await supabase
+      // Fetch negotiation details
+      const { data: negotiation, error: negotiationError } = await supabase
         .from('split_negotiations')
-        .select('user_id, title, project_name')
+        .select('*')
         .eq('id', participant.negotiation_id)
         .maybeSingle();
 
-      if (negError || !negotiation) {
-        console.error('[split-respond-invite] Negotiation not found', negError);
+      if (negotiationError || !negotiation) {
+        console.error('[split-respond-invite] Negotiation not found:', negotiationError);
         return jsonResponse(404, {
-          success: false,
-          error: 'Associated negotiation not found',
+          error: 'NEGOTIATION_NOT_FOUND',
+          message: 'The split negotiation could not be found.'
         });
       }
 
-      // Create new counter-offer participant for the original sender
-      const { data: ownerProfile } = await supabase
-        .from('user_profiles')
-        .select('email, full_name')
-        .eq('user_id', negotiation.user_id)
+      // Fetch all participants
+      const { data: allParticipants, error: allParticipantsError } = await supabase
+        .from('split_participants')
+        .select('id, name, email, role, master_rights_pct, publishing_rights_pct, status')
+        .eq('negotiation_id', participant.negotiation_id)
+        .order('created_at', { ascending: true });
+
+      if (allParticipantsError) {
+        console.error('[split-respond-invite] Failed to fetch participants:', allParticipantsError);
+      }
+
+      // Get inviter info
+      const { data: inviter } = await supabase
+        .from('profiles')
+        .select('full_name, email')
+        .eq('id', negotiation.user_id || negotiation.created_by)
         .maybeSingle();
-
-      const { data: counterParticipant, error: counterError } = await supabase
-        .from('split_participants')
-        .insert({
-          negotiation_id: participant.negotiation_id,
-          name: ownerProfile?.full_name || 'Original Sender',
-          email: ownerProfile?.email || '',
-          role: 'Received Counter Offer',
-          master_percent: master_percent !== undefined ? master_percent : participant.master_percent,
-          pub_percent: pub_percent !== undefined ? pub_percent : participant.pub_percent,
-          invite_status: 'pending',
-          invite_token: crypto.randomUUID(),
-          invited_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (counterError) {
-        console.error('[split-respond-invite] Failed to create counter participant', counterError);
-        return jsonResponse(500, {
-          success: false,
-          error: 'Failed to create counter offer',
-        });
-      }
-
-      // Update original participant to show countered
-      await supabase
-        .from('split_participants')
-        .update({
-          invite_status: 'countered',
-          responded_at: new Date().toISOString(),
-          notes: reason ? `Counter reason: ${reason}` : 'Counter offer sent',
-        })
-        .eq('id', participant.id);
-
-      // TODO: Send email to original sender with counter offer details and new invite link
-      // const counterReviewUrl = `${process.env.URL || 'https://ghoste.one'}/splits/review/${counterParticipant.invite_token}`;
-      // ... send email ...
-
-      console.log(`[split-respond-invite] Counter offer created for negotiation ${participant.negotiation_id}`);
 
       return jsonResponse(200, {
         success: true,
-        status: 'countered',
-        message: 'Counter offer sent successfully',
-        counterParticipantId: counterParticipant.id,
+        participant: {
+          id: participant.id,
+          name: participant.name,
+          email: participant.email,
+          role: participant.role,
+          master_rights_pct: participant.master_rights_pct,
+          publishing_rights_pct: participant.publishing_rights_pct,
+          status: participant.status,
+          invited_at: participant.invited_at,
+          responded_at: participant.responded_at,
+          counter_master_pct: participant.counter_master_pct,
+          counter_publishing_pct: participant.counter_publishing_pct,
+          counter_notes: participant.counter_notes,
+        },
+        negotiation: {
+          id: negotiation.id,
+          project_name: negotiation.project_name,
+          project_title: negotiation.project_title,
+          description: negotiation.description,
+          status: negotiation.status,
+          notes: negotiation.notes,
+          created_at: negotiation.created_at,
+        },
+        participants: allParticipants || [],
+        inviter: inviter ? {
+          name: inviter.full_name,
+          email: inviter.email,
+        } : null,
       });
-    }
-
-    // Update participant status for accept/decline
-    const { error: updateError } = await supabase
-      .from('split_participants')
-      .update({
-        invite_status: status,
-        responded_at: new Date().toISOString(),
-      })
-      .eq('id', participant.id);
-
-    if (updateError) {
-      console.error('[split-respond-invite] Failed to update status', updateError);
+    } catch (error: any) {
+      console.error('[split-respond-invite] GET error:', error);
       return jsonResponse(500, {
-        success: false,
-        error: 'Failed to update offer status',
+        error: 'SERVER_ERROR',
+        message: 'Failed to load invitation details.'
       });
     }
-
-    console.log(`[split-respond-invite] Participant ${participant.id} ${status} the offer`);
-
-    return jsonResponse(200, {
-      success: true,
-      status,
-      message: `Offer ${status} successfully`,
-    });
-  } catch (err: any) {
-    console.error('[split-respond-invite] Unexpected error', err);
-    return jsonResponse(500, {
-      success: false,
-      error: 'Internal server error',
-      message: err.message,
-    });
   }
+
+  // POST: Accept/decline/counter
+  if (event.httpMethod === 'POST') {
+    try {
+      if (!event.body) {
+        return jsonResponse(400, { error: 'Missing request body' });
+      }
+
+      const body = JSON.parse(event.body);
+      const { action, signature, reason, counter_master_pct, counter_publishing_pct, counter_notes } = body;
+
+      if (!action || !['accept', 'decline', 'counter'].includes(action)) {
+        return jsonResponse(400, {
+          error: 'INVALID_ACTION',
+          message: 'Action must be: accept, decline, or counter'
+        });
+      }
+
+      // Find participant by invite token
+      const { data: participant, error: participantError } = await supabase
+        .from('split_participants')
+        .select('*')
+        .eq('invite_token', token)
+        .maybeSingle();
+
+      if (participantError || !participant) {
+        console.error('[split-respond-invite] Participant not found:', participantError);
+        return jsonResponse(404, {
+          error: 'INVITE_NOT_FOUND',
+          message: 'This invitation link is invalid.'
+        });
+      }
+
+      // Check if already responded
+      if (participant.status !== 'pending' && participant.status !== 'invited' && participant.status !== 'countered') {
+        return jsonResponse(400, {
+          error: 'ALREADY_RESPONDED',
+          message: `You have already ${participant.status} this invitation.`
+        });
+      }
+
+      const now = new Date().toISOString();
+
+      // Handle ACCEPT
+      if (action === 'accept') {
+        if (!signature || !signature.trim()) {
+          return jsonResponse(400, {
+            error: 'SIGNATURE_REQUIRED',
+            message: 'Signature is required to accept the split.'
+          });
+        }
+
+        const { error: updateError } = await supabase
+          .from('split_participants')
+          .update({
+            status: 'accepted',
+            responded_at: now,
+            signature_name: signature.trim(),
+            signed_at: now,
+            signature_status: 'signed',
+          })
+          .eq('id', participant.id);
+
+        if (updateError) {
+          console.error('[split-respond-invite] Accept error:', updateError);
+          return jsonResponse(500, {
+            error: 'UPDATE_FAILED',
+            message: 'Failed to accept invitation.'
+          });
+        }
+
+        // Send notification to creator
+        try {
+          const { data: negotiation } = await supabase
+            .from('split_negotiations')
+            .select('user_id, project_name')
+            .eq('id', participant.negotiation_id)
+            .maybeSingle();
+
+          if (negotiation) {
+            await supabase.from('notifications').insert({
+              user_id: negotiation.user_id,
+              type: 'split_negotiation',
+              title: 'Split invitation accepted',
+              message: `${participant.name} accepted your split invitation for "${negotiation.project_name}".`,
+              entity_type: 'split_negotiation',
+              entity_id: participant.negotiation_id,
+              data: { participant_id: participant.id, action: 'accepted' },
+            });
+          }
+        } catch (err) {
+          console.error('[split-respond-invite] Notification error:', err);
+        }
+
+        return jsonResponse(200, {
+          success: true,
+          action: 'accepted',
+          message: 'You have successfully accepted the split invitation.',
+        });
+      }
+
+      // Handle DECLINE
+      if (action === 'decline') {
+        const { error: updateError } = await supabase
+          .from('split_participants')
+          .update({
+            status: 'declined',
+            responded_at: now,
+            counter_notes: reason || null,
+          })
+          .eq('id', participant.id);
+
+        if (updateError) {
+          console.error('[split-respond-invite] Decline error:', updateError);
+          return jsonResponse(500, {
+            error: 'UPDATE_FAILED',
+            message: 'Failed to decline invitation.'
+          });
+        }
+
+        // Send notification to creator
+        try {
+          const { data: negotiation } = await supabase
+            .from('split_negotiations')
+            .select('user_id, project_name')
+            .eq('id', participant.negotiation_id)
+            .maybeSingle();
+
+          if (negotiation) {
+            await supabase.from('notifications').insert({
+              user_id: negotiation.user_id,
+              type: 'split_negotiation',
+              title: 'Split invitation declined',
+              message: `${participant.name} declined your split invitation for "${negotiation.project_name}".`,
+              entity_type: 'split_negotiation',
+              entity_id: participant.negotiation_id,
+              data: { participant_id: participant.id, action: 'declined', reason },
+            });
+          }
+        } catch (err) {
+          console.error('[split-respond-invite] Notification error:', err);
+        }
+
+        return jsonResponse(200, {
+          success: true,
+          action: 'declined',
+          message: 'You have declined the split invitation.',
+        });
+      }
+
+      // Handle COUNTER
+      if (action === 'counter') {
+        if (counter_master_pct === undefined || counter_publishing_pct === undefined) {
+          return jsonResponse(400, {
+            error: 'MISSING_PERCENTAGES',
+            message: 'Counter proposal must include master and publishing percentages.'
+          });
+        }
+
+        if (counter_master_pct < 0 || counter_master_pct > 100 ||
+            counter_publishing_pct < 0 || counter_publishing_pct > 100) {
+          return jsonResponse(400, {
+            error: 'INVALID_PERCENTAGES',
+            message: 'Percentages must be between 0 and 100.'
+          });
+        }
+
+        const { error: updateError } = await supabase
+          .from('split_participants')
+          .update({
+            status: 'countered',
+            responded_at: now,
+            counter_master_pct,
+            counter_publishing_pct,
+            counter_notes: counter_notes || null,
+          })
+          .eq('id', participant.id);
+
+        if (updateError) {
+          console.error('[split-respond-invite] Counter error:', updateError);
+          return jsonResponse(500, {
+            error: 'UPDATE_FAILED',
+            message: 'Failed to submit counter proposal.'
+          });
+        }
+
+        // Send notification to creator
+        try {
+          const { data: negotiation } = await supabase
+            .from('split_negotiations')
+            .select('user_id, project_name')
+            .eq('id', participant.negotiation_id)
+            .maybeSingle();
+
+          if (negotiation) {
+            await supabase.from('notifications').insert({
+              user_id: negotiation.user_id,
+              type: 'split_negotiation',
+              title: 'Counter proposal received',
+              message: `${participant.name} sent a counter proposal for "${negotiation.project_name}".`,
+              entity_type: 'split_negotiation',
+              entity_id: participant.negotiation_id,
+              data: {
+                participant_id: participant.id,
+                action: 'countered',
+                counter_master_pct,
+                counter_publishing_pct,
+              },
+            });
+          }
+        } catch (err) {
+          console.error('[split-respond-invite] Notification error:', err);
+        }
+
+        return jsonResponse(200, {
+          success: true,
+          action: 'countered',
+          message: 'Your counter proposal has been sent.',
+        });
+      }
+
+      return jsonResponse(400, { error: 'Invalid action' });
+    } catch (error: any) {
+      console.error('[split-respond-invite] POST error:', error);
+      return jsonResponse(500, {
+        error: 'SERVER_ERROR',
+        message: 'Failed to process your response.'
+      });
+    }
+  }
+
+  return jsonResponse(405, { error: 'Method not allowed' });
 };
 
 export default handler;

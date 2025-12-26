@@ -57,6 +57,7 @@ const UnreleasedTrackLanding = lazyWithRecovery(() => import('./pages/Unreleased
 const EmailCaptureLanding = lazyWithRecovery(() => import('./pages/EmailCaptureLanding'));
 const PublicListeningPartyWebRTC = lazyWithRecovery(() => import('./pages/PublicListeningPartyWebRTC'));
 const PublicSplitNegotiation = lazyWithRecovery(() => import('./pages/PublicSplitNegotiation'));
+const SplitInviteResponsePage = lazyWithRecovery(() => import('./pages/SplitInviteResponsePage'));
 const ListeningPartyHostPage = lazyWithRecovery(() => import('./pages/ListeningPartyHostPage'));
 
 // Success pages
@@ -519,6 +520,7 @@ function App() {
           <Route path="/email/:slug" element={<EmailCaptureLanding />} />
           <Route path="/live/:slug" element={<PublicListeningPartyWebRTC />} />
           <Route path="/split/:token" element={<PublicSplitNegotiation />} />
+          <Route path="/splits/invite/:token" element={<SplitInviteResponsePage />} />
 
           {/* Catch-all 404 - In-app 404 for unknown routes */}
           <Route
