@@ -173,9 +173,26 @@ function applySetupStatusGuardrails(content: string, setupStatus: any): string {
 
   // GUARDRAIL 1: Meta connection status
   const hasMeta = setupStatus.meta?.has_meta === true;
-  const metaAccountId = setupStatus.meta?.ad_account_id;
-  const metaPageId = setupStatus.meta?.page_id;
-  const metaPixelId = setupStatus.meta?.pixel_id;
+
+  // Extract from arrays (single source of truth)
+  const adAccounts = setupStatus.meta?.ad_accounts || [];
+  const pages = setupStatus.meta?.pages || [];
+  const pixels = setupStatus.meta?.pixels || [];
+
+  const firstAdAccount = adAccounts[0];
+  const firstPage = pages[0];
+  const firstPixel = pixels[0];
+
+  // Format display strings per requirements
+  const adAccountDisplay = firstAdAccount
+    ? `${firstAdAccount.name || 'Ad Account'} (${firstAdAccount.id})`
+    : 'Connected (no ad accounts synced yet)';
+  const pageDisplay = firstPage
+    ? `${firstPage.name || 'Page'} (${firstPage.id})`
+    : 'Connected (no pages synced yet)';
+  const pixelDisplay = firstPixel
+    ? `${firstPixel.name || 'Pixel'} (${firstPixel.id})`
+    : 'Connected (no pixels synced yet)';
 
   if (hasMeta) {
     // If Meta IS connected but AI says it's not, correct it
@@ -185,6 +202,10 @@ function applySetupStatusGuardrails(content: string, setupStatus: any): string {
       /need to connect.*meta/i,
       /connect your meta/i,
       /meta.*isn't connected/i,
+      /not fully set up/i,
+      /don't see any ad accounts/i,
+      /don't see any pixels/i,
+      /smart links not connected/i,
     ];
 
     for (const pattern of notConnectedPatterns) {
@@ -195,8 +216,12 @@ function applySetupStatusGuardrails(content: string, setupStatus: any): string {
         // Remove the incorrect claim
         corrected = corrected.replace(pattern, '');
 
-        // Add correction
-        corrected += `\n\n**Meta Ads Status:**\nYour Meta account is connected:\n- Ad Account: ${metaAccountId || 'N/A'}\n- Page: ${metaPageId || 'N/A'}\n- Pixel: ${metaPixelId || 'N/A'}`;
+        // Add correction with accurate data
+        corrected += `\n\n**Meta Ads Status:**\nYour Meta account is connected:\n- Ad Account: ${adAccountDisplay}\n- Page: ${pageDisplay}\n- Pixel: ${pixelDisplay}`;
+
+        if (adAccounts.length === 0 || pages.length === 0 || pixels.length === 0) {
+          corrected += `\n\n*Note: Some assets may not be synced yet. This is normal and doesn't affect functionality.*`;
+        }
         break;
       }
     }
@@ -383,21 +408,56 @@ export const handler: Handler = async (event) => {
       if (!setupError && statusData) {
         setupStatus = statusData;
         console.log('[ghosteAgent] Setup status fetched:', setupStatus);
+
+        // Extract arrays (single source of truth)
+        const adAccounts = setupStatus.meta?.ad_accounts || [];
+        const pages = setupStatus.meta?.pages || [];
+        const pixels = setupStatus.meta?.pixels || [];
+
+        const firstAdAccount = adAccounts[0];
+        const firstPage = pages[0];
+        const firstPixel = pixels[0];
+
+        // Format display strings
+        const adAccountDisplay = firstAdAccount
+          ? `${firstAdAccount.name || 'Ad Account'} (${firstAdAccount.id})`
+          : 'Connected (no ad accounts synced yet)';
+        const pageDisplay = firstPage
+          ? `${firstPage.name || 'Page'} (${firstPage.id})`
+          : 'Connected (no pages synced yet)';
+        const pixelDisplay = firstPixel
+          ? `${firstPixel.name || 'Pixel'} (${firstPixel.id})`
+          : 'Connected (no pixels synced yet)';
+
         const metaStatus = setupStatus.meta?.has_meta
-          ? `✅ Meta CONNECTED (ad_account: ${setupStatus.meta.ad_account_id || 'N/A'}, page: ${setupStatus.meta.page_id || 'N/A'}, pixel: ${setupStatus.meta.pixel_id || 'N/A'})`
+          ? `✅ Meta CONNECTED: Ad Account: ${adAccountDisplay}, Page: ${pageDisplay}, Pixel: ${pixelDisplay}`
           : '❌ Meta NOT CONNECTED - User must connect in Profile → Connected Accounts';
+
+        console.log('[ghosteAgent] Meta status:', metaStatus);
+
+        // Build authoritative status text
+        let metaDetails = '';
+        if (setupStatus.meta?.has_meta) {
+          metaDetails = `  - Ad Account: ${adAccountDisplay}\n  - Page: ${pageDisplay}\n  - Pixel: ${pixelDisplay}`;
+          if (adAccounts.length === 0 || pages.length === 0 || pixels.length === 0) {
+            metaDetails += '\n  - Note: Some assets may not be synced yet. This is normal.';
+          }
+        }
 
         setupStatusText = `
 === AUTHORITATIVE SETUP STATUS (NEVER CONTRADICT THIS) ===
 Meta Connected: ${setupStatus.meta?.has_meta ? 'YES' : 'NO'}
-${setupStatus.meta?.has_meta ? `  - Ad Account: ${setupStatus.meta.ad_account_id || 'N/A'}\n  - Page: ${setupStatus.meta.page_id || 'N/A'}\n  - Pixel: ${setupStatus.meta.pixel_id || 'N/A'}` : ''}
+${metaDetails}
 Spotify: ${setupStatus.spotify?.has_spotify ? 'Connected' : 'Not connected'}
 Apple Music: ${setupStatus.apple_music?.has_apple_music ? 'Connected' : 'Not connected'}
 Mailchimp: ${setupStatus.mailchimp?.has_mailchimp ? 'Connected' : 'Not connected'}
 Smart Links Count: ${setupStatus.smart_links_count || 0}
 
-CRITICAL: This is the AUTHORITATIVE truth. NEVER claim Meta is "not connected" if has_meta=true above.
-If you detect the user asking about connections or status, refer to this data ONLY.
+CRITICAL: This is the AUTHORITATIVE truth.
+- NEVER claim Meta is "not connected", "not fully set up", or "need to connect" if has_meta=YES above.
+- NEVER claim "no ad accounts" or "no pixels" if has_meta=YES. Some assets may not be synced yet.
+- If you detect the user asking about connections or status, refer to this data ONLY.
+- If arrays are empty but Meta is connected, say "Some assets may not be synced yet" instead of claiming disconnection.
 `;
       } else {
         console.warn('[ghosteAgent] Setup status RPC failed:', setupError);
