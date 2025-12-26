@@ -28,6 +28,19 @@ import { getManagerContext, formatManagerContextForAI } from '../../ai/context/g
 
 const CONVERSATION_STORAGE_KEY = 'ghoste_ai_conversation_id';
 
+function dedupeMessagesById(list: GhosteMessage[]): GhosteMessage[] {
+  const map = new Map<string, GhosteMessage>();
+  for (const m of list) {
+    const key = m.id ?? `${m.role}:${m.created_at}:${m.content?.slice(0, 50)}`;
+    if (!map.has(key)) {
+      map.set(key, m);
+    }
+  }
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  );
+}
+
 type QuickPrompt = {
   id: string;
   title: string;
@@ -123,6 +136,8 @@ export const GhosteAIChat: React.FC = () => {
   const [creditsWarning, setCreditsWarning] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const didLoadRef = useRef(false);
+  const loadedConversationIdRef = useRef<string | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -178,6 +193,12 @@ export const GhosteAIChat: React.FC = () => {
       setLoadingInitial(false);
       return;
     }
+
+    if (didLoadRef.current) {
+      console.log('[GhosteAIChat] Skipping duplicate mount load');
+      return;
+    }
+    didLoadRef.current = true;
 
     let isMounted = true;
 
@@ -240,13 +261,16 @@ export const GhosteAIChat: React.FC = () => {
         }
 
         if (targetConvo) {
-          const msgs = await loadMessagesForConversation(targetConvo.id);
+          const rawMsgs = await loadMessagesForConversation(targetConvo.id);
+          const msgs = dedupeMessagesById(rawMsgs);
           targetConvo.messages = msgs;
           setActiveConversation(targetConvo);
           setMessages(msgs);
+          loadedConversationIdRef.current = targetConvo.id;
           setStoredConversationId(targetConvo.id);
           console.log('[GhosteAIChat] Set active conversation:', targetConvo.id, 'with', msgs.length, 'messages');
         } else {
+          setMessages([]);
           console.log('[GhosteAIChat] No conversations found, user can start a new one');
         }
       } catch (err: any) {
@@ -326,11 +350,13 @@ export const GhosteAIChat: React.FC = () => {
 
     console.log('[GhosteAIChat] Switching to conversation:', convo.id);
 
-    const msgs = convo.messages?.length ? convo.messages : await loadMessagesForConversation(convo.id);
+    const rawMsgs = convo.messages?.length ? convo.messages : await loadMessagesForConversation(convo.id);
+    const msgs = dedupeMessagesById(rawMsgs);
     const updatedConvo = { ...convo, messages: msgs };
 
     setActiveConversation(updatedConvo);
     setMessages(msgs);
+    loadedConversationIdRef.current = convo.id;
     setStoredConversationId(convo.id);
     setError(null);
   };
@@ -376,20 +402,21 @@ export const GhosteAIChat: React.FC = () => {
     setPendingAttachments([]);
     setError(null);
 
-    const clientMessageId = crypto.randomUUID();
+    const tempUserMessageId = `temp-user-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
 
     const userMessage: GhosteMessage = {
-      id: clientMessageId,
+      id: tempUserMessageId,
       conversation_id: currentConversation.id,
       user_id: user.id,
       role: 'user',
       content: text || '',
       created_at: now,
+      meta: { tempId: tempUserMessageId },
       attachments: attachments as any,
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages((prev) => dedupeMessagesById([...prev, userMessage]));
 
     try {
       const { data: savedUserMsg, error: userMsgError } = await supabase
@@ -407,6 +434,9 @@ export const GhosteAIChat: React.FC = () => {
       if (userMsgError) {
         console.error('[GhosteAIChat] Failed to save user message:', userMsgError);
       } else if (savedUserMsg) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempUserMessageId ? { ...m, id: savedUserMsg.id, meta: {} } : m))
+        );
         userMessage.id = savedUserMsg.id;
         console.log('[GhosteAIChat] Saved user message:', savedUserMsg.id);
       }
@@ -521,18 +551,20 @@ ${managerContextText}
       }
 
       const assistantMessageNow = new Date().toISOString();
+      const tempAssistantMessageId = `temp-assistant-${crypto.randomUUID()}`;
       const assistantMessage: GhosteMessage = {
-        id: crypto.randomUUID(),
+        id: tempAssistantMessageId,
         conversation_id: currentConversation.id,
         user_id: user.id,
         role: 'assistant',
         content: assistantContent,
         created_at: assistantMessageNow,
+        meta: { tempId: tempAssistantMessageId },
       };
 
       console.log('[GhosteAIChat] Got AI response');
 
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages((prev) => dedupeMessagesById([...prev, assistantMessage]));
 
       const { data: savedAssistantMsg, error: assistantMsgError } = await supabase
         .from('ai_messages')
@@ -549,6 +581,9 @@ ${managerContextText}
       if (assistantMsgError) {
         console.error('[GhosteAIChat] Failed to save assistant message:', assistantMsgError);
       } else if (savedAssistantMsg) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === tempAssistantMessageId ? { ...m, id: savedAssistantMsg.id, meta: {} } : m))
+        );
         assistantMessage.id = savedAssistantMsg.id;
         console.log('[GhosteAIChat] Saved assistant message:', savedAssistantMsg.id);
       }

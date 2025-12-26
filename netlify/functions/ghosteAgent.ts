@@ -222,44 +222,6 @@ export const handler: Handler = async (event) => {
       console.log('[ghosteAgent] Created new conversation:', finalConversationId);
     }
 
-    const latestUserMessage = clientMessages.filter(m => m.role === 'user').pop();
-    let userMessageSaved = false;
-    let userMessageId: string | null = null;
-
-    if (latestUserMessage) {
-      console.log('[ChatSave] Inserting user message', {
-        conversation_id: finalConversationId,
-        userId: userId,
-        hasClientMessageId: !!clientMessageId,
-        contentLength: latestUserMessage.content.length
-      });
-
-      const { data: savedUserMsg, error: userMsgError } = await supabase
-        .from('ai_messages')
-        .insert({
-          conversation_id: finalConversationId,
-          user_id: userId,
-          role: 'user',
-          content: latestUserMessage.content,
-          meta: {},
-        })
-        .select('id')
-        .single();
-
-      if (userMsgError) {
-        console.error('[ChatSave] ❌ Failed to save user message:', {
-          step: 'insert_user_message_failed',
-          error: userMsgError.message,
-          code: userMsgError.code,
-          details: userMsgError.details,
-          hint: userMsgError.hint
-        });
-      } else {
-        userMessageSaved = true;
-        userMessageId = savedUserMsg?.id || null;
-        console.log('[ChatSave] ✅ Saved user message:', userMessageId);
-      }
-    }
     let artistName: string | null = null;
 
     try {
@@ -1248,20 +1210,6 @@ export const handler: Handler = async (event) => {
         content: "Ghoste AI is temporarily unavailable. This is usually due to high usage or API billing. Your message has been saved. Please try again in a moment."
       };
 
-      const { error: fallbackSaveError } = await supabase
-        .from('ai_messages')
-        .insert({
-          conversation_id: finalConversationId,
-          user_id: userId,
-          role: 'assistant',
-          content: fallbackMessage.content,
-          meta: { ai_unavailable: true },
-        });
-
-      if (fallbackSaveError) {
-        console.error('[ghosteAgent] Failed to save fallback message:', fallbackSaveError);
-      }
-
       await supabase
         .from('ai_conversations')
         .update({
@@ -1275,7 +1223,6 @@ export const handler: Handler = async (event) => {
           ok: true,
           message: fallbackMessage,
           conversation_id: finalConversationId,
-          user_message_id: userMessageId,
           ai_unavailable: true,
         })
       };
@@ -2415,20 +2362,6 @@ export const handler: Handler = async (event) => {
           content: "Ghoste AI encountered an issue while processing your request. Your message and actions have been saved. Please try again in a moment."
         };
 
-        const { error: fallbackSaveError } = await supabase
-          .from('ai_messages')
-          .insert({
-            conversation_id: finalConversationId,
-            user_id: userId,
-            role: 'assistant',
-            content: fallbackMessage.content,
-            meta: { ai_unavailable: true },
-          });
-
-        if (fallbackSaveError) {
-          console.error('[ghosteAgent] Failed to save fallback message:', fallbackSaveError);
-        }
-
         await supabase
           .from('ai_conversations')
           .update({
@@ -2442,7 +2375,6 @@ export const handler: Handler = async (event) => {
             ok: true,
             message: fallbackMessage,
             conversation_id: finalConversationId,
-            user_message_id: userMessageId,
             ai_unavailable: true,
           })
         };
@@ -2450,39 +2382,7 @@ export const handler: Handler = async (event) => {
 
       const finalMsg = second?.choices?.[0]?.message;
 
-      let assistantMessageSaved = false;
-      let assistantMessageId: string | null = null;
       if (finalMsg?.content) {
-        console.log('[ChatSave] Inserting assistant message (with tools)', {
-          conversation_id: finalConversationId,
-          contentLength: finalMsg.content.length
-        });
-
-        const { data: savedAssistantMsg, error: assistantMsgError } = await supabase
-          .from('ai_messages')
-          .insert({
-            conversation_id: finalConversationId,
-            user_id: userId,
-            role: 'assistant',
-            content: finalMsg.content,
-            meta: {},
-          })
-          .select('id')
-          .single();
-
-        if (assistantMsgError) {
-          console.error('[ChatSave] ❌ Failed to save assistant message:', {
-            step: 'insert_assistant_message_failed',
-            error: assistantMsgError.message,
-            code: assistantMsgError.code,
-            details: assistantMsgError.details
-          });
-        } else {
-          assistantMessageSaved = true;
-          assistantMessageId = savedAssistantMsg?.id || null;
-          console.log('[ChatSave] ✅ Saved assistant message (with tools):', assistantMessageId);
-        }
-
         await supabase
           .from('ai_conversations')
           .update({
@@ -2497,54 +2397,11 @@ export const handler: Handler = async (event) => {
           ok: true,
           message: finalMsg,
           conversation_id: finalConversationId,
-          user_message_id: userMessageId,
-          assistant_message_id: assistantMessageId,
-          ...(debug && {
-            debug: {
-              conversation_id: finalConversationId,
-              user_message_saved: userMessageSaved,
-              user_message_id: userMessageId,
-              assistant_message_saved: assistantMessageSaved,
-              assistant_message_id: assistantMessageId,
-            }
-          })
         })
       };
     }
 
-    let assistantMessageSaved = false;
-    let assistantMessageId: string | null = null;
     if (choice?.message?.content) {
-      console.log('[ChatSave] Inserting assistant message (no tools)', {
-        conversation_id: finalConversationId,
-        contentLength: choice.message.content.length
-      });
-
-      const { data: savedAssistantMsg, error: assistantMsgError } = await supabase
-        .from('ai_messages')
-        .insert({
-          conversation_id: finalConversationId,
-          user_id: userId,
-          role: 'assistant',
-          content: choice.message.content,
-          meta: {},
-        })
-        .select('id')
-        .single();
-
-      if (assistantMsgError) {
-        console.error('[ChatSave] ❌ Failed to save assistant message:', {
-          step: 'insert_assistant_message_failed',
-          error: assistantMsgError.message,
-          code: assistantMsgError.code,
-          details: assistantMsgError.details
-        });
-      } else {
-        assistantMessageSaved = true;
-        assistantMessageId = savedAssistantMsg?.id || null;
-        console.log('[ChatSave] ✅ Saved assistant message (no tools):', assistantMessageId);
-      }
-
       await supabase
         .from('ai_conversations')
         .update({
@@ -2559,17 +2416,6 @@ export const handler: Handler = async (event) => {
         ok: true,
         message: choice?.message,
         conversation_id: finalConversationId,
-        user_message_id: userMessageId,
-        assistant_message_id: assistantMessageId,
-        ...(debug && {
-          debug: {
-            conversation_id: finalConversationId,
-            user_message_saved: userMessageSaved,
-            user_message_id: userMessageId,
-            assistant_message_saved: assistantMessageSaved,
-            assistant_message_id: assistantMessageId,
-          }
-        })
       })
     };
   } catch (err: any) {
