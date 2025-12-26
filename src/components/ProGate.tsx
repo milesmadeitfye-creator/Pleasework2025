@@ -1,6 +1,7 @@
 import { Crown, Lock } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useUserPlan } from '../hooks/useUserPlan';
-import { openStripeCheckout } from '../lib/billing';
+import { useUpgradeEligibility } from '../hooks/useUpgradeEligibility';
 
 interface ProGateProps {
   children: React.ReactNode;
@@ -11,7 +12,14 @@ interface ProGateProps {
 }
 
 export function ProGate({ children, feature, action = 'use', showBadge = false, fullPage = false }: ProGateProps) {
+  const navigate = useNavigate();
   const { isPro, loading } = useUserPlan();
+  const { markPromptShown } = useUpgradeEligibility();
+
+  const handleUpgradeClick = () => {
+    markPromptShown();
+    navigate('/subscriptions');
+  };
 
   if (loading) {
     return (
@@ -42,7 +50,7 @@ export function ProGate({ children, feature, action = 'use', showBadge = false, 
             This feature requires a Ghoste Pro subscription. Unlock {feature} and many more powerful tools to grow your music career.
           </p>
           <button
-            onClick={openStripeCheckout}
+            onClick={handleUpgradeClick}
             className="px-8 py-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white text-lg font-semibold rounded-xl transition-all shadow-lg shadow-blue-900/40"
           >
             View Pro Plans
@@ -69,7 +77,7 @@ export function ProGate({ children, feature, action = 'use', showBadge = false, 
               Upgrade to Pro to {action} {feature}
             </p>
             <button
-              onClick={openStripeCheckout}
+              onClick={handleUpgradeClick}
               className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-semibold rounded-lg transition-all"
             >
               Upgrade to Pro
@@ -93,13 +101,16 @@ interface ProActionButtonProps {
 }
 
 export function ProActionButton({ onClick, children, feature, className = '', disabled = false }: ProActionButtonProps) {
+  const navigate = useNavigate();
   const { isPro } = useUserPlan();
+  const { markPromptShown } = useUpgradeEligibility();
 
   const handleClick = () => {
     if (isPro) {
       onClick();
     } else {
-      openStripeCheckout();
+      markPromptShown();
+      navigate('/subscriptions');
     }
   };
 

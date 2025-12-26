@@ -379,6 +379,11 @@ export const GhosteAIChat: React.FC = () => {
       return;
     }
 
+    // Track AI usage for upgrade eligibility
+    import('../../lib/trackValueAction').then(({ trackValueAction }) => {
+      trackValueAction('ai_used').catch(() => {});
+    });
+
     // Capture current conversation and messages at the start
     let currentConversation = activeConversation;
 

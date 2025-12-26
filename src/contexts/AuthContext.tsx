@@ -174,6 +174,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (postAuthRan.current !== uid) {
               postAuthRan.current = uid;
               safePostAuth({ user_id: uid });
+
+              // Increment login count for upgrade eligibility tracking
+              supabase.rpc('increment_login_count').catch(err => {
+                console.warn('[AuthContext] Login count increment failed (non-critical):', err);
+              });
             }
           } catch (error) {
             console.warn('[AuthContext] Profile/wallet setup error (non-critical):', error);

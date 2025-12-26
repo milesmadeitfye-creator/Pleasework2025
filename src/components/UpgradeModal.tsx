@@ -1,24 +1,33 @@
 import { X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useUpgradeEligibility } from '../hooks/useUpgradeEligibility';
 import { trackMetaEvent } from '../lib/metaTrack';
 
 interface UpgradeModalProps {
   isOpen: boolean;
   onClose: () => void;
+  trigger?: 'credits' | 'feature' | 'session';
 }
 
-export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
+export default function UpgradeModal({ isOpen, onClose, trigger = 'feature' }: UpgradeModalProps) {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { markPromptShown, shouldShowUpgradePrompt } = useUpgradeEligibility();
 
   if (!isOpen) return null;
+
+  if (!shouldShowUpgradePrompt() && trigger === 'session') {
+    return null;
+  }
 
   const handleUpgrade = () => {
     if (!user) {
       navigate('/auth', { state: { returnTo: '/subscriptions' } });
       return;
     }
+
+    markPromptShown();
 
     // Track modal upgrade click
     try {
@@ -71,11 +80,28 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
             <span className="text-lg font-bold text-white">⚡</span>
           </div>
 
-          <h2 className="text-2xl font-bold mb-3">You're out of credits</h2>
-
-          <p className="text-gray-400 text-sm mb-6">
-            Subscribe to continue using Ghoste and unlock credit refills + purchases.
-          </p>
+          {trigger === 'credits' ? (
+            <>
+              <h2 className="text-2xl font-bold mb-3">Running low on credits</h2>
+              <p className="text-gray-400 text-sm mb-6">
+                You're building something real. Upgrade when you're ready.
+              </p>
+            </>
+          ) : trigger === 'feature' ? (
+            <>
+              <h2 className="text-2xl font-bold mb-3">You're ready to activate this</h2>
+              <p className="text-gray-400 text-sm mb-6">
+                This feature is available on paid plans. See what's included.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="text-2xl font-bold mb-3">Ready to level up?</h2>
+              <p className="text-gray-400 text-sm mb-6">
+                You've been exploring Ghoste. See what's possible with a paid plan.
+              </p>
+            </>
+          )}
 
           <div className="bg-gray-800/50 rounded-lg p-4 mb-6 text-left">
             <ul className="space-y-2 text-gray-300 text-sm">
