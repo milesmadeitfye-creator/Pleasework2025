@@ -21,6 +21,7 @@ import ShowLinkEditor from './ShowLinkEditor';
 import BioLinkEditor from './BioLinkEditor';
 import PreSaveLinkEditor from './PreSaveLinkEditor';
 import SmartLinkEditor from './SmartLinkEditor';
+import OneClickLinkEditor from './OneClickLinkEditor';
 import { LinkCard } from './links/LinkCard';
 import { toLinkUI } from '../lib/linkUiAdapter';
 import { PrimaryGlowButton } from './ui/PrimaryGlowButton';
@@ -371,6 +372,19 @@ export default function UnifiedLinksManager() {
             onCancel={handleCancel}
           />
         );
+      case 'one_click':
+        return (
+          <OneClickLinkEditor
+            link={{
+              id: editingLink.id,
+              title: editingLink.title,
+              slug: editingLink.slug,
+              config: editingLink.config as { targetUrl?: string }
+            }}
+            onSave={handleSave}
+            onCancel={handleCancel}
+          />
+        );
       default:
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -407,11 +421,19 @@ export default function UnifiedLinksManager() {
           </PrimaryGlowButton>
 
           <button
-            onClick={() => startCreateLink('show')}
+            onClick={() => startCreateLink('one_click')}
             className="inline-flex items-center gap-2 h-10 rounded-2xl px-4 text-sm font-medium bg-[#0b1120] text-[#e5e7eb] border border-[#1f2937] hover:bg-[#111827] hover:border-[#2d3748] hover:text-white shadow-[0_0_12px_rgba(15,23,42,0.75)] transition-all duration-150"
           >
-            <CalendarClock className="w-4 h-4 text-[#9ca3af]" />
-            <span>Show</span>
+            <Link2 className="w-4 h-4 text-[#9ca3af]" />
+            <span>One-Click</span>
+          </button>
+
+          <button
+            onClick={() => startCreateLink('presave')}
+            className="inline-flex items-center gap-2 h-10 rounded-2xl px-4 text-sm font-medium bg-[#0b1120] text-[#e5e7eb] border border-[#1f2937] hover:bg-[#111827] hover:border-[#2d3748] hover:text-white shadow-[0_0_12px_rgba(15,23,42,0.75)] transition-all duration-150"
+          >
+            <Music2 className="w-4 h-4 text-[#9ca3af]" />
+            <span>Pre-Save</span>
           </button>
 
           <button
@@ -423,11 +445,11 @@ export default function UnifiedLinksManager() {
           </button>
 
           <button
-            onClick={() => startCreateLink('presave')}
+            onClick={() => startCreateLink('show')}
             className="inline-flex items-center gap-2 h-10 rounded-2xl px-4 text-sm font-medium bg-[#0b1120] text-[#e5e7eb] border border-[#1f2937] hover:bg-[#111827] hover:border-[#2d3748] hover:text-white shadow-[0_0_12px_rgba(15,23,42,0.75)] transition-all duration-150"
           >
-            <Music2 className="w-4 h-4 text-[#9ca3af]" />
-            <span>Pre-Save</span>
+            <CalendarClock className="w-4 h-4 text-[#9ca3af]" />
+            <span>Show</span>
           </button>
         </div>
       </div>
@@ -437,9 +459,10 @@ export default function UnifiedLinksManager() {
         {[
           { value: 'all', label: 'All Links', icon: Link2 },
           { value: 'smart', label: 'Smart', icon: Music2 },
-          { value: 'show', label: 'Shows', icon: Calendar },
-          { value: 'bio', label: 'Bio', icon: User },
+          { value: 'one_click', label: 'One-Click', icon: Link2 },
           { value: 'presave', label: 'Pre-Save', icon: Music2 },
+          { value: 'bio', label: 'Bio', icon: User },
+          { value: 'show', label: 'Shows', icon: Calendar },
           { value: 'email_capture', label: 'Email', icon: Mail },
           { value: 'listening_party', label: 'Parties', icon: Mic2 }
         ].map((tab) => {
