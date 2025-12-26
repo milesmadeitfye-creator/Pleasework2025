@@ -86,11 +86,11 @@ const handler = schedule('*/5 * * * *', async (event) => {
 
     console.log('[EmailAutomation] Email automation is enabled, processing jobs...');
 
-    // Fetch pending jobs (oldest first, limit 25)
+    // Fetch pending and scheduled jobs that are ready to send
     const { data: jobs, error: jobsError } = await supabase
       .from('email_jobs')
       .select('*')
-      .eq('status', 'pending')
+      .in('status', ['pending', 'scheduled'])
       .order('created_at', { ascending: true })
       .limit(25);
 
@@ -118,7 +118,16 @@ const handler = schedule('*/5 * * * *', async (event) => {
     // Process each job
     for (const job of jobs) {
       try {
-        // Lock the job (pending -> sending) with optimistic locking
+        // Check if scheduled job is ready
+        if (job.status === 'scheduled') {
+          const scheduledAt = job.payload?.scheduled_at;
+          if (scheduledAt && new Date(scheduledAt) > new Date()) {
+            console.log(`[EmailAutomation] Job ${job.id} not yet scheduled, skipping`);
+            continue;
+          }
+        }
+
+        // Lock the job (pending/scheduled -> sending) with optimistic locking
         const { data: lockedJob, error: lockError } = await supabase
           .from('email_jobs')
           .update({
@@ -126,7 +135,7 @@ const handler = schedule('*/5 * * * *', async (event) => {
             attempts: job.attempts + 1,
           })
           .eq('id', job.id)
-          .eq('status', 'pending') // Only update if still pending (prevents race conditions)
+          .in('status', ['pending', 'scheduled']) // Lock both pending and scheduled
           .select()
           .maybeSingle();
 
