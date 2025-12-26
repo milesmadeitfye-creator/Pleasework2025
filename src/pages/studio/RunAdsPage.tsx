@@ -15,18 +15,35 @@ interface Creative {
 
 type AdGoal = 'promote_song' | 'grow_followers' | 'capture_fans';
 type AutomationMode = 'assist' | 'guided' | 'autonomous';
+type NotificationMethod = 'sms' | 'email';
+
+const VIBES = [
+  { value: 'girls_women', label: 'Girls / Women' },
+  { value: 'guys', label: 'Guys' },
+  { value: 'party', label: 'Party' },
+  { value: 'chill_aesthetic', label: 'Chill / Aesthetic' },
+  { value: 'underground_street', label: 'Underground / Street' },
+  { value: 'mainstream_pop', label: 'Mainstream / Pop' },
+  { value: 'soft_emotional', label: 'Soft / Emotional' },
+  { value: 'aggressive_hype', label: 'Aggressive / Hype' },
+];
 
 export default function RunAdsPage() {
   const { user } = useAuth();
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [launching, setLaunching] = useState(false);
 
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [selectedGoal, setSelectedGoal] = useState<AdGoal>('promote_song');
+  const [selectedVibes, setSelectedVibes] = useState<string[]>([]);
   const [dailyBudget, setDailyBudget] = useState(20);
   const [automationMode, setAutomationMode] = useState<AutomationMode>('guided');
+  const [notificationMethod, setNotificationMethod] = useState<NotificationMethod>('email');
+  const [notificationPhone, setNotificationPhone] = useState('');
+  const [notificationEmail, setNotificationEmail] = useState('');
+  const [managerModeEnabled, setManagerModeEnabled] = useState(true);
 
   const [smartLinks, setSmartLinks] = useState<any[]>([]);
   const [selectedSmartLink, setSelectedSmartLink] = useState<string>('');
@@ -169,6 +186,11 @@ export default function RunAdsPage() {
           automation_mode: automationMode,
           creative_ids: creatives.map(c => c.id),
           smart_link_id: selectedGoal === 'promote_song' ? selectedSmartLink : undefined,
+          vibe_constraints: selectedVibes,
+          notification_method: notificationMethod,
+          notification_phone: notificationMethod === 'sms' ? notificationPhone : undefined,
+          notification_email: notificationMethod === 'email' ? notificationEmail : undefined,
+          manager_mode_enabled: managerModeEnabled,
         }),
       });
 
@@ -176,7 +198,7 @@ export default function RunAdsPage() {
 
       if (json.ok) {
         setLaunchResult(json);
-        setStep(4);
+        setStep(5);
       }
     } catch (err) {
       console.error('[RunAds] Submit error:', err);
@@ -236,7 +258,7 @@ export default function RunAdsPage() {
         </div>
 
         <div className="flex items-center justify-between mb-8">
-          {[1, 2, 3].map((s) => (
+          {[1, 2, 3, 4].map((s) => (
             <div key={s} className="flex items-center flex-1">
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold ${
@@ -247,7 +269,7 @@ export default function RunAdsPage() {
               >
                 {s}
               </div>
-              {s < 3 && (
+              {s < 4 && (
                 <div
                   className={`flex-1 h-1 mx-2 ${
                     step > s ? 'bg-gradient-to-r from-blue-500 to-purple-500' : 'bg-gray-800'
@@ -399,7 +421,7 @@ export default function RunAdsPage() {
                 onClick={() => setStep(3)}
                 className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
               >
-                Next: Set Budget
+                Next: Select Vibe
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -408,7 +430,66 @@ export default function RunAdsPage() {
 
         {step === 3 && (
           <div className="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 rounded-xl p-8">
-            <h2 className="text-2xl font-bold text-white mb-4">Budget & Automation</h2>
+            <h2 className="text-2xl font-bold text-white mb-4">Select Vibe (Optional)</h2>
+            <p className="text-gray-400 mb-6">
+              Choose vibes that match your music. This helps AI select the right audience and creative style.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              {VIBES.map((vibe) => (
+                <button
+                  key={vibe.value}
+                  onClick={() => {
+                    if (selectedVibes.includes(vibe.value)) {
+                      setSelectedVibes(selectedVibes.filter(v => v !== vibe.value));
+                    } else {
+                      setSelectedVibes([...selectedVibes, vibe.value]);
+                    }
+                  }}
+                  className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    selectedVibes.includes(vibe.value)
+                      ? 'border-purple-500 bg-purple-500/10'
+                      : 'border-gray-700 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-white">{vibe.label}</span>
+                    {selectedVibes.includes(vibe.value) && (
+                      <CheckCircle className="w-5 h-5 text-purple-400" />
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-6">
+              <p className="text-sm text-gray-300">
+                💡 <strong className="text-blue-400">AI will use vibes to:</strong> Select creative angles,
+                caption tone, and platform delivery strategy. This does NOT limit your audience - it guides creative style.
+              </p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setStep(2)}
+                className="flex-1 px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors"
+              >
+                Back
+              </button>
+              <button
+                onClick={() => setStep(4)}
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold rounded-lg transition-colors flex items-center justify-center gap-2"
+              >
+                Next: Budget & Notifications
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 rounded-xl p-8">
+            <h2 className="text-2xl font-bold text-white mb-4">Budget & Notifications</h2>
             <p className="text-gray-400 mb-6">
               Set your daily budget and choose how much control AI has
             </p>
@@ -433,38 +514,84 @@ export default function RunAdsPage() {
             </div>
 
             <div className="mb-6">
-              <label className="block text-sm font-semibold text-gray-300 mb-3">
-                Automation Mode
+              <label className="flex items-center gap-2 mb-3">
+                <input
+                  type="checkbox"
+                  checked={managerModeEnabled}
+                  onChange={(e) => setManagerModeEnabled(e.target.checked)}
+                  className="w-5 h-5"
+                />
+                <span className="text-sm font-semibold text-gray-300">
+                  Enable AI Manager Mode (Recommended)
+                </span>
               </label>
-              <div className="grid grid-cols-1 gap-3">
-                {(['assist', 'guided', 'autonomous'] as AutomationMode[]).map((mode) => (
-                  <button
-                    key={mode}
-                    onClick={() => setAutomationMode(mode)}
-                    className={`p-4 rounded-xl border-2 transition-all text-left ${
-                      automationMode === mode
-                        ? 'border-purple-500 bg-purple-500/10'
-                        : 'border-gray-700 hover:border-gray-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-2xl">{getModeIcon(mode)}</span>
-                      <div className="flex-1">
-                        <h4 className="font-semibold text-white mb-0.5">
-                          {getModeLabel(mode)}
-                        </h4>
-                        <p className="text-xs text-gray-400">
-                          {getModeDescription(mode)}
-                        </p>
-                      </div>
-                      {automationMode === mode && (
-                        <CheckCircle className="w-5 h-5 text-purple-400" />
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <p className="text-xs text-gray-400 ml-7">
+                AI handles everything silently. You only get notified when action is needed:
+                spend more, spend less, or make more creatives.
+              </p>
             </div>
+
+            {managerModeEnabled && (
+              <>
+                <div className="mb-6">
+                  <label className="block text-sm font-semibold text-gray-300 mb-3">
+                    How should I notify you?
+                  </label>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <button
+                      onClick={() => setNotificationMethod('sms')}
+                      className={`p-4 rounded-lg border-2 transition-all ${
+                        notificationMethod === 'sms'
+                          ? 'border-purple-500 bg-purple-500/10'
+                          : 'border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-white">SMS (Text)</span>
+                        {notificationMethod === 'sms' && (
+                          <CheckCircle className="w-5 h-5 text-purple-400" />
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => setNotificationMethod('email')}
+                      className={`p-4 rounded-lg border-2 transition-all ${
+                        notificationMethod === 'email'
+                          ? 'border-purple-500 bg-purple-500/10'
+                          : 'border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-white">Email</span>
+                        {notificationMethod === 'email' && (
+                          <CheckCircle className="w-5 h-5 text-purple-400" />
+                        )}
+                      </div>
+                    </button>
+                  </div>
+
+                  {notificationMethod === 'sms' && (
+                    <input
+                      type="tel"
+                      placeholder="Enter phone number (e.g., +1234567890)"
+                      value={notificationPhone}
+                      onChange={(e) => setNotificationPhone(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                    />
+                  )}
+
+                  {notificationMethod === 'email' && (
+                    <input
+                      type="email"
+                      placeholder="Enter email address"
+                      value={notificationEmail}
+                      onChange={(e) => setNotificationEmail(e.target.value)}
+                      className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white"
+                    />
+                  )}
+                </div>
+              </>
+            )}
 
             <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-6">
               <div className="flex items-start gap-3">
@@ -486,7 +613,7 @@ export default function RunAdsPage() {
 
             <div className="flex gap-3">
               <button
-                onClick={() => setStep(2)}
+                onClick={() => setStep(3)}
                 className="flex-1 px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors"
               >
                 Back
@@ -512,7 +639,7 @@ export default function RunAdsPage() {
           </div>
         )}
 
-        {step === 4 && launchResult && (
+        {step === 5 && launchResult && (
           <div className="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 rounded-xl p-8">
             <div className="text-center mb-6">
               <div className="w-16 h-16 bg-green-500/20 border-2 border-green-500/30 rounded-full flex items-center justify-center mx-auto mb-4">
