@@ -25,7 +25,7 @@ export default function UpgradeModal({ isOpen, onClose }: UpgradeModalProps) {
       trackMetaEvent('InitiateCheckout', {
         email: user.email,
         customData: {
-          value: 29,
+          value: 19,
           currency: 'USD',
           content_name: 'Subscription - Upgrade Modal',
         },

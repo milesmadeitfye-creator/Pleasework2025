@@ -37,7 +37,7 @@ const fallbackPlans: PlanData[] = [
     key: 'artist',
     title: 'Artist',
     tagline: 'For emerging artists',
-    credits: '10,000 credits / month',
+    credits: '30,000 credits / month',
     price: '$9/mo',
     priceAmount: 9,
     stripePriceId: 'price_1SieEYCmFCKCWOjb4AwhF9b4',
@@ -54,7 +54,7 @@ const fallbackPlans: PlanData[] = [
     key: 'growth',
     title: 'Growth',
     tagline: 'For serious independents',
-    credits: '30,000 credits / month',
+    credits: '65,000 credits / month',
     price: '$19/mo',
     priceAmount: 19,
     stripePriceId: 'price_1SieFYCmFCKCWOjbI2wXKbR7',
@@ -73,14 +73,14 @@ const fallbackPlans: PlanData[] = [
     key: 'scale',
     title: 'Scale',
     tagline: 'For teams & labels',
-    credits: '100,000 credits / month',
+    credits: '500,000 credits / month',
     price: '$49/mo',
     priceAmount: 49,
     stripePriceId: 'price_1SieFzCmFCKCWOjbPDYABycm',
     bullets: [
       'Everything in Growth',
       'Team Collaboration',
-      'Unlimited Fair Use',
+      'High Credit Allocation',
       'Custom Integrations',
       'Dedicated Support',
       'White Label Options',
@@ -154,33 +154,25 @@ export default function SubscriptionsPage() {
 
     const fetchSubscription = async () => {
       try {
-        const { data: subData, error: subError } = await supabase
-          .from('billing_subscriptions')
+        const { data: billingData, error: billingError } = await supabase
+          .from('user_billing_v2')
           .select('*')
           .eq('user_id', user.id)
           .maybeSingle();
 
-        if (subError) {
-          console.error('[SubscriptionsPage] Error fetching subscription:', subError);
-        } else if (subData) {
+        if (billingError) {
+          console.error('[SubscriptionsPage] Error fetching billing:', billingError);
+        } else if (billingData) {
           setSubscription({
-            status: subData.status,
-            current_period_end: subData.current_period_end,
-            cancel_at_period_end: subData.cancel_at_period_end || false,
-            stripe_customer_id: subData.stripe_customer_id,
+            status: billingData.status,
+            current_period_end: billingData.current_period_end,
+            cancel_at_period_end: billingData.cancel_at_period_end || false,
+            stripe_customer_id: billingData.stripe_customer_id,
           });
-        }
 
-        const { data: profileData, error: profileError } = await supabase
-          .from('profiles')
-          .select('plan')
-          .eq('id', user.id)
-          .maybeSingle();
-
-        if (profileError) {
-          console.error('[SubscriptionsPage] Error fetching profile:', profileError);
-        } else if (profileData?.plan && profileData.plan !== 'free') {
-          setCurrentPlan(profileData.plan as PlanId);
+          if (billingData.plan_key && billingData.plan_key !== 'free') {
+            setCurrentPlan(billingData.plan_key as PlanId);
+          }
         }
       } catch (err) {
         console.error('[SubscriptionsPage] Error loading subscription:', err);

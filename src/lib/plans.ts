@@ -2,7 +2,7 @@
  * Centralized plan configuration for Stripe subscriptions
  * Maps plan IDs to Stripe price environment variables
  *
- * Updated pricing: Artist $9, Growth $29, Scale $59
+ * Current pricing: Artist $9, Growth $19, Scale $49
  */
 
 export type PlanId = 'artist' | 'growth' | 'scale';
@@ -25,23 +25,23 @@ export const PLANS: Record<PlanId, Plan> = {
     description: 'For emerging artists',
     priceMonthly: 9,
     stripePriceEnvKey: 'STRIPE_PRICE_ARTIST',
-    creditsPerMonth: 10000,
+    creditsPerMonth: 30000,
     features: [
       'Smart Links + Tracking',
       'Pre-Save Campaigns',
       'Basic Analytics',
       'Email Capture',
       'Fan Communication',
-      '10,000 credits/month',
+      '30,000 credits/month',
     ],
   },
   growth: {
     id: 'growth',
     name: 'Growth',
     description: 'For serious independents',
-    priceMonthly: 29,
+    priceMonthly: 19,
     stripePriceEnvKey: 'STRIPE_PRICE_GROWTH',
-    creditsPerMonth: 30000,
+    creditsPerMonth: 65000,
     popular: true,
     features: [
       'Everything in Artist',
@@ -49,7 +49,7 @@ export const PLANS: Record<PlanId, Plan> = {
       'Advanced Analytics',
       'Ghoste AI Assistant',
       'Video Tools',
-      '30,000 credits/month',
+      '65,000 credits/month',
       'Priority Support',
     ],
   },
@@ -57,15 +57,15 @@ export const PLANS: Record<PlanId, Plan> = {
     id: 'scale',
     name: 'Scale',
     description: 'For teams & labels',
-    priceMonthly: 59,
+    priceMonthly: 49,
     stripePriceEnvKey: 'STRIPE_PRICE_SCALE',
-    creditsPerMonth: 100000,
+    creditsPerMonth: 500000,
     features: [
       'Everything in Growth',
       'Team Collaboration',
-      'Unlimited Fair Use',
+      'High Credit Allocation',
       'Custom Integrations',
-      '100,000 credits/month',
+      '500,000 credits/month',
       'Dedicated Support',
       'White Label Options',
     ],

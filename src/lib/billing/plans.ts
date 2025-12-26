@@ -32,7 +32,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     priceId: 'price_1SieEYCmFCKCWOjb4AwhF9b4',
     displayPrice: '$9/mo',
     priceAmount: 9,
-    credits: '10,000 credits / month',
+    credits: '30,000 credits / month',
     tagline: 'For emerging artists',
     bullets: [
       'Smart Links + Tracking',
@@ -49,7 +49,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     priceId: 'price_1SieFYCmFCKCWOjbI2wXKbR7',
     displayPrice: '$19/mo',
     priceAmount: 19,
-    credits: '30,000 credits / month',
+    credits: '65,000 credits / month',
     tagline: 'For serious independents',
     bullets: [
       'Everything in Artist',
@@ -68,12 +68,12 @@ export const BILLING_PLANS: BillingPlan[] = [
     priceId: 'price_1SieFzCmFCKCWOjbPDYABycm',
     displayPrice: '$49/mo',
     priceAmount: 49,
-    credits: '100,000 credits / month',
+    credits: '500,000 credits / month',
     tagline: 'For teams & labels',
     bullets: [
       'Everything in Growth',
       'Team Collaboration',
-      'Unlimited Fair Use',
+      'High Credit Allocation',
       'Custom Integrations',
       'Dedicated Support',
       'White Label Options',
