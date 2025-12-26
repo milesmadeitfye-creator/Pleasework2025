@@ -104,6 +104,24 @@ export default function SubscriptionsPage() {
   const [subLoading, setSubLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
 
+  // Check for Supabase anon key presence
+  useEffect(() => {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      const missing = [];
+      if (!supabaseUrl) missing.push('VITE_SUPABASE_URL');
+      if (!supabaseAnonKey) missing.push('VITE_SUPABASE_ANON_KEY');
+
+      console.error('[SubscriptionsPage] Missing Supabase env vars:', missing);
+      setError(
+        `Missing Supabase configuration: ${missing.join(', ')}. ` +
+        `Add these environment variables to continue.`
+      );
+    }
+  }, []);
+
   useEffect(() => {
     // Defensive pixel tracking - never crash if pixel fails
     try {
@@ -186,47 +204,75 @@ export default function SubscriptionsPage() {
   useEffect(() => {
     const fetchPrices = async () => {
       try {
+        console.log('[SubscriptionsPage] Fetching prices...');
         const response = await fetch('/.netlify/functions/stripe-prices-list');
-        if (!response.ok) {
-          console.warn('[SubscriptionsPage] Failed to fetch Stripe prices, using fallback');
-          setPricesLoading(false);
-          return;
-        }
 
         const data = await response.json();
-        if (!data.success || !data.plans || data.plans.length === 0) {
-          console.warn('[SubscriptionsPage] No plans returned from Stripe, using fallback');
+        console.log('[SubscriptionsPage] Prices response:', {
+          ok: response.ok,
+          status: response.status,
+          data,
+        });
+
+        if (!response.ok) {
+          // Check for specific errors
+          if (data.error === 'missing_lookup_keys' && data.missing) {
+            const missingKeys = data.missing.join(', ');
+            setError(
+              `Stripe lookup keys not configured: ${missingKeys}. ` +
+              `Configure these in your Stripe Dashboard under Product → Pricing. ` +
+              `Using fallback pricing for now.`
+            );
+            setPricesLoading(false);
+            return;
+          }
+
+          if (data.error === 'Billing not configured') {
+            setError(
+              `Stripe billing not configured. Missing: ${data.details}. ` +
+              `Using fallback pricing for now.`
+            );
+            setPricesLoading(false);
+            return;
+          }
+
+          console.warn('[SubscriptionsPage] Failed to fetch Stripe prices, using fallback:', data.error);
           setPricesLoading(false);
           return;
         }
 
-        // Map Stripe prices to our plan structure
-        const stripePrices = data.plans as StripePrice[];
-        const updatedPlans = fallbackPlans.map((fallbackPlan) => {
-          // Try to match by metadata or amount
-          const stripePlan = stripePrices.find((sp) => {
-            const planConfig = PLANS[fallbackPlan.key];
-            // Match by expected amount
-            const expectedAmount = planConfig.priceMonthly * 100;
-            return sp.unit_amount === expectedAmount && sp.interval === 'month';
-          });
+        if (!data.ok || !data.prices) {
+          console.warn('[SubscriptionsPage] Invalid response format, using fallback');
+          setPricesLoading(false);
+          return;
+        }
 
-          if (stripePlan) {
+        // Map Stripe prices to our plan structure using lookup keys
+        const stripePrices = data.prices;
+        const updatedPlans = fallbackPlans.map((fallbackPlan) => {
+          const stripePrice = stripePrices[fallbackPlan.key];
+
+          if (stripePrice) {
             return {
               ...fallbackPlan,
-              price: `$${(stripePlan.unit_amount / 100).toFixed(0)}/mo`,
-              priceAmount: stripePlan.unit_amount / 100,
-              stripePriceId: stripePlan.price_id,
+              price: `$${(stripePrice.unit_amount / 100).toFixed(0)}/mo`,
+              priceAmount: stripePrice.unit_amount / 100,
+              stripePriceId: stripePrice.price_id,
             };
           }
 
           return fallbackPlan;
         });
 
+        console.log('[SubscriptionsPage] Loaded', updatedPlans.length, 'plans');
         setPlans(updatedPlans);
         setPricesLoading(false);
-      } catch (err) {
+      } catch (err: any) {
         console.error('[SubscriptionsPage] Error fetching Stripe prices:', err);
+        setError(
+          `Failed to load pricing: ${err.message || 'Network error'}. ` +
+          `Using fallback pricing. Try refreshing the page.`
+        );
         setPricesLoading(false);
       }
     };

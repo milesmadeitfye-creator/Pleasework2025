@@ -5,9 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 // Env vars validation
 const requiredEnvVars = {
   STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
-  STRIPE_PRICE_ARTIST: process.env.STRIPE_PRICE_ARTIST,
-  STRIPE_PRICE_GROWTH: process.env.STRIPE_PRICE_GROWTH,
-  STRIPE_PRICE_SCALE: process.env.STRIPE_PRICE_SCALE,
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
   APP_BASE_URL: process.env.APP_BASE_URL || 'https://ghoste.one',
@@ -16,6 +13,13 @@ const requiredEnvVars = {
 const missingEnvVars = Object.entries(requiredEnvVars)
   .filter(([key, value]) => !value && key !== 'APP_BASE_URL')
   .map(([key]) => key);
+
+// Lookup keys for the 3 plans
+const LOOKUP_KEYS: Record<string, string> = {
+  artist: 'artist_monthly',
+  growth: 'growth_monthly',
+  scale: 'scale_monthly',
+};
 
 // CORS headers
 const headers = {
@@ -116,7 +120,7 @@ export const handler: Handler = async (event) => {
     const { plan } = body;
 
     // Validate plan
-    const validPlans = ['artist', 'growth', 'scale'];
+    const validPlans = Object.keys(LOOKUP_KEYS);
     if (!plan || !validPlans.includes(plan)) {
       return {
         statusCode: 400,
@@ -129,30 +133,45 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Map plan to Stripe price ID
-    const priceIdMap: Record<string, string> = {
-      artist: requiredEnvVars.STRIPE_PRICE_ARTIST!,
-      growth: requiredEnvVars.STRIPE_PRICE_GROWTH!,
-      scale: requiredEnvVars.STRIPE_PRICE_SCALE!,
-    };
+    // Get lookup key for this plan
+    const lookupKey = LOOKUP_KEYS[plan];
 
-    const priceId = priceIdMap[plan];
-    if (!priceId) {
-      console.error('[stripe-checkout] Missing price ID for plan:', plan);
+    console.log('[stripe-checkout] Creating checkout for:', {
+      userId: user.id,
+      plan,
+      lookupKey,
+    });
+
+    // Initialize Stripe
+    const stripe = new Stripe(requiredEnvVars.STRIPE_SECRET_KEY!, {
+      apiVersion: '2024-11-20.acacia',
+    });
+
+    // Resolve lookup key to price ID
+    const prices = await stripe.prices.list({
+      active: true,
+      lookup_keys: [lookupKey],
+      limit: 1,
+    });
+
+    if (prices.data.length === 0) {
+      console.error('[stripe-checkout] Lookup key not found:', lookupKey);
       return {
         statusCode: 500,
         headers,
         body: JSON.stringify({
           ok: false,
-          error: 'Plan not configured',
-          details: `No Stripe price ID found for plan: ${plan}`,
+          error: 'lookup_key_not_found',
+          details: `Stripe lookup key not found: ${lookupKey}. Configure this in your Stripe Dashboard.`,
+          lookup_key: lookupKey,
         }),
       };
     }
 
-    // Initialize Stripe
-    const stripe = new Stripe(requiredEnvVars.STRIPE_SECRET_KEY!, {
-      apiVersion: '2024-11-20.acacia',
+    const price = prices.data[0];
+    console.log('[stripe-checkout] Resolved price:', {
+      priceId: price.id,
+      amount: price.unit_amount,
     });
 
     // Create Checkout Session
@@ -160,7 +179,7 @@ export const handler: Handler = async (event) => {
       mode: 'subscription',
       line_items: [
         {
-          price: priceId,
+          price: price.id,
           quantity: 1,
         },
       ],
@@ -169,6 +188,7 @@ export const handler: Handler = async (event) => {
         metadata: {
           user_id: user.id,
           plan,
+          lookup_key: lookupKey,
           source: 'subscriptions_page',
         },
       },
@@ -178,6 +198,7 @@ export const handler: Handler = async (event) => {
       metadata: {
         user_id: user.id,
         plan,
+        lookup_key: lookupKey,
         source: 'subscriptions_page',
       },
     });

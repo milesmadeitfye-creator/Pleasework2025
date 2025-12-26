@@ -2,11 +2,13 @@ import type { Handler } from '@netlify/functions';
 import Stripe from 'stripe';
 
 /**
- * List active Stripe prices for subscription plans
+ * List active Stripe prices using lookup keys (lookup IDs)
  * Returns curated list of 3 plans: Artist, Growth, Scale
  *
- * This function dynamically fetches prices from Stripe so UI stays in sync
- * with actual Stripe configuration without hardcoding.
+ * Uses deterministic lookup keys:
+ * - artist_monthly
+ * - growth_monthly
+ * - scale_monthly
  */
 
 const headers = {
@@ -14,6 +16,12 @@ const headers = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
+};
+
+const LOOKUP_KEYS = {
+  artist: 'artist_monthly',
+  growth: 'growth_monthly',
+  scale: 'scale_monthly',
 };
 
 export const handler: Handler = async (event) => {
@@ -38,8 +46,9 @@ export const handler: Handler = async (event) => {
         statusCode: 500,
         headers,
         body: JSON.stringify({
+          ok: false,
           error: 'Billing not configured',
-          details: 'Missing Stripe credentials',
+          details: 'Missing STRIPE_SECRET_KEY environment variable',
         }),
       };
     }
@@ -48,68 +57,90 @@ export const handler: Handler = async (event) => {
       apiVersion: '2024-11-20.acacia',
     });
 
-    // Fetch active prices with product data
-    const prices = await stripe.prices.list({
+    console.log('[stripe-prices-list] Fetching prices with lookup keys:', LOOKUP_KEYS);
+
+    // Fetch all active prices with product data
+    const allPrices = await stripe.prices.list({
       active: true,
       expand: ['data.product'],
       limit: 100,
     });
 
-    // Filter to subscription prices only and structure data
-    const subscriptionPrices = prices.data
-      .filter((price) => {
-        if (price.type !== 'recurring') return false;
-        if (!price.unit_amount) return false;
-        if (price.currency !== 'usd') return false;
+    console.log('[stripe-prices-list] Found', allPrices.data.length, 'active prices');
 
-        const product = price.product as Stripe.Product;
-        if (!product || typeof product === 'string') return false;
-        if (!product.active) return false;
+    // Filter to our lookup keys and build response
+    const prices: Record<string, any> = {};
+    const missingKeys: string[] = [];
 
-        // Filter by metadata to identify our subscription plans
-        // This allows flexibility - we can tag products in Stripe dashboard
-        const metadata = product.metadata || {};
-        return metadata.type === 'subscription' || metadata.plan_type === 'subscription';
-      })
-      .map((price) => {
-        const product = price.product as Stripe.Product;
+    for (const [planKey, lookupKey] of Object.entries(LOOKUP_KEYS)) {
+      const price = allPrices.data.find((p) => p.lookup_key === lookupKey);
 
-        return {
-          price_id: price.id,
-          product_id: product.id,
-          product_name: product.name,
-          product_description: product.description || '',
-          unit_amount: price.unit_amount!,
-          currency: price.currency,
-          interval: price.recurring?.interval || 'month',
-          interval_count: price.recurring?.interval_count || 1,
-          metadata: product.metadata,
-        };
-      })
-      .sort((a, b) => a.unit_amount - b.unit_amount); // Sort by price ascending
+      if (!price) {
+        console.warn(`[stripe-prices-list] Missing lookup key: ${lookupKey}`);
+        missingKeys.push(lookupKey);
+        continue;
+      }
 
-    // Get the configured price IDs from env for reference
-    const configuredPrices = {
-      artist: process.env.STRIPE_PRICE_ARTIST,
-      growth: process.env.STRIPE_PRICE_GROWTH,
-      scale: process.env.STRIPE_PRICE_SCALE,
-    };
+      // Validate price structure
+      if (price.type !== 'recurring') {
+        console.warn(`[stripe-prices-list] Price ${lookupKey} is not recurring, skipping`);
+        continue;
+      }
 
-    // Filter to only our 3 main plans using env var matching
-    const mainPlans = subscriptionPrices.filter((price) =>
-      Object.values(configuredPrices).includes(price.price_id)
-    );
+      if (!price.unit_amount) {
+        console.warn(`[stripe-prices-list] Price ${lookupKey} has no unit_amount, skipping`);
+        continue;
+      }
 
-    // If no configured prices found, return all subscription prices (fallback)
-    const plansToReturn = mainPlans.length > 0 ? mainPlans : subscriptionPrices.slice(0, 3);
+      const product = price.product as Stripe.Product;
+      if (!product || typeof product === 'string') {
+        console.warn(`[stripe-prices-list] Price ${lookupKey} has invalid product, skipping`);
+        continue;
+      }
 
+      prices[planKey] = {
+        lookup_key: lookupKey,
+        price_id: price.id,
+        product_id: product.id,
+        product_name: product.name,
+        product_description: product.description || '',
+        unit_amount: price.unit_amount,
+        currency: price.currency,
+        interval: price.recurring?.interval || 'month',
+        interval_count: price.recurring?.interval_count || 1,
+      };
+
+      console.log(`[stripe-prices-list] Loaded ${planKey}:`, {
+        lookup_key: lookupKey,
+        price_id: price.id,
+        amount: price.unit_amount,
+      });
+    }
+
+    // If any lookup keys are missing, return error
+    if (missingKeys.length > 0) {
+      console.error('[stripe-prices-list] Missing lookup keys:', missingKeys);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({
+          ok: false,
+          error: 'missing_lookup_keys',
+          details: `The following Stripe lookup keys are not configured: ${missingKeys.join(', ')}`,
+          missing: missingKeys,
+          help: 'Configure these lookup keys in your Stripe Dashboard under Product → Pricing',
+        }),
+      };
+    }
+
+    // Success - return all 3 prices
     return {
       statusCode: 200,
       headers,
       body: JSON.stringify({
-        success: true,
-        plans: plansToReturn,
-        count: plansToReturn.length,
+        ok: true,
+        prices,
+        count: Object.keys(prices).length,
       }),
     };
   } catch (err: any) {
@@ -119,6 +150,7 @@ export const handler: Handler = async (event) => {
       statusCode: 500,
       headers,
       body: JSON.stringify({
+        ok: false,
         error: 'Failed to fetch prices',
         details: err.message || String(err),
       }),
