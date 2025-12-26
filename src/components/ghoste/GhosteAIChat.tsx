@@ -16,6 +16,7 @@ import {
   MessageSquare,
   Plus,
   AlertCircle,
+  Bug,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -766,9 +767,39 @@ ${managerContextText}
                   Your studio copilot &amp; music manager
                 </p>
               </div>
-              <div className="flex items-center gap-2 text-xs text-emerald-400">
-                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                Online
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      const session = await supabase.auth.getSession();
+                      const token = session.data.session?.access_token;
+                      if (!token) {
+                        alert('Not authenticated');
+                        return;
+                      }
+                      const res = await fetch('/.netlify/functions/ai-debug-setup', {
+                        headers: { Authorization: `Bearer ${token}` },
+                      });
+                      const data = await res.json();
+                      const formatted = JSON.stringify(data, null, 2);
+                      const newWindow = window.open('', '_blank');
+                      if (newWindow) {
+                        newWindow.document.write(`<pre style="background:#111;color:#0f0;padding:20px;font-size:12px;">${formatted}</pre>`);
+                      }
+                    } catch (err: any) {
+                      alert('Debug fetch failed: ' + err.message);
+                    }
+                  }}
+                  className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors"
+                  title="Debug AI Setup"
+                >
+                  <Bug className="w-3 h-3" />
+                  Debug
+                </button>
+                <div className="flex items-center gap-2 text-xs text-emerald-400">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Online
+                </div>
               </div>
             </header>
 
