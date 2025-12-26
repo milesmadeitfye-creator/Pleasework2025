@@ -2,6 +2,7 @@ import type { Handler } from '@netlify/functions';
 import OpenAI from 'openai';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getManagerContext, type ManagerContext } from '../../src/ai/context/getManagerContext';
+import { getAISetupStatus, formatSetupStatusForAI, type AISetupStatus } from './_aiSetupStatus';
 
 // Types
 type Role = 'system' | 'user' | 'assistant';
@@ -136,12 +137,26 @@ async function storeMessages(
     .eq('id', conversationId);
 }
 
-// Build system prompt with ads context and operator insights
-function buildSystemPrompt(task: string | undefined, meta?: Record<string, any>, adsContext?: ManagerContext | null, operatorInsights?: any[]): string {
+// Build system prompt with setup status, ads context and operator insights
+function buildSystemPrompt(
+  task: string | undefined,
+  meta?: Record<string, any>,
+  setupStatus?: AISetupStatus | null,
+  adsContext?: ManagerContext | null,
+  operatorInsights?: any[]
+): string {
+  // Inject canonical setup status at the top (bypasses RLS, most reliable)
+  let setupSection = '';
+  if (setupStatus) {
+    setupSection = formatSetupStatusForAI(setupStatus);
+  }
+
   // Build ads data section
   let adsDataSection = '';
   if (adsContext) {
-    const metaSummary = adsContext.meta.connected
+    // Override connection status with canonical setup status if available
+    const metaConnected = setupStatus ? setupStatus.meta.connected : adsContext.meta.connected;
+    const metaSummary = metaConnected
       ? `✅ Meta CONNECTED: ${adsContext.meta.adAccounts.length} ad accounts detected, ${adsContext.meta.campaigns.length} campaigns found`
       : '❌ Meta NOT CONNECTED: User needs to connect Meta in Profile → Connected Accounts';
 
@@ -184,6 +199,8 @@ function buildSystemPrompt(task: string | undefined, meta?: Record<string, any>,
 ====================================================
 REAL-TIME ADS & PERFORMANCE DATA
 ====================================================
+
+${setupSection}
 
 ${metaSummary}${metaStats}
 ${campaignList}
@@ -559,12 +576,28 @@ export const handler: Handler = async (event) => {
       await storeMessages(supabase, finalConversationId, user_id, userMessages);
     }
 
-    // Fetch ads context (fail-safe)
+    // Fetch canonical setup status (fail-safe)
+    // CRITICAL: Uses server-side RPC to bypass RLS issues
+    let setupStatus: AISetupStatus | null = null;
+    try {
+      setupStatus = await getAISetupStatus(user_id);
+      console.log('[ghoste-ai] Setup status loaded:', {
+        metaConnected: setupStatus.meta.connected,
+        metaHasToken: setupStatus.meta.hasToken,
+        metaAdAccounts: setupStatus.meta.adAccounts.length,
+        smartLinksCount: setupStatus.smartLinks.count,
+        errors: setupStatus.errors.length,
+      });
+    } catch (error) {
+      console.error('[ghoste-ai] Failed to load setup status:', error);
+      // Continue without setup status - chat still works
+    }
+
+    // Fetch ads context for campaign details (fail-safe)
     let adsContext: ManagerContext | null = null;
     try {
       adsContext = await getManagerContext(user_id);
       console.log('[ghoste-ai] Ads context loaded:', {
-        metaConnected: adsContext.meta.connected,
         campaigns: adsContext.meta.campaigns.length,
         spend7d: adsContext.summary.totalSpend7d,
       });
@@ -593,8 +626,8 @@ export const handler: Handler = async (event) => {
       // Continue without operator insights - chat still works
     }
 
-    // Build system prompt with ads context and operator insights
-    const systemMessage = buildSystemPrompt(task, meta, adsContext, operatorInsights);
+    // Build system prompt with setup status, ads context and operator insights
+    const systemMessage = buildSystemPrompt(task, meta, setupStatus, adsContext, operatorInsights);
 
     // Build full messages array for OpenAI
     const fullMessages: Array<{ role: Role; content: string }> = [
