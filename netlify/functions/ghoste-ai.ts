@@ -216,13 +216,17 @@ USE THIS DATA to answer questions like:
 - "what should I improve" → Use opportunities list
 - "promote my new track" → Suggest creating smart link if none exist, or use existing
 
-CRITICAL RULES FOR AD REQUESTS:
-- If Meta is CONNECTED: You can create ads, campaigns, drafts - proceed confidently
-- If Meta is NOT CONNECTED: Tell user to connect Meta first in Profile → Connected Accounts
-- If Smart Links count = 0: Tell user to create a smart link first before running ads
-- If Smart Links exist: Reference them by title/slug when suggesting promotions
-- Always use REAL campaign names from "Active Campaigns" list
-- DO NOT make up campaign names, metrics, or smart link URLs
+CRITICAL RULES FOR AI (MANDATORY):
+1. CANONICAL SETUP STATUS (above) is the ONLY source of truth for Meta connection and Smart Links
+2. If "Meta connected = true" in setup status, NEVER claim Meta is not connected
+3. If "Smart links count = N" where N > 0, NEVER claim user has no smart links
+4. If setup status says connected=false, tell user: "Connect Meta in Profile → Connected Accounts first"
+5. If setup status says smart_links_count=0, tell user: "Create a smart link first, then I can run ads"
+6. DO NOT query meta_credentials or smart_links yourself - trust the setup status data above
+7. If setup status has errors, say: "I couldn't verify your setup status. Try again or check your connections."
+8. Always reference REAL campaign names from "Active Campaigns" list
+9. Always reference REAL smart link titles/slugs from setup status
+10. DO NOT make up campaign names, metrics, or smart link URLs
 - If user asks "make me some ads" but has no smart links: Say "Create a smart link first so I know what to promote"
 ${operatorSection ? '\n- Reference AI Operator scan results when discussing optimizations' : ''}
 

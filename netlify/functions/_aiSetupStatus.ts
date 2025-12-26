@@ -2,7 +2,7 @@
  * AI Setup Status Helper
  *
  * Server-side helper that provides canonical setup status for Ghoste AI
- * Bypasses RLS by using service role and provides clean, structured data
+ * Uses the public.ai_get_setup_status RPC (SECURITY DEFINER) as single source of truth
  *
  * CRITICAL: Only call this from server-side (Netlify functions)
  * NEVER expose this directly to the client
@@ -10,11 +10,48 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// RPC response structure (matches DB function output)
+interface RPCSetupStatus {
+  meta: {
+    has_meta: boolean;
+    source_table: string | null;
+    ad_accounts: Array<{
+      id: string;
+      account_id: string;
+      name: string;
+      currency?: string;
+    }>;
+    pages: Array<{
+      id: string;
+      name: string;
+      category?: string;
+    }>;
+    pixels: Array<{
+      id: string;
+      name: string;
+      is_available: boolean;
+    }>;
+    instagram_accounts: Array<{
+      id: string;
+      username: string;
+      profile_picture_url?: string;
+    }>;
+  };
+  smart_links_count: number;
+  smart_links_preview: Array<{
+    id: string;
+    title: string;
+    slug: string;
+    destination_url: string;
+    created_at: string;
+  }>;
+}
+
+// Client-facing structure (formatted for AI consumption)
 export interface AISetupStatus {
   meta: {
     connected: boolean;
-    hasToken: boolean;
-    tokenExpired: boolean;
+    sourceTable: string | null;
     adAccounts: Array<{
       id: string;
       name: string;
@@ -24,28 +61,18 @@ export interface AISetupStatus {
     pages: Array<{
       id: string;
       name: string;
+      category?: string;
     }>;
     instagramAccounts: Array<{
       id: string;
       username: string;
+      profilePictureUrl?: string;
     }>;
     pixels: Array<{
       id: string;
       name: string;
+      isAvailable: boolean;
     }>;
-    selectedAssets: {
-      adAccountId: string | null;
-      adAccountName: string | null;
-      pageId: string | null;
-      pageName: string | null;
-      instagramId: string | null;
-      instagramUsername: string | null;
-      pixelId: string | null;
-      businessId: string | null;
-      businessName: string | null;
-    };
-    campaignsCount: number;
-    activeCampaignsCount: number;
   };
   smartLinks: {
     count: number;
@@ -53,6 +80,7 @@ export interface AISetupStatus {
       id: string;
       title: string;
       slug: string;
+      destinationUrl: string;
       createdAt: string;
     }>;
   };
@@ -60,7 +88,7 @@ export interface AISetupStatus {
 }
 
 /**
- * Get Supabase admin client
+ * Get Supabase admin client (service role)
  */
 function getSupabaseAdmin(): SupabaseClient {
   const supabaseUrl = process.env.SUPABASE_URL;
@@ -79,241 +107,134 @@ function getSupabaseAdmin(): SupabaseClient {
 }
 
 /**
- * Fetch Meta connection status
+ * Transform RPC response to client-facing format
  */
-async function fetchMetaStatus(supabase: SupabaseClient, userId: string) {
-  const status: AISetupStatus['meta'] = {
-    connected: false,
-    hasToken: false,
-    tokenExpired: false,
-    adAccounts: [],
-    pages: [],
-    instagramAccounts: [],
-    pixels: [],
-    selectedAssets: {
-      adAccountId: null,
-      adAccountName: null,
-      pageId: null,
-      pageName: null,
-      instagramId: null,
-      instagramUsername: null,
-      pixelId: null,
-      businessId: null,
-      businessName: null,
-    },
-    campaignsCount: 0,
-    activeCampaignsCount: 0,
-  };
-
-  try {
-    // Check meta_credentials for token and selected assets
-    const { data: creds, error: credsError } = await supabase
-      .from('meta_credentials')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (credsError) {
-      console.error('[fetchMetaStatus] Credentials error:', credsError);
-      return { status, error: `Credentials check failed: ${credsError.message}` };
-    }
-
-    if (!creds || !creds.access_token) {
-      return { status, error: null };
-    }
-
-    // Has token = connected
-    status.hasToken = true;
-    status.connected = true;
-
-    // Check if token expired
-    if (creds.expires_at) {
-      const expiresAt = new Date(creds.expires_at);
-      if (expiresAt < new Date()) {
-        status.tokenExpired = true;
-      }
-    }
-
-    // Get selected assets from credentials
-    status.selectedAssets = {
-      adAccountId: creds.ad_account_id || null,
-      adAccountName: creds.ad_account_name || null,
-      pageId: creds.page_id || null,
-      pageName: creds.facebook_page_name || null,
-      instagramId: creds.instagram_actor_id || creds.instagram_id || null,
-      instagramUsername: creds.instagram_username || null,
-      pixelId: creds.pixel_id || null,
-      businessId: creds.business_id || null,
-      businessName: creds.business_name || null,
-    };
-
-    // Fetch ad accounts
-    const { data: adAccounts } = await supabase
-      .from('meta_ad_accounts')
-      .select('id, account_id, ad_account_id, name, currency')
-      .eq('user_id', userId);
-
-    if (adAccounts && adAccounts.length > 0) {
-      status.adAccounts = adAccounts.map(acc => ({
+function transformRPCResponse(rpcData: RPCSetupStatus): Omit<AISetupStatus, 'errors'> {
+  return {
+    meta: {
+      connected: rpcData.meta.has_meta,
+      sourceTable: rpcData.meta.source_table,
+      adAccounts: rpcData.meta.ad_accounts.map(acc => ({
         id: acc.id,
-        name: acc.name || 'Unnamed Account',
-        accountId: acc.ad_account_id || acc.account_id || acc.id,
+        name: acc.name,
+        accountId: acc.account_id,
         currency: acc.currency,
-      }));
-    }
-
-    // Fetch pages
-    const { data: pages } = await supabase
-      .from('meta_pages')
-      .select('meta_page_id, name')
-      .eq('user_id', userId);
-
-    if (pages && pages.length > 0) {
-      status.pages = pages.map(p => ({
-        id: p.meta_page_id,
-        name: p.name || 'Unnamed Page',
-      }));
-    }
-
-    // Fetch Instagram accounts
-    const { data: igAccounts } = await supabase
-      .from('meta_instagram_accounts')
-      .select('meta_instagram_id, username')
-      .eq('user_id', userId);
-
-    if (igAccounts && igAccounts.length > 0) {
-      status.instagramAccounts = igAccounts.map(ig => ({
-        id: ig.meta_instagram_id,
-        username: ig.username || 'Unknown',
-      }));
-    }
-
-    // Fetch pixels
-    const { data: pixels } = await supabase
-      .from('meta_pixels')
-      .select('meta_pixel_id, name')
-      .eq('user_id', userId)
-      .eq('is_available', true);
-
-    if (pixels && pixels.length > 0) {
-      status.pixels = pixels.map(px => ({
-        id: px.meta_pixel_id,
-        name: px.name || 'Unnamed Pixel',
-      }));
-    }
-
-    // Count campaigns
-    const { count: totalCampaigns } = await supabase
-      .from('meta_ad_campaigns')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
-
-    const { count: activeCampaigns } = await supabase
-      .from('meta_ad_campaigns')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('is_active', true);
-
-    status.campaignsCount = totalCampaigns || 0;
-    status.activeCampaignsCount = activeCampaigns || 0;
-
-    return { status, error: null };
-  } catch (error: any) {
-    console.error('[fetchMetaStatus] Unexpected error:', error);
-    return { status, error: `Meta fetch error: ${error.message}` };
-  }
+      })),
+      pages: rpcData.meta.pages.map(page => ({
+        id: page.id,
+        name: page.name,
+        category: page.category,
+      })),
+      instagramAccounts: rpcData.meta.instagram_accounts.map(ig => ({
+        id: ig.id,
+        username: ig.username,
+        profilePictureUrl: ig.profile_picture_url,
+      })),
+      pixels: rpcData.meta.pixels.map(px => ({
+        id: px.id,
+        name: px.name,
+        isAvailable: px.is_available,
+      })),
+    },
+    smartLinks: {
+      count: rpcData.smart_links_count,
+      recent: rpcData.smart_links_preview.map(link => ({
+        id: link.id,
+        title: link.title,
+        slug: link.slug,
+        destinationUrl: link.destination_url,
+        createdAt: link.created_at,
+      })),
+    },
+  };
 }
 
 /**
- * Fetch Smart Links status
+ * Call the canonical RPC function
+ * This is the SINGLE SOURCE OF TRUTH for AI setup status
  */
-async function fetchSmartLinksStatus(supabase: SupabaseClient, userId: string) {
-  const status: AISetupStatus['smartLinks'] = {
-    count: 0,
-    recent: [],
-  };
+async function callSetupStatusRPC(supabase: SupabaseClient, userId: string): Promise<RPCSetupStatus> {
+  console.log('[callSetupStatusRPC] Calling ai_get_setup_status RPC for user:', userId);
 
-  try {
-    // Get count
-    const { count, error: countError } = await supabase
-      .from('smart_links')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
+  const { data, error } = await supabase.rpc('ai_get_setup_status', {
+    p_user_id: userId,
+  });
 
-    if (countError) {
-      console.error('[fetchSmartLinksStatus] Count error:', countError);
-      return { status, error: `Smart links count failed: ${countError.message}` };
-    }
-
-    status.count = count || 0;
-
-    // Get recent links
-    const { data: links, error: linksError } = await supabase
-      .from('smart_links')
-      .select('id, title, slug, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(5);
-
-    if (linksError) {
-      console.error('[fetchSmartLinksStatus] Links error:', linksError);
-      return { status, error: `Smart links fetch failed: ${linksError.message}` };
-    }
-
-    if (links && links.length > 0) {
-      status.recent = links.map(link => ({
-        id: link.id,
-        title: link.title || 'Untitled',
-        slug: link.slug,
-        createdAt: link.created_at,
-      }));
-    }
-
-    return { status, error: null };
-  } catch (error: any) {
-    console.error('[fetchSmartLinksStatus] Unexpected error:', error);
-    return { status, error: `Smart links error: ${error.message}` };
+  if (error) {
+    console.error('[callSetupStatusRPC] RPC error:', error);
+    throw new Error(`RPC failed: ${error.message}`);
   }
+
+  if (!data) {
+    throw new Error('RPC returned no data');
+  }
+
+  console.log('[callSetupStatusRPC] RPC success:', {
+    has_meta: data.meta?.has_meta,
+    source_table: data.meta?.source_table,
+    ad_accounts: data.meta?.ad_accounts?.length || 0,
+    pages: data.meta?.pages?.length || 0,
+    pixels: data.meta?.pixels?.length || 0,
+    smart_links_count: data.smart_links_count,
+  });
+
+  return data as RPCSetupStatus;
 }
 
 /**
  * Get complete AI setup status
  *
  * CRITICAL: Only call from server-side (Netlify functions)
- * Uses service role to bypass RLS
+ * Uses the ai_get_setup_status RPC (SECURITY DEFINER) as canonical source of truth
  */
 export async function getAISetupStatus(userId: string): Promise<AISetupStatus> {
-  console.log('[getAISetupStatus] Fetching setup status for user:', userId);
+  console.log('[getAISetupStatus] Fetching canonical setup status for user:', userId);
 
   const supabase = getSupabaseAdmin();
   const errors: string[] = [];
 
-  // Fetch both in parallel
-  const [metaResult, smartLinksResult] = await Promise.all([
-    fetchMetaStatus(supabase, userId),
-    fetchSmartLinksStatus(supabase, userId),
-  ]);
+  try {
+    // Call the canonical RPC - single source of truth
+    const rpcData = await callSetupStatusRPC(supabase, userId);
 
-  // Collect errors
-  if (metaResult.error) errors.push(metaResult.error);
-  if (smartLinksResult.error) errors.push(smartLinksResult.error);
+    // Transform to client-facing format
+    const setupStatus: AISetupStatus = {
+      ...transformRPCResponse(rpcData),
+      errors,
+    };
 
-  const setupStatus: AISetupStatus = {
-    meta: metaResult.status,
-    smartLinks: smartLinksResult.status,
-    errors,
-  };
+    console.log('[getAISetupStatus] Status summary:', {
+      metaConnected: setupStatus.meta.connected,
+      sourceTable: setupStatus.meta.sourceTable,
+      metaAdAccounts: setupStatus.meta.adAccounts.length,
+      metaPages: setupStatus.meta.pages.length,
+      metaPixels: setupStatus.meta.pixels.length,
+      smartLinksCount: setupStatus.smartLinks.count,
+      smartLinksWithDestination: setupStatus.smartLinks.recent.filter(l => l.destinationUrl).length,
+    });
 
-  console.log('[getAISetupStatus] Status summary:', {
-    metaConnected: setupStatus.meta.connected,
-    metaHasToken: setupStatus.meta.hasToken,
-    metaAdAccounts: setupStatus.meta.adAccounts.length,
-    metaCampaigns: setupStatus.meta.campaignsCount,
-    smartLinksCount: setupStatus.smartLinks.count,
-    errorsCount: setupStatus.errors.length,
-  });
+    return setupStatus;
+  } catch (error: any) {
+    console.error('[getAISetupStatus] Failed to fetch setup status:', error);
+    errors.push(`Setup status fetch failed: ${error.message}`);
 
-  return setupStatus;
+    // Return empty status on error
+    return {
+      meta: {
+        connected: false,
+        sourceTable: null,
+        adAccounts: [],
+        pages: [],
+        instagramAccounts: [],
+        pixels: [],
+      },
+      smartLinks: {
+        count: 0,
+        recent: [],
+      },
+      errors,
+    };
+  }
 }
 
 /**
@@ -322,44 +243,50 @@ export async function getAISetupStatus(userId: string): Promise<AISetupStatus> {
 export function formatSetupStatusForAI(status: AISetupStatus): string {
   const lines: string[] = [];
 
-  lines.push('=== SETUP STATUS ===');
+  lines.push('=== CANONICAL SETUP STATUS (from RPC) ===');
   lines.push('');
 
   // Meta status
   lines.push('Meta Connection:');
   if (status.meta.connected) {
-    lines.push('  ✅ Connected');
-    if (status.meta.tokenExpired) {
-      lines.push('  ⚠️  Token expired - user needs to reconnect');
+    lines.push(`  ✅ CONNECTED (source: ${status.meta.sourceTable || 'unknown'})`);
+
+    if (status.meta.adAccounts.length > 0) {
+      lines.push(`  Ad Accounts: ${status.meta.adAccounts.length}`);
+      status.meta.adAccounts.slice(0, 3).forEach(acc => {
+        lines.push(`    - ${acc.name} (${acc.accountId}${acc.currency ? ', ' + acc.currency : ''})`);
+      });
+      if (status.meta.adAccounts.length > 3) {
+        lines.push(`    ... and ${status.meta.adAccounts.length - 3} more`);
+      }
+    } else {
+      lines.push('  ⚠️  Connected but no ad accounts found');
     }
 
-    if (status.meta.selectedAssets.adAccountId) {
-      lines.push(`  Ad Account: ${status.meta.selectedAssets.adAccountName || status.meta.selectedAssets.adAccountId}`);
-    } else if (status.meta.adAccounts.length > 0) {
-      lines.push(`  Ad Accounts Available: ${status.meta.adAccounts.length}`);
-      status.meta.adAccounts.slice(0, 3).forEach(acc => {
-        lines.push(`    - ${acc.name} (${acc.accountId})`);
+    if (status.meta.pages.length > 0) {
+      lines.push(`  Facebook Pages: ${status.meta.pages.length}`);
+      status.meta.pages.slice(0, 2).forEach(page => {
+        lines.push(`    - ${page.name}`);
       });
     }
 
-    if (status.meta.selectedAssets.pixelId) {
-      lines.push(`  Pixel: ${status.meta.selectedAssets.pixelId}`);
-    } else if (status.meta.pixels.length > 0) {
-      lines.push(`  Pixels Available: ${status.meta.pixels.length}`);
+    if (status.meta.instagramAccounts.length > 0) {
+      lines.push(`  Instagram Accounts: ${status.meta.instagramAccounts.length}`);
+      status.meta.instagramAccounts.slice(0, 2).forEach(ig => {
+        lines.push(`    - @${ig.username}`);
+      });
     }
 
-    if (status.meta.selectedAssets.pageId) {
-      lines.push(`  Facebook Page: ${status.meta.selectedAssets.pageName || status.meta.selectedAssets.pageId}`);
+    if (status.meta.pixels.length > 0) {
+      lines.push(`  Pixels: ${status.meta.pixels.length}`);
+      status.meta.pixels.slice(0, 2).forEach(px => {
+        lines.push(`    - ${px.name} (${px.id})`);
+      });
     }
-
-    if (status.meta.selectedAssets.instagramId) {
-      lines.push(`  Instagram: @${status.meta.selectedAssets.instagramUsername || status.meta.selectedAssets.instagramId}`);
-    }
-
-    lines.push(`  Active Campaigns: ${status.meta.activeCampaignsCount} of ${status.meta.campaignsCount} total`);
   } else {
     lines.push('  ❌ NOT CONNECTED');
     lines.push('  → User must connect Meta in Profile → Connected Accounts');
+    lines.push('  → DO NOT create ads or campaigns until Meta is connected');
   }
 
   lines.push('');
@@ -369,27 +296,37 @@ export function formatSetupStatusForAI(status: AISetupStatus): string {
   if (status.smartLinks.count > 0) {
     lines.push(`  ✅ ${status.smartLinks.count} smart link${status.smartLinks.count === 1 ? '' : 's'} available`);
     if (status.smartLinks.recent.length > 0) {
-      lines.push('  Recent links:');
+      lines.push('  Recent links (use these for ad destinations):');
       status.smartLinks.recent.forEach(link => {
-        lines.push(`    - "${link.title}" → ghoste.one/s/${link.slug}`);
+        const dest = link.destinationUrl ? ` → ${link.destinationUrl}` : '';
+        lines.push(`    - "${link.title}" (ghoste.one/s/${link.slug})${dest}`);
       });
     }
   } else {
     lines.push('  ❌ NO SMART LINKS');
-    lines.push('  → User must create a smart link first');
-    lines.push('  → Smart links are required to run ads');
+    lines.push('  → User must create a smart link before running ads');
+    lines.push('  → Cannot create ads without a destination URL');
   }
 
   lines.push('');
 
+  // Critical AI rules
+  lines.push('CRITICAL AI RULES:');
+  lines.push(`  1. Meta connected = ${status.meta.connected} (DO NOT contradict this)`);
+  lines.push(`  2. Smart links count = ${status.smartLinks.count} (DO NOT say "no links" if count > 0)`);
+  lines.push('  3. If RPC data says connected=true, NEVER claim "not connected"');
+  lines.push('  4. If user asks to create ads and connected=false, guide to Profile → Connected Accounts');
+  lines.push('  5. If user asks to create ads and smart_links_count=0, guide to create smart link first');
+
   // Errors
   if (status.errors.length > 0) {
-    lines.push('⚠️  Errors:');
-    status.errors.forEach(err => lines.push(`  - ${err}`));
     lines.push('');
+    lines.push('⚠️  RPC Errors:');
+    status.errors.forEach(err => lines.push(`  - ${err}`));
   }
 
-  lines.push('=== END SETUP STATUS ===');
+  lines.push('');
+  lines.push('=== END CANONICAL SETUP STATUS ===');
 
   return lines.join('\n');
 }
