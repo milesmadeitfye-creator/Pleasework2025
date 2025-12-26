@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
-import { Search, Send, Tag, Clock, CheckCircle } from 'lucide-react';
+import { Search, Send, Tag, Clock, CheckCircle, FileText, Plus } from 'lucide-react';
 import { useToast } from '../../components/Toast';
 
 interface Conversation {
@@ -35,21 +35,31 @@ interface Message {
   sent_at: string;
 }
 
+interface Template {
+  id: string;
+  name: string;
+  body: string;
+  category: string;
+}
+
 export default function Inbox() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (user) {
       loadConversations();
+      loadTemplates();
     }
   }, [user]);
 
@@ -109,6 +119,41 @@ export default function Inbox() {
     if (!error && data) {
       setMessages(data);
     }
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
+      const response = await fetch('/.netlify/functions/fan-templates-crud', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const result = await response.json();
+      if (response.ok && result.templates) {
+        setTemplates(result.templates);
+      }
+    } catch (error) {
+      console.error('[Inbox] Load templates error:', error);
+    }
+  };
+
+  const insertTemplate = (template: Template) => {
+    let body = template.body;
+
+    // Variable substitution
+    if (selectedConversation) {
+      const firstName = selectedConversation.fan_name?.split(' ')[0] || selectedConversation.fan_username || 'there';
+      body = body.replace(/\{\{first_name\}\}/g, firstName);
+    }
+
+    setMessageText(body);
+    setShowTemplates(false);
   };
 
   const sendMessage = async (e: React.FormEvent) => {
@@ -319,12 +364,47 @@ export default function Inbox() {
                 </div>
               )}
 
+              {/* Template Picker */}
+              {showTemplates && templates.length > 0 && (
+                <div className="mb-3 bg-black border border-gray-700 rounded-lg p-3 max-h-48 overflow-y-auto">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-300">Select Template</span>
+                    <button
+                      onClick={() => setShowTemplates(false)}
+                      className="text-xs text-gray-400 hover:text-white"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {templates.map((template) => (
+                      <button
+                        key={template.id}
+                        onClick={() => insertTemplate(template)}
+                        className="w-full text-left px-2 py-1.5 bg-gray-900 hover:bg-gray-800 rounded text-sm transition-colors"
+                      >
+                        <div className="font-medium text-white">{template.name}</div>
+                        <div className="text-xs text-gray-400 truncate">{template.body.substring(0, 60)}...</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <form onSubmit={sendMessage} className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTemplates(!showTemplates)}
+                  className="p-2 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+                  title="Insert Template"
+                >
+                  <FileText className="w-4 h-4" />
+                </button>
                 <input
                   type="text"
                   value={messageText}
                   onChange={(e) => setMessageText(e.target.value)}
-                  placeholder="Type a message..."
+                  placeholder="Type a message or use a template..."
                   className="flex-1 px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                   disabled={sending}
                 />

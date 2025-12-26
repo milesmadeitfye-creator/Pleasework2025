@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { Mail, MessageSquare, Sparkles, Users, TrendingUp, Settings as SettingsIcon, AlertCircle } from 'lucide-react';
+import { Mail, MessageSquare, Sparkles, Users, TrendingUp, Settings as SettingsIcon, AlertCircle, FileText, Send, ArrowRight } from 'lucide-react';
 import Inbox from './Inbox';
 import Automations from './Automations';
-import Campaigns from './Campaigns';
+import Templates from './Templates';
+import Broadcasts from './Broadcasts';
+import Sequences from './Sequences';
 import Audiences from './Audiences';
 import FanPulse from '../../components/FanPulse';
 import FanCommunication from '../../components/FanCommunication';
 
-type Tab = 'inbox' | 'automations' | 'campaigns' | 'audiences' | 'pulse' | 'mailchimp';
+type Tab = 'inbox' | 'templates' | 'broadcasts' | 'sequences' | 'automations' | 'audiences' | 'pulse' | 'mailchimp';
 
 export default function FanCommunicationHub() {
   const [activeTab, setActiveTab] = useState<Tab>('inbox');
@@ -15,8 +17,10 @@ export default function FanCommunicationHub() {
 
   const tabs = [
     { id: 'inbox' as Tab, label: 'Inbox', icon: MessageSquare },
+    { id: 'templates' as Tab, label: 'Templates', icon: FileText },
+    { id: 'broadcasts' as Tab, label: 'Broadcasts', icon: Send },
+    { id: 'sequences' as Tab, label: 'Sequences', icon: ArrowRight },
     { id: 'automations' as Tab, label: 'Automations', icon: Sparkles, beta: true },
-    { id: 'campaigns' as Tab, label: 'Campaigns', icon: Mail },
     { id: 'audiences' as Tab, label: 'Audiences', icon: Users },
     { id: 'pulse' as Tab, label: 'Fan Pulse', icon: TrendingUp },
     { id: 'mailchimp' as Tab, label: 'Mailchimp', icon: SettingsIcon },
@@ -66,8 +70,10 @@ export default function FanCommunicationHub() {
 
       {/* Content */}
       {activeTab === 'inbox' && <Inbox />}
+      {activeTab === 'templates' && <Templates />}
+      {activeTab === 'broadcasts' && <Broadcasts />}
+      {activeTab === 'sequences' && <Sequences />}
       {activeTab === 'automations' && <Automations />}
-      {activeTab === 'campaigns' && <Campaigns />}
       {activeTab === 'audiences' && <Audiences />}
       {activeTab === 'pulse' && <FanPulse />}
       {activeTab === 'mailchimp' && <FanCommunication />}
