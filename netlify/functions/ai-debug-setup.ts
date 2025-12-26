@@ -54,9 +54,13 @@ export const handler: Handler = async (event) => {
   }
 
   try {
+    console.log('[ai-debug-setup] Request received');
+    console.log('[ai-debug-setup] Headers:', JSON.stringify(event.headers));
+
     const supabase = getSupabaseAdmin();
 
     if (!supabase) {
+      console.error('[ai-debug-setup] Failed to create Supabase admin client');
       return {
         statusCode: 500,
         headers: getCorsHeaders(),
@@ -69,28 +73,51 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    console.log('[ai-debug-setup] Supabase admin client created successfully');
     const authHeader = event.headers.authorization || event.headers.Authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader) {
+      console.error('[ai-debug-setup] No Authorization header provided');
       return {
         statusCode: 401,
         headers: getCorsHeaders(),
-        body: JSON.stringify({ ok: false, error: 'not_authenticated' }),
+        body: JSON.stringify({ ok: false, error: 'missing_auth' }),
+      };
+    }
+
+    if (!authHeader.startsWith('Bearer ')) {
+      console.error('[ai-debug-setup] Authorization header does not start with Bearer');
+      return {
+        statusCode: 401,
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ ok: false, error: 'invalid_auth_format' }),
       };
     }
 
     const token = authHeader.replace('Bearer ', '');
+    console.log('[ai-debug-setup] Extracted token, verifying with Supabase...');
+
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
     if (authError || !user) {
-      console.error('[ai-debug-setup] Auth error:', authError);
+      console.error('[ai-debug-setup] Auth verification failed:', {
+        hasError: !!authError,
+        errorMessage: authError?.message,
+        errorStatus: authError?.status,
+        hasUser: !!user,
+      });
       return {
         statusCode: 401,
         headers: getCorsHeaders(),
-        body: JSON.stringify({ ok: false, error: 'not_authenticated' }),
+        body: JSON.stringify({
+          ok: false,
+          error: 'invalid_token',
+          details: authError?.message || 'No user found',
+        }),
       };
     }
 
     const userId = user.id;
+    console.log('[ai-debug-setup] User authenticated successfully:', userId);
     console.log('[ai-debug-setup] Fetching setup status for user:', userId);
 
     const { data: setupStatus, error: rpcError } = await supabase.rpc('ai_get_setup_status', {
