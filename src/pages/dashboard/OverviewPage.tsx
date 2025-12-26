@@ -20,6 +20,9 @@ import MetaApprovalTracker from '../../components/meta/MetaApprovalTracker';
 import { isSafeMode, enableSafeMode, disableSafeMode } from '../../debug/safeMode';
 import OnboardingChecklist from '../../components/OnboardingChecklist';
 import InteractiveTutorial from '../../components/InteractiveTutorial';
+import TourLauncher from '../../components/tour/TourLauncher';
+import ContextualGuide from '../../components/tour/ContextualGuide';
+import ActionCoach from '../../components/tour/ActionCoach';
 
 interface OverviewStats {
   totalLinks: number;
@@ -349,11 +352,20 @@ export default function OverviewPage() {
 
         <OverviewTodoBanner />
 
+        {/* Master Product Tour Banner */}
+        <TourLauncher variant="banner" />
+
         {/* Getting Started Checklist */}
         <OnboardingChecklist />
 
-        {/* Interactive Tutorial */}
+        {/* Interactive Tutorial (Legacy) */}
         <InteractiveTutorial />
+
+        {/* Contextual Guide (Auto-triggers on page visits) */}
+        <ContextualGuide />
+
+        {/* Action Coach (Behavior-triggered coaching) */}
+        <ActionCoach />
 
         {/* Safe Mode Banner */}
         {safeMode && (
