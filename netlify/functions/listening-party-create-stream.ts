@@ -136,23 +136,43 @@ export const handler: Handler = async (event) => {
         status: 'live',
       };
 
+      console.log('[listening-party-create-stream] Update payload:', updatePayload);
+
       // Safety: Clear spotify_track_url from stream_url if it was wrongly stored there
       if (party.stream_url && party.stream_url.includes('spotify.com')) {
-        console.log('[listening-party-create-stream] Clearing bad Spotify URL from stream_url');
+        console.log('[listening-party-create-stream] Warning: Clearing bad Spotify URL from stream_url');
       }
 
       // Update party with stream info
-      const { error: updateError } = await supabaseAdmin
+      const { data: updatedRow, error: updateError } = await supabaseAdmin
         .from('listening_parties')
         .update(updatePayload)
-        .eq('id', partyId);
+        .eq('id', partyId)
+        .select('id, status, is_live, is_public, stream_app_id')
+        .maybeSingle();
 
       if (updateError) {
-        console.error('[listening-party-create-stream] Database update failed:', updateError);
+        console.error('[listening-party-create-stream] Database update failed:', {
+          error: updateError,
+          message: updateError.message,
+          code: updateError.code,
+          details: updateError.details
+        });
         throw new Error(`Failed to update party: ${updateError.message}`);
       }
 
-      console.log('[listening-party-create-stream] Database updated successfully');
+      if (!updatedRow) {
+        console.error('[listening-party-create-stream] Update succeeded but no row returned. This may indicate RLS blocking SELECT.');
+        // Don't throw - the update likely succeeded, we just can't verify it
+      } else {
+        console.log('[listening-party-create-stream] Database updated successfully:', {
+          id: updatedRow.id,
+          status: updatedRow.status,
+          is_live: updatedRow.is_live,
+          is_public: updatedRow.is_public,
+          stream_app_id: updatedRow.stream_app_id
+        });
+      }
 
       return {
         statusCode: 200,

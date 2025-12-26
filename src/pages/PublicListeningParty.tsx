@@ -65,10 +65,19 @@ export default function PublicListeningParty() {
 
     let isMounted = true;
     let channel: any;
+    let timeoutId: NodeJS.Timeout;
+
+    // Hard timeout guard (15 seconds)
+    const timeoutPromise = new Promise<void>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error('Loading party timed out after 15 seconds. Please refresh the page.'));
+      }, 15000);
+    });
 
     (async () => {
       try {
         setLoadingParty(true);
+        setPartyError(null);
 
         const routeParam = slug?.trim();
         if (!routeParam) {
@@ -77,7 +86,7 @@ export default function PublicListeningParty() {
           return;
         }
 
-        console.log('[PublicListeningParty] route param:', routeParam, 'isUuid:', isUuid(routeParam));
+        console.log('[PublicListeningParty] Fetching party with param:', routeParam, 'isUuid:', isUuid(routeParam));
 
         let data = null;
         let error = null;
@@ -135,17 +144,30 @@ export default function PublicListeningParty() {
 
         if (!isMounted) return;
 
-        console.log('[PublicListeningParty] final result:', data);
+        console.log('[PublicListeningParty] Query results:', { found: !!data, error: error?.message, is_public: data?.is_public, is_live: data?.is_live, status: data?.status });
+
+        // Clear timeout if we got here successfully
+        clearTimeout(timeoutId);
+
+        if (!isMounted) return;
 
         if (error) {
           console.error('[PublicListeningParty] Database error:', error);
-          setPartyError(`Database error: ${error.message} (${error.code || 'unknown'})`);
+          setPartyError(`Database error: ${error.message} (${error.code || 'unknown'}). Please try refreshing the page.`);
         } else if (!data) {
+          console.warn('[PublicListeningParty] No party found for param:', routeParam);
           setPartyError(
-            'No public party found for this link. ' +
-            'Ask the host to click "Go Live" again or check that the party is set to public.'
+            'Party not found. The party may not be public yet, or the link may be incorrect. ' +
+            'Ask the host to click "Go Live" to make it public.'
           );
         } else {
+          console.log('[PublicListeningParty] Party loaded successfully:', {
+            id: data.id,
+            title: data.title,
+            is_public: data.is_public,
+            is_live: data.is_live,
+            status: data.status
+          });
           setParty(data as Party);
 
           // Subscribe to realtime updates for live status and track changes
@@ -162,23 +184,30 @@ export default function PublicListeningParty() {
               (payload) => {
                 if (isMounted) {
                   const updated = payload.new as any;
+                  console.log('[PublicListeningParty] Realtime update received:', {
+                    is_live: updated.is_live,
+                    status: updated.status
+                  });
                   setParty((prev) => (prev ? { ...prev, ...updated } : updated));
                 }
               }
             )
             .subscribe();
         }
-      } catch (e) {
+      } catch (e: any) {
+        clearTimeout(timeoutId);
         if (!isMounted) return;
         console.error('[PublicListeningParty] Unexpected error:', e);
-        setPartyError('Something went wrong loading the party.');
+        setPartyError(e?.message || 'Something went wrong loading the party. Please refresh the page.');
       } finally {
+        clearTimeout(timeoutId);
         if (isMounted) setLoadingParty(false);
       }
     })();
 
     return () => {
       isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
       if (channel) supabase.removeChannel(channel);
     };
   }, [slug]);

@@ -341,16 +341,39 @@ export default function ListeningPartyHostPage() {
 
       console.log('[ListeningPartyHostPage] Video stream created:', data);
 
-      // Refresh party data to get updated stream_url and stream_app_id
-      const { data: updatedParty } = await supabase
+      // Refresh party data to get updated stream_url, stream_app_id, status, and is_live
+      const { data: updatedParty, error: refetchError } = await supabase
         .from('listening_parties')
         .select('*')
         .eq('id', party.id)
-        .single();
+        .maybeSingle();
 
-      if (updatedParty) {
+      if (refetchError) {
+        console.error('[ListeningPartyHostPage] Refetch error after Go Live:', refetchError);
+        // Still update local state with known changes even if refetch fails
+        setParty((p) => p ? {
+          ...p,
+          is_live: true,
+          status: 'live',
+          is_public: true,
+          stream_app_id: data.stream_app_id || p.stream_app_id,
+          stream_url: data.stream_url || p.stream_url,
+        } : null);
+        console.log('[ListeningPartyHostPage] Party is now live (fallback state update)');
+      } else if (updatedParty) {
         setParty(updatedParty as Party);
-        console.log('[ListeningPartyHostPage] Party is now live!');
+        console.log('[ListeningPartyHostPage] Party is now live! Status:', updatedParty.status, 'is_live:', updatedParty.is_live);
+      } else {
+        // Refetch returned no data - use fallback state
+        console.warn('[ListeningPartyHostPage] Refetch returned no data, using fallback state');
+        setParty((p) => p ? {
+          ...p,
+          is_live: true,
+          status: 'live',
+          is_public: true,
+          stream_app_id: data.stream_app_id || p.stream_app_id,
+          stream_url: data.stream_url || p.stream_url,
+        } : null);
       }
     } catch (err: any) {
       console.error('[ListeningPartyHostPage] Go Live error:', err);
