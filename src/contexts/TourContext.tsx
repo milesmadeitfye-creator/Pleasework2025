@@ -26,14 +26,49 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const [totalSteps] = useState(10);
+  const [totalSteps] = useState(11);
   const [loading, setLoading] = useState(true);
+  const [checkedAutoLaunch, setCheckedAutoLaunch] = useState(false);
 
   useEffect(() => {
-    if (user) {
-      loadTourState();
+    if (user && !checkedAutoLaunch) {
+      checkAndAutoLaunchTour();
     }
-  }, [user]);
+  }, [user, checkedAutoLaunch]);
+
+  const checkAndAutoLaunchTour = async () => {
+    if (!user || checkedAutoLaunch) return;
+
+    try {
+      // Check if tour should auto-launch
+      const { data: shouldLaunch } = await supabase.rpc('should_auto_launch_tour');
+
+      if (shouldLaunch) {
+        console.log('[TourContext] Auto-launching tour for first-time user');
+
+        // Mark tour as auto-launched
+        await supabase.rpc('mark_tour_auto_launched');
+
+        // Start tour automatically
+        setIsActive(true);
+        setCurrentStep(1);
+
+        // Navigate to dashboard if not already there
+        if (location.pathname !== '/dashboard' && location.pathname !== '/') {
+          navigate('/dashboard');
+        }
+      } else {
+        // Load existing tour state
+        await loadTourState();
+      }
+    } catch (err) {
+      console.error('[TourContext] Error checking auto-launch:', err);
+      await loadTourState();
+    } finally {
+      setCheckedAutoLaunch(true);
+      setLoading(false);
+    }
+  };
 
   const loadTourState = async () => {
     if (!user) return;
@@ -54,8 +89,6 @@ export function TourProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       console.error('[TourContext] Error loading tour state:', err);
-    } finally {
-      setLoading(false);
     }
   };
 

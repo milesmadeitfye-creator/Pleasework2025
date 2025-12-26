@@ -2,10 +2,12 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ChevronRight, ChevronLeft, X, Pause } from 'lucide-react';
 import { useTour } from '../../contexts/TourContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { tourChapters } from '../../lib/tourContent';
 
 export default function MasterTour() {
   const { isActive, currentStep, totalSteps, nextStep, previousStep, pauseTour, skipTour, progress } = useTour();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isNavigating, setIsNavigating] = useState(false);
@@ -13,6 +15,22 @@ export default function MasterTour() {
   const contentRef = useRef<HTMLDivElement>(null);
 
   const chapter = tourChapters[currentStep - 1];
+
+  const getUserDisplayName = () => {
+    if (!user) return '';
+
+    // Try user metadata first
+    const fullName = user.user_metadata?.full_name || user.user_metadata?.name;
+    if (fullName) return fullName.split(' ')[0];
+
+    // Try email prefix
+    if (user.email) {
+      const emailPrefix = user.email.split('@')[0];
+      return emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
+    }
+
+    return 'there';
+  };
 
   useEffect(() => {
     if (isActive && chapter?.navigationPath && location.pathname !== chapter.navigationPath) {
@@ -115,6 +133,15 @@ export default function MasterTour() {
               </div>
             </div>
 
+            {/* Personalized welcome for first slide */}
+            {currentStep === 1 && user && (
+              <div className="mb-3">
+                <p className="text-xl text-gray-300">
+                  Welcome, <span className="text-white font-semibold">{getUserDisplayName()}</span>
+                </p>
+              </div>
+            )}
+
             <h1 className="text-3xl font-bold text-white mb-2 leading-tight">{chapter.title}</h1>
             <p className="text-lg text-blue-400 font-medium">{chapter.subtitle}</p>
           </div>
@@ -124,22 +151,30 @@ export default function MasterTour() {
             {/* Visual Section */}
             <div className="mb-8">
               <div className="relative aspect-video rounded-2xl overflow-hidden bg-gradient-to-br from-blue-900/20 to-purple-900/20 border border-gray-800">
-                {/* Placeholder for visual */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
-                      <svg className="w-10 h-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                        />
-                      </svg>
+                {/* Show illustration if available */}
+                {chapter.illustration ? (
+                  <img
+                    src={chapter.illustration}
+                    alt={chapter.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className="w-20 h-20 mx-auto mb-4 rounded-2xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
+                        <svg className="w-10 h-10 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </div>
+                      <p className="text-sm text-gray-500">Visual preview for {chapter.title}</p>
                     </div>
-                    <p className="text-sm text-gray-500">Visual preview for {chapter.title}</p>
                   </div>
-                </div>
+                )}
 
                 {/* Navigating Overlay */}
                 {isNavigating && chapter.beforeNavigation && (
@@ -220,14 +255,23 @@ export default function MasterTour() {
           {/* Footer (Sticky) */}
           <div className="px-8 py-5 border-t border-gray-800/50 bg-gray-900/80 backdrop-blur-sm">
             <div className="flex items-center justify-between">
-              <button
-                onClick={handlePrevious}
-                disabled={currentStep === 1}
-                className="flex items-center gap-2 px-5 py-2.5 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-800"
-              >
-                <ChevronLeft className="w-5 h-5" />
-                <span className="font-medium">Previous</span>
-              </button>
+              {currentStep === 1 ? (
+                <button
+                  onClick={skipTour}
+                  className="flex items-center gap-2 px-5 py-2.5 text-gray-400 hover:text-white transition-colors rounded-lg hover:bg-gray-800"
+                >
+                  <span className="font-medium">Skip for now</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handlePrevious}
+                  disabled={currentStep === 1}
+                  className="flex items-center gap-2 px-5 py-2.5 text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors rounded-lg hover:bg-gray-800"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                  <span className="font-medium">Previous</span>
+                </button>
+              )}
 
               {/* Progress Dots */}
               <div className="flex gap-2">

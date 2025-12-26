@@ -23,6 +23,33 @@ export interface TourAction {
 
 export const tourChapters: TourChapter[] = [
   {
+    id: 0,
+    title: 'Welcome to Ghoste',
+    subtitle: 'Run your music like a label',
+    description: `Ghoste.one helps you turn attention into fans, fans into data, and data into revenue — with smart links, messaging, automations, ads, splits, and analytics.
+
+**What you'll learn in this tour:**
+
+✓ Create your first Smart Link
+✓ Make a One-Click Link
+✓ Draft a fan message
+✓ Understand credits + upgrades
+✓ See how everything connects
+
+This tour takes about 20 minutes, but you can pause anytime. Your progress is saved automatically.
+
+**Let's build something real.**`,
+    illustration: '/help-screenshots/welcome_dashboard.svg',
+    estimatedMinutes: 1,
+    skipable: true,
+    actions: [
+      {
+        type: 'acknowledge',
+        label: 'Start Tour',
+      },
+    ],
+  },
+  {
     id: 1,
     title: 'This is your label control center',
     subtitle: 'Everything you need to run your music like a professional label',
