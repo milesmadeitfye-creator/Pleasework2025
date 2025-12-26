@@ -8,13 +8,9 @@ import { PLANS, type PlanId } from '../lib/plans';
 
 type StripePrice = {
   price_id: string;
-  product_id: string;
-  product_name: string;
-  product_description: string;
   unit_amount: number;
   currency: string;
   interval: string;
-  metadata: Record<string, string>;
 };
 
 type PlanData = {
@@ -26,7 +22,7 @@ type PlanData = {
   priceAmount: number;
   bullets: string[];
   highlighted?: boolean;
-  stripePriceId?: string;
+  stripePriceId: string;
 };
 
 type UserSubscription = {
@@ -44,6 +40,7 @@ const fallbackPlans: PlanData[] = [
     credits: '10,000 credits / month',
     price: '$9/mo',
     priceAmount: 9,
+    stripePriceId: 'price_1SieEYCmFCKCWOjb4AwhF9b4',
     bullets: [
       'Smart Links + Tracking',
       'Pre-Save Campaigns',
@@ -58,8 +55,9 @@ const fallbackPlans: PlanData[] = [
     title: 'Growth',
     tagline: 'For serious independents',
     credits: '30,000 credits / month',
-    price: '$29/mo',
-    priceAmount: 29,
+    price: '$19/mo',
+    priceAmount: 19,
+    stripePriceId: 'price_1SieFYCmFCKCWOjbI2wXKbR7',
     bullets: [
       'Everything in Artist',
       'Ad Campaign Manager',
@@ -76,8 +74,9 @@ const fallbackPlans: PlanData[] = [
     title: 'Scale',
     tagline: 'For teams & labels',
     credits: '100,000 credits / month',
-    price: '$59/mo',
-    priceAmount: 59,
+    price: '$49/mo',
+    priceAmount: 49,
+    stripePriceId: 'price_1SieFzCmFCKCWOjbPDYABycm',
     bullets: [
       'Everything in Growth',
       'Team Collaboration',
@@ -104,7 +103,6 @@ export default function SubscriptionsPage() {
   const [subLoading, setSubLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
 
-  // Check for Supabase anon key presence
   useEffect(() => {
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -123,7 +121,6 @@ export default function SubscriptionsPage() {
   }, []);
 
   useEffect(() => {
-    // Defensive pixel tracking - never crash if pixel fails
     try {
       if (typeof ownerMetaPixel.trackPageView === 'function') {
         ownerMetaPixel.trackPageView();
@@ -137,22 +134,18 @@ export default function SubscriptionsPage() {
       console.error('[SubscriptionsPage] Pixel tracking failed:', err);
     }
 
-    // Check for checkout result in URL
     const params = new URLSearchParams(location.search);
     const checkoutResult = params.get('checkout');
 
     if (checkoutResult === 'success') {
       setSuccess('Welcome to Ghoste! Your trial has started. You can manage your subscription below.');
-      // Clean URL
       window.history.replaceState({}, '', '/subscriptions');
     } else if (checkoutResult === 'cancel' || checkoutResult === 'canceled') {
       setError('Checkout was canceled. No charges were made.');
-      // Clean URL
       window.history.replaceState({}, '', '/subscriptions');
     }
   }, [location.pathname, location.search]);
 
-  // Fetch user's current subscription
   useEffect(() => {
     if (!user) {
       setSubLoading(false);
@@ -161,7 +154,6 @@ export default function SubscriptionsPage() {
 
     const fetchSubscription = async () => {
       try {
-        // Get subscription from billing_subscriptions
         const { data: subData, error: subError } = await supabase
           .from('billing_subscriptions')
           .select('*')
@@ -179,7 +171,6 @@ export default function SubscriptionsPage() {
           });
         }
 
-        // Get current plan from profiles
         const { data: profileData, error: profileError } = await supabase
           .from('profiles')
           .select('plan')
@@ -214,45 +205,17 @@ export default function SubscriptionsPage() {
           data,
         });
 
-        if (!response.ok) {
-          // Check for specific errors
-          if (data.error === 'missing_lookup_keys' && data.missing) {
-            const missingKeys = data.missing.join(', ');
-            setError(
-              `Stripe lookup keys not configured: ${missingKeys}. ` +
-              `Configure these in your Stripe Dashboard under Product → Pricing. ` +
-              `Using fallback pricing for now.`
-            );
-            setPricesLoading(false);
-            return;
-          }
-
-          if (data.error === 'Billing not configured') {
-            setError(
-              `Stripe billing not configured. Missing: ${data.details}. ` +
-              `Using fallback pricing for now.`
-            );
-            setPricesLoading(false);
-            return;
-          }
-
-          console.warn('[SubscriptionsPage] Failed to fetch Stripe prices, using fallback:', data.error);
+        if (!response.ok || !data.ok || !data.prices) {
+          console.warn('[SubscriptionsPage] Failed to fetch prices, using fallback');
           setPricesLoading(false);
           return;
         }
 
-        if (!data.ok || !data.prices) {
-          console.warn('[SubscriptionsPage] Invalid response format, using fallback');
-          setPricesLoading(false);
-          return;
-        }
-
-        // Map Stripe prices to our plan structure using lookup keys
         const stripePrices = data.prices;
         const updatedPlans = fallbackPlans.map((fallbackPlan) => {
           const stripePrice = stripePrices[fallbackPlan.key];
 
-          if (stripePrice) {
+          if (stripePrice && stripePrice.unit_amount) {
             return {
               ...fallbackPlan,
               price: `$${(stripePrice.unit_amount / 100).toFixed(0)}/mo`,
@@ -269,10 +232,6 @@ export default function SubscriptionsPage() {
         setPricesLoading(false);
       } catch (err: any) {
         console.error('[SubscriptionsPage] Error fetching Stripe prices:', err);
-        setError(
-          `Failed to load pricing: ${err.message || 'Network error'}. ` +
-          `Using fallback pricing. Try refreshing the page.`
-        );
         setPricesLoading(false);
       }
     };
@@ -280,42 +239,38 @@ export default function SubscriptionsPage() {
     fetchPrices();
   }, []);
 
-  const onStartTrial = async (plan: PlanId) => {
+  const onStartTrial = async (priceId: string, planKey: PlanId) => {
     if (!user) {
-      navigate('/auth', { state: { returnTo: `/subscriptions?plan=${plan}` } });
+      navigate('/auth', { state: { returnTo: `/subscriptions?plan=${planKey}` } });
       return;
     }
 
-    // Clear previous errors
     setError(null);
     setSuccess(null);
-    setLoading(plan);
+    setLoading(planKey);
 
-    // Defensive pixel signal - never crash if pixel fails
     try {
       if (typeof ownerMetaPixel.trackCustom === 'function') {
-        ownerMetaPixel.trackCustom('StartTrialClick', { plan });
+        ownerMetaPixel.trackCustom('StartTrialClick', { plan: planKey, priceId });
       }
     } catch (err) {
       console.error('[SubscriptionsPage] Pixel tracking failed:', err);
     }
 
     try {
-      // Get user session for JWT
       const { data: { session } } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
         throw new Error('Please sign in again to start checkout');
       }
 
-      // Call Netlify function to create Stripe checkout session
       const response = await fetch('/.netlify/functions/stripe-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ price_id: priceId }),
       });
 
       const responseData = await response.json();
@@ -334,7 +289,6 @@ export default function SubscriptionsPage() {
         throw new Error('No checkout URL received. Please try again.');
       }
 
-      // Redirect to Stripe checkout
       window.location.assign(responseData.url);
     } catch (err: any) {
       const errorMessage = err?.message || String(err);
@@ -374,7 +328,6 @@ export default function SubscriptionsPage() {
         throw new Error(data.details || data.error || 'Failed to open billing portal');
       }
 
-      // Redirect to Stripe portal
       window.location.assign(data.url);
     } catch (err: any) {
       console.error('[SubscriptionsPage] Portal error:', err);
@@ -386,7 +339,6 @@ export default function SubscriptionsPage() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-ghoste-black via-ghoste-navy to-ghoste-black text-white">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
-        {/* Success Banner */}
         {success && (
           <div className="mb-6 rounded-xl border border-green-500/30 bg-green-500/10 p-4">
             <div className="flex items-start gap-3">
@@ -405,7 +357,6 @@ export default function SubscriptionsPage() {
           </div>
         )}
 
-        {/* Error Banner */}
         {error && (
           <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
             <div className="flex items-start gap-3">
@@ -432,7 +383,6 @@ export default function SubscriptionsPage() {
           </div>
         )}
 
-        {/* Current Subscription Status */}
         {!subLoading && subscription && subscription.status === 'active' && currentPlan && (
           <div className="mb-6 rounded-xl border border-blue-500/30 bg-blue-500/10 p-6">
             <div className="flex items-start justify-between gap-4">
@@ -476,7 +426,6 @@ export default function SubscriptionsPage() {
           </div>
         )}
 
-        {/* Back button */}
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-white/70 hover:text-white transition-colors"
@@ -485,7 +434,6 @@ export default function SubscriptionsPage() {
           Back
         </button>
 
-        {/* Header */}
         <div className="mt-8 text-center">
           <h1 className="text-4xl sm:text-5xl font-bold tracking-tight">
             Choose your plan
@@ -502,10 +450,8 @@ export default function SubscriptionsPage() {
           </p>
         </div>
 
-        {/* Plans grid */}
         <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
           {pricesLoading ? (
-            // Loading skeleton
             <>
               {[1, 2, 3].map((i) => (
                 <div key={i} className="rounded-2xl border border-white/10 bg-black/40 p-6 lg:p-8 animate-pulse">
@@ -582,7 +528,7 @@ export default function SubscriptionsPage() {
                     </button>
                   ) : (
                     <button
-                      onClick={() => onStartTrial(p.key)}
+                      onClick={() => onStartTrial(p.stripePriceId, p.key)}
                       disabled={loading !== null}
                       className={`mt-8 w-full rounded-xl font-semibold py-3.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                         p.highlighted
@@ -611,7 +557,6 @@ export default function SubscriptionsPage() {
           )}
         </div>
 
-        {/* Freemium note */}
         <div className="mt-12 mx-auto max-w-4xl rounded-2xl border border-white/10 bg-black/30 p-6 backdrop-blur-xl">
           <div className="flex items-start gap-3">
             <div className="rounded-full bg-ghoste-blue/20 p-2">
@@ -628,7 +573,6 @@ export default function SubscriptionsPage() {
           </div>
         </div>
 
-        {/* FAQ */}
         <div className="mt-12 mx-auto max-w-3xl">
           <h2 className="text-2xl font-bold text-center mb-8">Frequently Asked Questions</h2>
           <div className="space-y-4">

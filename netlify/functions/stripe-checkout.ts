@@ -3,14 +3,22 @@ import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 import { loadAppConfig } from './_lib/appSecrets';
 
-// Lookup keys for the 3 plans
-const LOOKUP_KEYS: Record<string, string> = {
-  artist: 'artist_monthly',
-  growth: 'growth_monthly',
-  scale: 'scale_monthly',
-};
+/**
+ * Stripe Checkout Session Creator
+ * Accepts price_id (NOT lookup keys)
+ *
+ * Allowed Price IDs:
+ * - price_1SieEYCmFCKCWOjb4AwhF9b4 (Artist $9)
+ * - price_1SieFYCmFCKCWOjbI2wXKbR7 (Growth $19)
+ * - price_1SieFzCmFCKCWOjbPDYABycm (Scale $49)
+ */
 
-// CORS headers
+const ALLOWED_PRICE_IDS = new Set([
+  'price_1SieEYCmFCKCWOjb4AwhF9b4',
+  'price_1SieFYCmFCKCWOjbI2wXKbR7',
+  'price_1SieFzCmFCKCWOjbPDYABycm',
+]);
+
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -19,12 +27,10 @@ const headers = {
 };
 
 export const handler: Handler = async (event) => {
-  // Handle OPTIONS for CORS preflight
   if (event.httpMethod === 'OPTIONS') {
     return { statusCode: 200, headers, body: '' };
   }
 
-  // Only POST allowed
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
@@ -38,7 +44,6 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Load app configuration from app_secrets
     let config;
     try {
       config = await loadAppConfig();
@@ -55,7 +60,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Check for Stripe secret key
     if (!config.STRIPE_SECRET_KEY) {
       console.error('[stripe-checkout] Missing STRIPE_SECRET_KEY');
       return {
@@ -69,7 +73,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Extract JWT from Authorization header
     const authHeader = event.headers.authorization || event.headers.Authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return {
@@ -85,7 +88,6 @@ export const handler: Handler = async (event) => {
 
     const jwt = authHeader.replace('Bearer ', '');
 
-    // Validate user session with Supabase
     const supabase = createClient(
       config.SUPABASE_URL,
       config.SUPABASE_ANON_KEY
@@ -106,7 +108,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Parse request body
     let body: any;
     try {
       body = JSON.parse(event.body || '{}');
@@ -122,69 +123,47 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const { plan } = body;
+    const { price_id } = body;
 
-    // Validate plan
-    const validPlans = Object.keys(LOOKUP_KEYS);
-    if (!plan || !validPlans.includes(plan)) {
+    if (!price_id) {
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           ok: false,
-          error: 'Invalid plan',
-          details: `Plan must be one of: ${validPlans.join(', ')}`,
+          error: 'Missing price_id',
+          details: 'price_id is required in request body',
         }),
       };
     }
 
-    // Get lookup key for this plan
-    const lookupKey = LOOKUP_KEYS[plan];
+    if (!ALLOWED_PRICE_IDS.has(price_id)) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          ok: false,
+          error: 'Invalid price_id',
+          details: `price_id must be one of: ${Array.from(ALLOWED_PRICE_IDS).join(', ')}`,
+          provided: price_id,
+        }),
+      };
+    }
 
     console.log('[stripe-checkout] Creating checkout for:', {
       userId: user.id,
-      plan,
-      lookupKey,
+      priceId: price_id,
     });
 
-    // Initialize Stripe
     const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
       apiVersion: '2024-11-20.acacia',
     });
 
-    // Resolve lookup key to price ID
-    const prices = await stripe.prices.list({
-      active: true,
-      lookup_keys: [lookupKey],
-      limit: 1,
-    });
-
-    if (prices.data.length === 0) {
-      console.error('[stripe-checkout] Lookup key not found:', lookupKey);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          ok: false,
-          error: 'lookup_key_not_found',
-          details: `Stripe lookup key not found: ${lookupKey}. Configure this in your Stripe Dashboard.`,
-          lookup_key: lookupKey,
-        }),
-      };
-    }
-
-    const price = prices.data[0];
-    console.log('[stripe-checkout] Resolved price:', {
-      priceId: price.id,
-      amount: price.unit_amount,
-    });
-
-    // Create Checkout Session
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [
         {
-          price: price.id,
+          price: price_id,
           quantity: 1,
         },
       ],
@@ -192,29 +171,24 @@ export const handler: Handler = async (event) => {
         trial_period_days: 7,
         metadata: {
           user_id: user.id,
-          plan,
-          lookup_key: lookupKey,
-          source: 'subscriptions_page',
+          price_id,
         },
       },
-      success_url: `${config.APP_BASE_URL}/dashboard/overview?checkout=success`,
-      cancel_url: `${config.APP_BASE_URL}/subscriptions?checkout=cancel`,
+      success_url: `${config.APP_BASE_URL}/subscriptions?checkout=success`,
+      cancel_url: `${config.APP_BASE_URL}/subscriptions?checkout=canceled`,
       customer_email: user.email || undefined,
       metadata: {
         user_id: user.id,
-        plan,
-        lookup_key: lookupKey,
-        source: 'subscriptions_page',
+        price_id,
       },
     });
 
     console.log('[stripe-checkout] Session created:', {
       sessionId: session.id,
       userId: user.id,
-      plan,
+      priceId: price_id,
     });
 
-    // Return checkout URL
     return {
       statusCode: 200,
       headers,
@@ -226,7 +200,6 @@ export const handler: Handler = async (event) => {
   } catch (err: any) {
     console.error('[stripe-checkout] Error:', err);
 
-    // Handle Stripe-specific errors
     if (err.type === 'StripeInvalidRequestError') {
       return {
         statusCode: 400,
@@ -239,7 +212,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Generic error
     return {
       statusCode: 500,
       headers,

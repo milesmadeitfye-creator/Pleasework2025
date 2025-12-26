@@ -1,15 +1,13 @@
 import type { Handler } from '@netlify/functions';
-import Stripe from 'stripe';
-import { loadAppConfig } from './_lib/appSecrets';
 
 /**
- * List active Stripe prices using lookup keys (lookup IDs)
- * Returns curated list of 3 plans: Artist, Growth, Scale
+ * List Stripe subscription plans
+ * Returns hardcoded plan data (NO lookup keys, NO Stripe API calls needed)
  *
- * Uses deterministic lookup keys:
- * - artist_monthly
- * - growth_monthly
- * - scale_monthly
+ * Price IDs:
+ * - Artist: price_1SieEYCmFCKCWOjb4AwhF9b4 ($9/mo)
+ * - Growth: price_1SieFYCmFCKCWOjbI2wXKbR7 ($19/mo)
+ * - Scale: price_1SieFzCmFCKCWOjbPDYABycm ($49/mo)
  */
 
 const headers = {
@@ -19,10 +17,34 @@ const headers = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
 };
 
-const LOOKUP_KEYS = {
-  artist: 'artist_monthly',
-  growth: 'growth_monthly',
-  scale: 'scale_monthly',
+const PLANS = {
+  artist: {
+    key: 'artist',
+    name: 'Artist',
+    price_id: 'price_1SieEYCmFCKCWOjb4AwhF9b4',
+    unit_amount: 900,
+    currency: 'usd',
+    interval: 'month',
+    interval_count: 1,
+  },
+  growth: {
+    key: 'growth',
+    name: 'Growth',
+    price_id: 'price_1SieFYCmFCKCWOjbI2wXKbR7',
+    unit_amount: 1900,
+    currency: 'usd',
+    interval: 'month',
+    interval_count: 1,
+  },
+  scale: {
+    key: 'scale',
+    name: 'Scale',
+    price_id: 'price_1SieFzCmFCKCWOjbPDYABycm',
+    unit_amount: 4900,
+    currency: 'usd',
+    interval: 'month',
+    interval_count: 1,
+  },
 };
 
 export const handler: Handler = async (event) => {
@@ -38,138 +60,15 @@ export const handler: Handler = async (event) => {
     };
   }
 
-  try {
-    // Load app configuration from app_secrets
-    let config;
-    try {
-      config = await loadAppConfig();
-    } catch (configErr: any) {
-      console.error('[stripe-prices-list] Config load error:', configErr);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          ok: false,
-          error: 'Configuration error',
-          details: configErr.message || 'Failed to load app configuration',
-        }),
-      };
-    }
+  console.log('[stripe-prices-list] Returning hardcoded plans');
 
-    if (!config.STRIPE_SECRET_KEY) {
-      console.error('[stripe-prices-list] Missing STRIPE_SECRET_KEY');
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          ok: false,
-          error: 'Billing not configured',
-          details: 'STRIPE_SECRET_KEY not found in app_secrets or environment variables',
-        }),
-      };
-    }
-
-    const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
-      apiVersion: '2024-11-20.acacia',
-    });
-
-    console.log('[stripe-prices-list] Fetching prices with lookup keys:', LOOKUP_KEYS);
-
-    // Fetch all active prices with product data
-    const allPrices = await stripe.prices.list({
-      active: true,
-      expand: ['data.product'],
-      limit: 100,
-    });
-
-    console.log('[stripe-prices-list] Found', allPrices.data.length, 'active prices');
-
-    // Filter to our lookup keys and build response
-    const prices: Record<string, any> = {};
-    const missingKeys: string[] = [];
-
-    for (const [planKey, lookupKey] of Object.entries(LOOKUP_KEYS)) {
-      const price = allPrices.data.find((p) => p.lookup_key === lookupKey);
-
-      if (!price) {
-        console.warn(`[stripe-prices-list] Missing lookup key: ${lookupKey}`);
-        missingKeys.push(lookupKey);
-        continue;
-      }
-
-      // Validate price structure
-      if (price.type !== 'recurring') {
-        console.warn(`[stripe-prices-list] Price ${lookupKey} is not recurring, skipping`);
-        continue;
-      }
-
-      if (!price.unit_amount) {
-        console.warn(`[stripe-prices-list] Price ${lookupKey} has no unit_amount, skipping`);
-        continue;
-      }
-
-      const product = price.product as Stripe.Product;
-      if (!product || typeof product === 'string') {
-        console.warn(`[stripe-prices-list] Price ${lookupKey} has invalid product, skipping`);
-        continue;
-      }
-
-      prices[planKey] = {
-        lookup_key: lookupKey,
-        price_id: price.id,
-        product_id: product.id,
-        product_name: product.name,
-        product_description: product.description || '',
-        unit_amount: price.unit_amount,
-        currency: price.currency,
-        interval: price.recurring?.interval || 'month',
-        interval_count: price.recurring?.interval_count || 1,
-      };
-
-      console.log(`[stripe-prices-list] Loaded ${planKey}:`, {
-        lookup_key: lookupKey,
-        price_id: price.id,
-        amount: price.unit_amount,
-      });
-    }
-
-    // If any lookup keys are missing, return error
-    if (missingKeys.length > 0) {
-      console.error('[stripe-prices-list] Missing lookup keys:', missingKeys);
-      return {
-        statusCode: 500,
-        headers,
-        body: JSON.stringify({
-          ok: false,
-          error: 'missing_lookup_keys',
-          details: `The following Stripe lookup keys are not configured: ${missingKeys.join(', ')}`,
-          missing: missingKeys,
-          help: 'Configure these lookup keys in your Stripe Dashboard under Product → Pricing',
-        }),
-      };
-    }
-
-    // Success - return all 3 prices
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({
-        ok: true,
-        prices,
-        count: Object.keys(prices).length,
-      }),
-    };
-  } catch (err: any) {
-    console.error('[stripe-prices-list] Error:', err);
-
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({
-        ok: false,
-        error: 'Failed to fetch prices',
-        details: err.message || String(err),
-      }),
-    };
-  }
+  return {
+    statusCode: 200,
+    headers,
+    body: JSON.stringify({
+      ok: true,
+      prices: PLANS,
+      count: Object.keys(PLANS).length,
+    }),
+  };
 };
