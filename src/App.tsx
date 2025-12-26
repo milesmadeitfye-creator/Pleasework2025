@@ -7,6 +7,7 @@ import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { RUNTIME_CONFIG } from './runtimeConfig';
 import { TourProvider } from './contexts/TourContext';
 import MasterTour from './components/tour/MasterTour';
+import ResumeTourPrompt from './components/tour/ResumeTourPrompt';
 
 // Public Pages
 import LandingPageV2 from './pages/LandingPageV2';
@@ -113,6 +114,7 @@ function App() {
       <Router>
         <TourProvider>
           <MasterTour />
+          <ResumeTourPrompt />
           <Suspense fallback={<LoadingFallback />}>
           <Routes>
           {/* ========================================

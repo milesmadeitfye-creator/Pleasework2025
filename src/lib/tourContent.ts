@@ -68,7 +68,7 @@ Ghoste handles the marketing and business infrastructure so you can focus on mus
 **Credits** are your usage fuel. Think of them like arcade tokens — you spend them on actions (creating links, sending messages, running AI). Free users get 7,500/month. Paid plans get more.
 
 **Subscription** unlocks higher credit limits and priority support. Start free, upgrade when you're ready.`,
-    illustration: 'system-overview',
+    illustration: '/help-screenshots/checklist_dashboard.svg',
     estimatedMinutes: 3,
     skipable: false,
     actions: [
@@ -108,6 +108,7 @@ Free plan: 7,500 credits reset on the 1st of every month
 Paid plans: Higher allocations based on tier
 
 **Pro tip:** Start by creating a few Smart Links and One-Click Links. Save broadcasts and AI for when you really need them.`,
+    illustration: '/help-screenshots/wallet_overview.svg',
     navigationPath: '/wallet',
     estimatedMinutes: 4,
     skipable: false,
@@ -145,6 +146,7 @@ Instead of sharing raw Spotify/Apple Music URLs, you create ONE link that:
 - One-Click Links = instant redirect (better for known audiences)
 
 Let's create your first Smart Link together. Don't worry — you can save it as a draft without publishing.`,
+    illustration: '/help-screenshots/smartlinks_create.svg',
     navigationPath: '/studio/smart-links',
     estimatedMinutes: 5,
     skipable: false,
@@ -180,6 +182,7 @@ Unlike Smart Links (which show a landing page), One-Click Links **redirect insta
 **Cost:** 30 credits (cheaper than Smart Links!)
 
 **Pro tip:** Create a One-Click Link for your Spotify artist profile. Use it everywhere.`,
+    illustration: '/help-screenshots/smartlinks_create.svg',
     navigationPath: '/studio/smart-links',
     estimatedMinutes: 3,
     skipable: false,
@@ -215,6 +218,7 @@ Streams are great. But **owned audience** (email, SMS) is 10x more valuable:
 4. Monetize (tickets, merch, exclusive content)
 
 Let's look at the Inbox and Templates.`,
+    illustration: '/help-screenshots/ghoste_ai_chat.svg',
     navigationPath: '/studio/fan-communication',
     estimatedMinutes: 4,
     skipable: false,
@@ -251,6 +255,7 @@ Instead of manually sending "thanks for pre-saving" emails, create a sequence on
 **Best practice:** Start simple. One welcome email. Then add more steps later.
 
 You don't need to create one now — just know it exists when you're ready.`,
+    illustration: '/help-screenshots/ghoste_ai_chat.svg',
     navigationPath: '/studio/fan-communication',
     estimatedMinutes: 3,
     skipable: true,
@@ -289,6 +294,7 @@ Smart Links feed conversion data into Meta's algorithm. The more data, the smart
 **Best time to start:** After you have 100+ Smart Link clicks organically
 
 You don't need to connect Meta right now. But when you're ready, it's here.`,
+    illustration: '/help-screenshots/smartlinks_create.svg',
     navigationPath: '/studio/ad-campaigns',
     estimatedMinutes: 4,
     skipable: true,
@@ -325,6 +331,7 @@ Misunderstandings about splits destroy relationships and cost money. Handle this
 **Cost:** 30 credits to send invitation, 40 credits for final PDF
 
 You don't need to create one now — just know it's here when you collaborate.`,
+    illustration: '/help-screenshots/checklist_dashboard.svg',
     navigationPath: '/studio/splits',
     estimatedMinutes: 3,
     skipable: true,
@@ -363,6 +370,7 @@ You don't need to create one now — just know it's here when you collaborate.`,
 **Pro tip:** Don't obsess over vanity metrics (total clicks). Focus on **conversions** (did they actually listen?).
 
 Let's take a quick look at your analytics dashboard.`,
+    illustration: '/help-screenshots/smartlinks_create.svg',
     navigationPath: '/analytics',
     estimatedMinutes: 3,
     skipable: true,
@@ -404,7 +412,7 @@ Let's take a quick look at your analytics dashboard.`,
 You don't need to do everything at once. Start with Smart Links. Build from there.
 
 Ghoste is here whenever you need it.`,
-    illustration: 'action-plan',
+    illustration: '/help-screenshots/checklist_dashboard.svg',
     estimatedMinutes: 2,
     skipable: false,
     actions: [
