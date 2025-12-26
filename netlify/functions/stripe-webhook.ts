@@ -9,6 +9,44 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, stripe-signature',
 };
 
+// Helper to apply subscription entitlements via RPC
+async function applySubscriptionEntitlements(
+  supabase: any,
+  params: {
+    userId: string;
+    planKey: string;
+    status: string;
+    priceId?: string | null;
+    currentPeriodEnd?: string | null;
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    cancelAtPeriodEnd?: boolean;
+  }
+) {
+  try {
+    const { error } = await supabase.rpc('apply_subscription_entitlements_v2', {
+      p_user_id: params.userId,
+      p_plan_key: params.planKey,
+      p_status: params.status,
+      p_price_id: params.priceId || null,
+      p_current_period_end: params.currentPeriodEnd || null,
+      p_stripe_customer_id: params.stripeCustomerId || null,
+      p_stripe_subscription_id: params.stripeSubscriptionId || null,
+      p_cancel_at_period_end: params.cancelAtPeriodEnd || false,
+    });
+
+    if (error) {
+      console.error('[WEBHOOK] apply_subscription_entitlements_v2 error:', error);
+      throw error;
+    }
+
+    console.log('[WEBHOOK] Applied entitlements:', params.userId, params.planKey, params.status);
+  } catch (err: any) {
+    console.error('[WEBHOOK] Failed to apply entitlements:', err.message);
+    throw err;
+  }
+}
+
 // Helper function to send Meta CAPI events for Ghoste One pixel
 async function sendMetaCapiEvent(params: {
   eventName: string;
@@ -265,29 +303,33 @@ export const handler: Handler = async (event: HandlerEvent) => {
 
         // Handle subscription checkout
         if (subscriptionId) {
-          // Update profiles table with the specific plan
-          const { error } = await supabase
-            .from('profiles')
-            .update({
-              plan: planId,
-              stripe_customer_id: customerId,
-              stripe_subscription_id: subscriptionId,
-            })
-            .eq('id', userId);
-
-          if (error) {
-            console.error('[WEBHOOK][ERROR] failed to update user', userId, ':', error.message);
-          } else {
-            console.log('[WEBHOOK] upgraded user', userId, 'to plan:', planId);
-          }
-
           // Fetch full subscription details
           const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
             apiVersion: '2025-10-29.clover',
           });
           const sub = await stripe.subscriptions.retrieve(subscriptionId);
 
-          // Store in billing_subscriptions table
+          // Extract plan_key from metadata
+          const planKey = session.metadata?.plan_key || sub.metadata?.plan_key || 'artist';
+          const priceId = sub.items.data[0]?.price?.id || null;
+
+          // Apply entitlements via RPC (handles billing_v2, credits, profiles)
+          try {
+            await applySubscriptionEntitlements(supabase, {
+              userId,
+              planKey,
+              status: sub.status,
+              priceId,
+              currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+              stripeCustomerId: customerId,
+              stripeSubscriptionId: subscriptionId,
+              cancelAtPeriodEnd: sub.cancel_at_period_end,
+            });
+          } catch (entError: any) {
+            console.error('[WEBHOOK] Entitlement error:', entError.message);
+          }
+
+          // Maintain legacy billing_subscriptions table for backward compat
           await supabase
             .from('billing_subscriptions')
             .upsert({
@@ -456,33 +498,27 @@ export const handler: Handler = async (event: HandlerEvent) => {
           };
         }
 
-        let newPlan: 'pro' | 'free';
-        if (['active', 'trialing'].includes(status)) {
-          newPlan = 'pro';
-        } else if (['canceled', 'unpaid', 'incomplete_expired', 'past_due'].includes(status)) {
-          newPlan = 'free';
-        } else {
-          console.log('[WEBHOOK] Unhandled subscription status:', status);
-          return {
-            statusCode: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ received: true }),
-          };
+        // Extract plan_key from metadata
+        const planKey = subscription.metadata?.plan_key || 'artist';
+        const priceId = subscription.items.data[0]?.price?.id || null;
+
+        // Apply entitlements via RPC
+        try {
+          await applySubscriptionEntitlements(supabase, {
+            userId: profile.id,
+            planKey,
+            status: subscription.status,
+            priceId,
+            currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: subscription.id,
+            cancelAtPeriodEnd: subscription.cancel_at_period_end,
+          });
+        } catch (entError: any) {
+          console.error('[WEBHOOK] Entitlement error:', entError.message);
         }
 
-        // Update profiles table
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ plan: newPlan })
-          .eq('id', profile.id);
-
-        if (updateError) {
-          console.error('[WEBHOOK][ERROR] failed to update subscription status for user', profile.id, ':', updateError.message);
-        } else {
-          console.log('[WEBHOOK] updated user', profile.id, 'to plan:', newPlan);
-        }
-
-        // Update billing_subscriptions table
+        // Maintain legacy billing_subscriptions table
         await supabase
           .from('billing_subscriptions')
           .upsert({
@@ -521,22 +557,23 @@ export const handler: Handler = async (event: HandlerEvent) => {
           };
         }
 
-        // Update profiles table
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({
-            plan: 'free',
-            stripe_subscription_id: null
-          })
-          .eq('id', profile.id);
-
-        if (updateError) {
-          console.error('[WEBHOOK][ERROR] failed to downgrade user', profile.id, ':', updateError.message);
-        } else {
-          console.log('[WEBHOOK] downgraded user', profile.id, 'to free');
+        // Apply free tier entitlements via RPC
+        try {
+          await applySubscriptionEntitlements(supabase, {
+            userId: profile.id,
+            planKey: 'free',
+            status: 'canceled',
+            priceId: null,
+            currentPeriodEnd: null,
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: null,
+            cancelAtPeriodEnd: false,
+          });
+        } catch (entError: any) {
+          console.error('[WEBHOOK] Entitlement error:', entError.message);
         }
 
-        // Delete from billing_subscriptions table
+        // Delete from legacy billing_subscriptions table
         await supabase
           .from('billing_subscriptions')
           .delete()

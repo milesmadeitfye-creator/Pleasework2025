@@ -19,6 +19,12 @@ const ALLOWED_PRICE_IDS = new Set([
   'price_1SieFzCmFCKCWOjbPDYABycm',
 ]);
 
+const PRICE_TO_PLAN: Record<string, string> = {
+  'price_1SieEYCmFCKCWOjb4AwhF9b4': 'artist',
+  'price_1SieFYCmFCKCWOjbI2wXKbR7': 'growth',
+  'price_1SieFzCmFCKCWOjbPDYABycm': 'scale',
+};
+
 const headers = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -150,9 +156,12 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    const plan_key = PRICE_TO_PLAN[price_id] || 'artist';
+
     console.log('[stripe-checkout] Creating checkout for:', {
       userId: user.id,
       priceId: price_id,
+      planKey: plan_key,
     });
 
     const stripe = new Stripe(config.STRIPE_SECRET_KEY, {
@@ -167,10 +176,12 @@ export const handler: Handler = async (event) => {
           quantity: 1,
         },
       ],
+      client_reference_id: user.id,
       subscription_data: {
         trial_period_days: 7,
         metadata: {
           user_id: user.id,
+          plan_key,
           price_id,
         },
       },
@@ -179,6 +190,7 @@ export const handler: Handler = async (event) => {
       customer_email: user.email || undefined,
       metadata: {
         user_id: user.id,
+        plan_key,
         price_id,
       },
     });
