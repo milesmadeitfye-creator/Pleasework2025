@@ -1,10 +1,11 @@
 /**
  * Ghoste AI Chat Component
- * Uses new conversations table with JSONB messages column
+ * Uses ai_conversations and ai_messages tables for persistence
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
   Rocket,
   Link2,
@@ -24,6 +25,8 @@ import { GhosteMediaUploader } from '../manager/GhosteMediaUploader';
 import { chargeCredits, InsufficientCreditsError, getWallet } from '../../lib/credits';
 import InsufficientCreditsModal from '../ui/InsufficientCreditsModal';
 import { getManagerContext, formatManagerContextForAI } from '../../ai/context/getManagerContext';
+
+const CONVERSATION_STORAGE_KEY = 'ghoste_ai_conversation_id';
 
 type QuickPrompt = {
   id: string;
@@ -94,6 +97,8 @@ const QUICK_PROMPTS: QuickPrompt[] = [
 
 export const GhosteAIChat: React.FC = () => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [conversations, setConversations] = useState<GhosteConversation[]>([]);
   const [activeConversation, setActiveConversation] =
     useState<GhosteConversation | null>(null);
@@ -125,7 +130,49 @@ export const GhosteAIChat: React.FC = () => {
 
   useEffect(scrollToBottom, [messages]);
 
-  // Load conversations on mount
+  const getStoredConversationId = useCallback((): string | null => {
+    const urlConvoId = searchParams.get('c');
+    if (urlConvoId) return urlConvoId;
+
+    try {
+      return localStorage.getItem(CONVERSATION_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }, [searchParams]);
+
+  const setStoredConversationId = useCallback((id: string | null) => {
+    try {
+      if (id) {
+        localStorage.setItem(CONVERSATION_STORAGE_KEY, id);
+        setSearchParams({ c: id }, { replace: true });
+      } else {
+        localStorage.removeItem(CONVERSATION_STORAGE_KEY);
+        setSearchParams({}, { replace: true });
+      }
+    } catch (err) {
+      console.warn('[GhosteAIChat] Failed to store conversation ID:', err);
+    }
+  }, [setSearchParams]);
+
+  const loadMessagesForConversation = useCallback(async (conversationId: string): Promise<GhosteMessage[]> => {
+    const { data: msgs, error: msgsError } = await supabase
+      .from('ai_messages')
+      .select('id, conversation_id, user_id, role, content, meta, created_at')
+      .eq('conversation_id', conversationId)
+      .order('created_at', { ascending: true });
+
+    if (msgsError) {
+      console.error('[GhosteAIChat] Failed to load messages:', msgsError);
+      return [];
+    }
+
+    return (msgs || []).map(m => ({
+      ...m,
+      role: m.role as GhosteMessage['role'],
+    }));
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setLoadingInitial(false);
@@ -140,12 +187,12 @@ export const GhosteAIChat: React.FC = () => {
       try {
         console.log('[GhosteAIChat] Loading conversations for user:', user.id);
 
-        // Load conversations from Supabase
         const { data: convos, error: convosError } = await supabase
-          .from('ghoste_conversations')
-          .select('id, user_id, title, created_at, updated_at, last_message_at, is_archived')
+          .from('ai_conversations')
+          .select('id, user_id, title, created_at, updated_at')
           .eq('user_id', user.id)
-          .order('updated_at', { ascending: false });
+          .order('updated_at', { ascending: false })
+          .limit(20);
 
         if (!isMounted) return;
 
@@ -161,34 +208,44 @@ export const GhosteAIChat: React.FC = () => {
 
         console.log('[GhosteAIChat] Loaded', convos?.length || 0, 'conversations');
 
-        // Load messages for each conversation
-        const conversationsWithMessages = await Promise.all(
-          (convos || []).map(async (convo) => {
-            const { data: msgs, error: msgsError } = await supabase
-              .from('ghoste_messages')
-              .select('id, role, content, created_at')
-              .eq('conversation_id', convo.id)
-              .order('created_at', { ascending: true });
+        const conversationsWithoutMessages = (convos || []).map(c => ({
+          ...c,
+          messages: [] as GhosteMessage[],
+        }));
 
-            if (msgsError) {
-              console.warn('[GhosteAIChat] Failed to load messages for conversation:', convo.id, msgsError);
-              return { ...convo, messages: [] };
+        setConversations(conversationsWithoutMessages);
+
+        const storedConvoId = getStoredConversationId();
+        let targetConvo: GhosteConversation | null = null;
+
+        if (storedConvoId) {
+          targetConvo = conversationsWithoutMessages.find(c => c.id === storedConvoId) || null;
+
+          if (!targetConvo && storedConvoId) {
+            const { data: fetchedConvo } = await supabase
+              .from('ai_conversations')
+              .select('id, user_id, title, created_at, updated_at')
+              .eq('id', storedConvoId)
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+            if (fetchedConvo) {
+              targetConvo = { ...fetchedConvo, messages: [] };
             }
+          }
+        }
 
-            return {
-              ...convo,
-              messages: msgs || [],
-            };
-          })
-        );
+        if (!targetConvo && conversationsWithoutMessages.length > 0) {
+          targetConvo = conversationsWithoutMessages[0];
+        }
 
-        setConversations(conversationsWithMessages);
-
-        if (conversationsWithMessages.length > 0) {
-          const recent = conversationsWithMessages[0];
-          setActiveConversation(recent);
-          setMessages(recent.messages || []);
-          console.log('[GhosteAIChat] Set active conversation:', recent.id);
+        if (targetConvo) {
+          const msgs = await loadMessagesForConversation(targetConvo.id);
+          targetConvo.messages = msgs;
+          setActiveConversation(targetConvo);
+          setMessages(msgs);
+          setStoredConversationId(targetConvo.id);
+          console.log('[GhosteAIChat] Set active conversation:', targetConvo.id, 'with', msgs.length, 'messages');
         } else {
           console.log('[GhosteAIChat] No conversations found, user can start a new one');
         }
@@ -207,7 +264,7 @@ export const GhosteAIChat: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [user]);
+  }, [user, getStoredConversationId, setStoredConversationId, loadMessagesForConversation]);
 
   const createNewConversation = async () => {
     if (!user) {
@@ -220,14 +277,13 @@ export const GhosteAIChat: React.FC = () => {
       setError(null);
       console.log('[GhosteAIChat] Creating new conversation for user:', user.id);
 
-      // Create new conversation in Supabase
       const { data: newConvo, error: createError } = await supabase
-        .from('ghoste_conversations')
+        .from('ai_conversations')
         .insert({
           user_id: user.id,
           title: 'New Chat',
         })
-        .select('id, user_id, title, created_at, updated_at, last_message_at, is_archived')
+        .select('id, user_id, title, created_at, updated_at')
         .single();
 
       if (createError) {
@@ -255,6 +311,7 @@ export const GhosteAIChat: React.FC = () => {
       setActiveConversation(convoWithMessages);
       setMessages([]);
       setInput('');
+      setStoredConversationId(newConvo.id);
 
       return convoWithMessages;
     } catch (err: any) {
@@ -264,13 +321,18 @@ export const GhosteAIChat: React.FC = () => {
     }
   };
 
-  const switchConversation = (convo: GhosteConversation) => {
-    // Only switch if it's actually a different conversation
-    if (activeConversation?.id !== convo.id) {
-      setActiveConversation(convo);
-      setMessages(convo.messages || []);
-      setError(null);
-    }
+  const switchConversation = async (convo: GhosteConversation) => {
+    if (activeConversation?.id === convo.id) return;
+
+    console.log('[GhosteAIChat] Switching to conversation:', convo.id);
+
+    const msgs = convo.messages?.length ? convo.messages : await loadMessagesForConversation(convo.id);
+    const updatedConvo = { ...convo, messages: msgs };
+
+    setActiveConversation(updatedConvo);
+    setMessages(msgs);
+    setStoredConversationId(convo.id);
+    setError(null);
   };
 
   const sendMessage = async (promptOverride?: string) => {
@@ -314,21 +376,41 @@ export const GhosteAIChat: React.FC = () => {
     setPendingAttachments([]);
     setError(null);
 
-    // Generate client message ID for deduplication
     const clientMessageId = crypto.randomUUID();
+    const now = new Date().toISOString();
 
     const userMessage: GhosteMessage = {
       id: clientMessageId,
+      conversation_id: currentConversation.id,
+      user_id: user.id,
       role: 'user',
       content: text || '',
-      created_at: new Date().toISOString(),
+      created_at: now,
       attachments: attachments as any,
     };
 
-    // Optimistically add user message
     setMessages((prev) => [...prev, userMessage]);
 
     try {
+      const { data: savedUserMsg, error: userMsgError } = await supabase
+        .from('ai_messages')
+        .insert({
+          conversation_id: currentConversation.id,
+          user_id: user.id,
+          role: 'user',
+          content: text || '',
+          meta: attachments.length > 0 ? { attachments } : {},
+        })
+        .select('id')
+        .single();
+
+      if (userMsgError) {
+        console.error('[GhosteAIChat] Failed to save user message:', userMsgError);
+      } else if (savedUserMsg) {
+        userMessage.id = savedUserMsg.id;
+        console.log('[GhosteAIChat] Saved user message:', savedUserMsg.id);
+      }
+
       // SAFE BILLING GUARD: Attempt to charge credits
       let creditsSafeMode = false;
       try {
@@ -431,7 +513,6 @@ ${managerContextText}
         systemPrompt: basePrompt,
       });
 
-      // Check if AI was unavailable
       const aiUnavailable = (aiResponse as any).ai_unavailable === true;
       const assistantContent = aiResponse.message || 'Sorry, I could not respond.';
 
@@ -439,42 +520,70 @@ ${managerContextText}
         console.warn('[GhosteAIChat] AI service temporarily unavailable, showing fallback message');
       }
 
+      const assistantMessageNow = new Date().toISOString();
       const assistantMessage: GhosteMessage = {
         id: crypto.randomUUID(),
+        conversation_id: currentConversation.id,
+        user_id: user.id,
         role: 'assistant',
         content: assistantContent,
-        created_at: new Date().toISOString(),
+        created_at: assistantMessageNow,
       };
 
       console.log('[GhosteAIChat] Got AI response');
 
-      // Add assistant message to state
       setMessages((prev) => [...prev, assistantMessage]);
 
-      // NOTE: Backend now handles message persistence, so we don't need to save here.
-      // The ghosteAgent function saves both user and assistant messages with deduplication.
+      const { data: savedAssistantMsg, error: assistantMsgError } = await supabase
+        .from('ai_messages')
+        .insert({
+          conversation_id: currentConversation.id,
+          user_id: user.id,
+          role: 'assistant',
+          content: assistantContent,
+          meta: { ai_unavailable: aiUnavailable },
+        })
+        .select('id')
+        .single();
 
-      // Get the complete message list (current messages + new messages)
+      if (assistantMsgError) {
+        console.error('[GhosteAIChat] Failed to save assistant message:', assistantMsgError);
+      } else if (savedAssistantMsg) {
+        assistantMessage.id = savedAssistantMsg.id;
+        console.log('[GhosteAIChat] Saved assistant message:', savedAssistantMsg.id);
+      }
+
+      const isFirstMessage = messages.length === 0;
+      if (isFirstMessage && text) {
+        const newTitle = text.slice(0, 60) + (text.length > 60 ? '...' : '');
+        await supabase
+          .from('ai_conversations')
+          .update({ title: newTitle, updated_at: assistantMessageNow })
+          .eq('id', currentConversation.id);
+        currentConversation.title = newTitle;
+      } else {
+        await supabase
+          .from('ai_conversations')
+          .update({ updated_at: assistantMessageNow })
+          .eq('id', currentConversation.id);
+      }
+
       const completeMessages = [...messages, userMessage, assistantMessage];
 
-      // Update active conversation reference with new messages
-      const now = new Date().toISOString();
       const updatedConversation = {
         ...currentConversation,
         messages: completeMessages,
-        updated_at: now,
-        last_message_at: now,
+        updated_at: assistantMessageNow,
       };
 
-      // Update conversation in list
       setConversations((prev) =>
         prev.map((c) =>
           c.id === currentConversation!.id ? updatedConversation : c
         )
       );
 
-      // Update active conversation to maintain reference
       setActiveConversation(updatedConversation);
+      setStoredConversationId(currentConversation.id);
 
       console.log('[GhosteAIChat] Message sent successfully');
     } catch (err: any) {

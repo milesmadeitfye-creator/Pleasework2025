@@ -1,10 +1,19 @@
-export type GhosteMessageRole = 'user' | 'assistant' | 'system';
+export type GhosteMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 export interface GhosteMessage {
   id: string;
+  conversation_id?: string;
+  user_id?: string;
   role: GhosteMessageRole;
   content: string;
+  meta?: Record<string, unknown>;
   created_at: string;
+  attachments?: Array<{
+    url: string;
+    fileName: string;
+    type: string;
+    size?: number;
+  }>;
 }
 
 export interface GhosteConversation {
@@ -13,7 +22,5 @@ export interface GhosteConversation {
   title: string | null;
   created_at: string;
   updated_at: string;
-  last_message_at: string | null;
-  is_archived: boolean;
   messages?: GhosteMessage[];
 }

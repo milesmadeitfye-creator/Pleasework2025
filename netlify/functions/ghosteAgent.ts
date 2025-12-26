@@ -193,15 +193,13 @@ export const handler: Handler = async (event) => {
       debug,
     });
 
-    // Ensure conversation exists
     let finalConversationId = conversationId;
     if (!finalConversationId) {
-      // Create new conversation
       const latestUserMessage = clientMessages.filter(m => m.role === 'user').pop();
       const title = latestUserMessage?.content.slice(0, 80) || 'New Chat';
 
       const { data: newConvo, error: convoError } = await supabase
-        .from('ghoste_conversations')
+        .from('ai_conversations')
         .insert({
           user_id: userId,
           title,
@@ -224,7 +222,6 @@ export const handler: Handler = async (event) => {
       console.log('[ghosteAgent] Created new conversation:', finalConversationId);
     }
 
-    // Save user message (with deduplication via client_message_id)
     const latestUserMessage = clientMessages.filter(m => m.role === 'user').pop();
     let userMessageSaved = false;
     let userMessageId: string | null = null;
@@ -237,22 +234,14 @@ export const handler: Handler = async (event) => {
         contentLength: latestUserMessage.content.length
       });
 
-      const userMessageData: any = {
-        conversation_id: finalConversationId,
-        user_id: userId,
-        role: 'user',
-        content: latestUserMessage.content,
-      };
-
-      if (clientMessageId) {
-        userMessageData.client_message_id = clientMessageId;
-      }
-
       const { data: savedUserMsg, error: userMsgError } = await supabase
-        .from('ghoste_agent_messages')
-        .upsert(userMessageData, {
-          onConflict: clientMessageId ? 'client_message_id' : undefined,
-          ignoreDuplicates: true
+        .from('ai_messages')
+        .insert({
+          conversation_id: finalConversationId,
+          user_id: userId,
+          role: 'user',
+          content: latestUserMessage.content,
+          meta: {},
         })
         .select('id')
         .single();
@@ -265,14 +254,6 @@ export const handler: Handler = async (event) => {
           details: userMsgError.details,
           hint: userMsgError.hint
         });
-        return {
-          statusCode: 500,
-          body: JSON.stringify({
-            error: 'insert_user_message_failed',
-            message: userMsgError.message,
-            details: userMsgError.details
-          })
-        };
       } else {
         userMessageSaved = true;
         userMessageId = savedUserMsg?.id || null;
@@ -1262,32 +1243,29 @@ export const handler: Handler = async (event) => {
         status: err.status,
       });
 
-      // Return graceful fallback message
       const fallbackMessage = {
         role: 'assistant' as const,
         content: "Ghoste AI is temporarily unavailable. This is usually due to high usage or API billing. Your message has been saved. Please try again in a moment."
       };
 
-      // Save fallback message
       const { error: fallbackSaveError } = await supabase
-        .from('ghoste_agent_messages')
+        .from('ai_messages')
         .insert({
           conversation_id: finalConversationId,
           user_id: userId,
           role: 'assistant',
           content: fallbackMessage.content,
+          meta: { ai_unavailable: true },
         });
 
       if (fallbackSaveError) {
         console.error('[ghosteAgent] Failed to save fallback message:', fallbackSaveError);
       }
 
-      // Update conversation timestamp
       await supabase
-        .from('ghoste_conversations')
+        .from('ai_conversations')
         .update({
           updated_at: new Date().toISOString(),
-          last_message_at: new Date().toISOString(),
         })
         .eq('id', finalConversationId);
 
@@ -2432,32 +2410,29 @@ export const handler: Handler = async (event) => {
           status: err.status,
         });
 
-        // Return graceful fallback message
         const fallbackMessage = {
           role: 'assistant' as const,
           content: "Ghoste AI encountered an issue while processing your request. Your message and actions have been saved. Please try again in a moment."
         };
 
-        // Save fallback message
         const { error: fallbackSaveError } = await supabase
-          .from('ghoste_agent_messages')
+          .from('ai_messages')
           .insert({
             conversation_id: finalConversationId,
             user_id: userId,
             role: 'assistant',
             content: fallbackMessage.content,
+            meta: { ai_unavailable: true },
           });
 
         if (fallbackSaveError) {
           console.error('[ghosteAgent] Failed to save fallback message:', fallbackSaveError);
         }
 
-        // Update conversation timestamp
         await supabase
-          .from('ghoste_conversations')
+          .from('ai_conversations')
           .update({
             updated_at: new Date().toISOString(),
-            last_message_at: new Date().toISOString(),
           })
           .eq('id', finalConversationId);
 
@@ -2475,7 +2450,6 @@ export const handler: Handler = async (event) => {
 
       const finalMsg = second?.choices?.[0]?.message;
 
-      // Save assistant message
       let assistantMessageSaved = false;
       let assistantMessageId: string | null = null;
       if (finalMsg?.content) {
@@ -2485,12 +2459,13 @@ export const handler: Handler = async (event) => {
         });
 
         const { data: savedAssistantMsg, error: assistantMsgError } = await supabase
-          .from('ghoste_agent_messages')
+          .from('ai_messages')
           .insert({
             conversation_id: finalConversationId,
             user_id: userId,
             role: 'assistant',
             content: finalMsg.content,
+            meta: {},
           })
           .select('id')
           .single();
@@ -2502,26 +2477,16 @@ export const handler: Handler = async (event) => {
             code: assistantMsgError.code,
             details: assistantMsgError.details
           });
-          return {
-            statusCode: 500,
-            body: JSON.stringify({
-              error: 'insert_assistant_message_failed',
-              message: assistantMsgError.message,
-              details: assistantMsgError.details
-            })
-          };
         } else {
           assistantMessageSaved = true;
           assistantMessageId = savedAssistantMsg?.id || null;
           console.log('[ChatSave] ✅ Saved assistant message (with tools):', assistantMessageId);
         }
 
-        // Update conversation timestamp
         await supabase
-          .from('ghoste_conversations')
+          .from('ai_conversations')
           .update({
             updated_at: new Date().toISOString(),
-            last_message_at: new Date().toISOString(),
           })
           .eq('id', finalConversationId);
       }
@@ -2547,8 +2512,6 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // No tools used, just return the first normal response
-    // Save assistant message
     let assistantMessageSaved = false;
     let assistantMessageId: string | null = null;
     if (choice?.message?.content) {
@@ -2558,12 +2521,13 @@ export const handler: Handler = async (event) => {
       });
 
       const { data: savedAssistantMsg, error: assistantMsgError } = await supabase
-        .from('ghoste_agent_messages')
+        .from('ai_messages')
         .insert({
           conversation_id: finalConversationId,
           user_id: userId,
           role: 'assistant',
           content: choice.message.content,
+          meta: {},
         })
         .select('id')
         .single();
@@ -2575,26 +2539,16 @@ export const handler: Handler = async (event) => {
           code: assistantMsgError.code,
           details: assistantMsgError.details
         });
-        return {
-          statusCode: 500,
-          body: JSON.stringify({
-            error: 'insert_assistant_message_failed',
-            message: assistantMsgError.message,
-            details: assistantMsgError.details
-          })
-        };
       } else {
         assistantMessageSaved = true;
         assistantMessageId = savedAssistantMsg?.id || null;
         console.log('[ChatSave] ✅ Saved assistant message (no tools):', assistantMessageId);
       }
 
-      // Update conversation timestamp
       await supabase
-        .from('ghoste_conversations')
+        .from('ai_conversations')
         .update({
           updated_at: new Date().toISOString(),
-          last_message_at: new Date().toISOString(),
         })
         .eq('id', finalConversationId);
     }
