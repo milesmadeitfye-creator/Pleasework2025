@@ -27,6 +27,7 @@ import { chargeCredits, InsufficientCreditsError, getWallet } from '../../lib/cr
 import InsufficientCreditsModal from '../ui/InsufficientCreditsModal';
 import { getManagerContext, formatManagerContextForAI } from '../../ai/context/getManagerContext';
 import { AIDebugPanel } from './AIDebugPanel';
+import { BUILD_STAMP } from '../../lib/buildStamp';
 
 const CONVERSATION_STORAGE_KEY = 'ghoste_ai_conversation_id';
 
@@ -781,6 +782,9 @@ ${managerContextText}
                 <div className="flex items-center gap-2 text-xs text-emerald-400">
                   <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                   Online
+                </div>
+                <div className="text-[10px] text-white/20 font-mono" title={BUILD_STAMP}>
+                  Build: {BUILD_STAMP.slice(-12)}
                 </div>
               </div>
             </header>

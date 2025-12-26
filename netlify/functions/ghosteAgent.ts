@@ -1,3 +1,10 @@
+/**
+ * Ghoste AI Agent - Tool-orchestrated AI assistant
+ * With Supabase JWT authentication and setup status RPC integration
+ *
+ * BUILD_STAMP: Forces fresh deploys - changes on every build
+ */
+
 import type { Handler } from '@netlify/functions';
 import OpenAI from 'openai';
 import { getSupabaseAdminClient } from './_supabaseAdmin';
@@ -19,6 +26,8 @@ import {
   getArtistAdsContext,
   formatAdsContextForAI,
 } from './_ghosteAdsContext';
+
+const BUILD_STAMP = `DEPLOY_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
 const supabase = getSupabaseAdminClient();
 

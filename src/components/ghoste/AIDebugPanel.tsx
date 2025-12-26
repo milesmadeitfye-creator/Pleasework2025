@@ -150,6 +150,17 @@ export const AIDebugPanel: React.FC<AIDebugPanelProps> = ({ isOpen, onClose }) =
                 </div>
               )}
 
+              {/* Build Stamp */}
+              {debugData.buildStamp && (
+                <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                  <p className="text-sm text-slate-400 mb-1">Server Build</p>
+                  <p className="text-emerald-400 font-mono text-sm">{debugData.buildStamp}</p>
+                  <p className="text-xs text-slate-500 mt-1">
+                    This confirms the function is deployed and fresh
+                  </p>
+                </div>
+              )}
+
               {/* Full JSON */}
               <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                 <div className="flex items-center justify-between mb-2">

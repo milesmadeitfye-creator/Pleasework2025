@@ -6,10 +6,14 @@
  *
  * PROTECTED: Requires authentication
  * SECURITY: Only returns data for the authenticated user, no secrets exposed
+ *
+ * BUILD_STAMP: Forces fresh deploys - changes on every build
  */
 
 import type { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+
+const BUILD_STAMP = `DEPLOY_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
 function getCorsHeaders(): Record<string, string> {
   return {
@@ -149,6 +153,7 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         ok: true,
+        buildStamp: BUILD_STAMP,
         userId,
         supabaseUrlUsed: process.env.SUPABASE_URL ? process.env.SUPABASE_URL.replace(/https?:\/\//, '').split('.')[0] + '...' : null,
         hasServiceRoleKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
