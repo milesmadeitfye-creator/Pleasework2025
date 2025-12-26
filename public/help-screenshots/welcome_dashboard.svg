@@ -1,0 +1,107 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="1200" height="800" fill="#0A0F29"/>
+
+  <!-- Top Nav -->
+  <rect width="1200" height="64" fill="#0B1120"/>
+  <text x="24" y="40" font-family="system-ui" font-size="20" font-weight="600" fill="#E5E7EB">Ghoste Studio</text>
+
+  <!-- Nav Items -->
+  <circle cx="1100" cy="32" r="16" fill="#1F2937"/>
+  <circle cx="1140" cy="32" r="16" fill="#1F2937"/>
+
+  <!-- Sidebar -->
+  <rect y="64" width="240" height="736" fill="#0B1120"/>
+
+  <!--Sidebar Items -->
+  <rect x="16" y="80" width="208" height="40" rx="8" fill="#1F2937"/>
+  <rect x="16" y="128" width="208" height="40" rx="8" fill="#0F172A"/>
+  <rect x="16" y="176" width="208" height="40" rx="8" fill="#0F172A"/>
+  <rect x="16" y="224" width="208" height="40" rx="8" fill="#0F172A"/>
+  <rect x="16" y="272" width="208" height="40" rx="8" fill="#0F172A"/>
+
+  <!-- Main Content -->
+  <g transform="translate(260, 84)">
+    <!-- Header -->
+    <text x="0" y="32" font-family="system-ui" font-size="28" font-weight="700" fill="#FFFFFF">Welcome to Ghoste One</text>
+    <text x="0" y="64" font-family="system-ui" font-size="14" fill="#9CA3AF">Your complete music marketing platform</text>
+
+    <!-- Cards Grid -->
+    <!-- Card 1: Smart Links -->
+    <g transform="translate(0, 100)">
+      <rect width="280" height="180" rx="16" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <circle cx="24" cy="24" r="12" fill="#3B82F6" opacity="0.2"/>
+      <text x="24" y="60" font-family="system-ui" font-size="16" font-weight="600" fill="#FFFFFF">Smart Links</text>
+      <text x="24" y="82" font-family="system-ui" font-size="12" fill="#9CA3AF">Create trackable links</text>
+      <text x="24" y="98" font-family="system-ui" font-size="12" fill="#9CA3AF">for all platforms</text>
+      <rect x="24" y="130" width="100" height="32" rx="8" fill="#3B82F6"/>
+      <text x="54" y="151" font-family="system-ui" font-size="13" font-weight="500" fill="#FFFFFF">Create</text>
+    </g>
+
+    <!-- Card 2: Fan Communication -->
+    <g transform="translate(300, 100)">
+      <rect width="280" height="180" rx="16" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <circle cx="24" cy="24" r="12" fill="#8B5CF6" opacity="0.2"/>
+      <text x="24" y="60" font-family="system-ui" font-size="16" font-weight="600" fill="#FFFFFF">Fan Communication</text>
+      <text x="24" y="82" font-family="system-ui" font-size="12" fill="#9CA3AF">Engage with fans</text>
+      <text x="24" y="98" font-family="system-ui" font-size="12" fill="#9CA3AF">through inbox & broadcasts</text>
+      <rect x="24" y="130" width="100" height="32" rx="8" fill="#8B5CF6"/>
+      <text x="50" y="151" font-family="system-ui" font-size="13" font-weight="500" fill="#FFFFFF">Explore</text>
+    </g>
+
+    <!-- Card 3: Ads Manager -->
+    <g transform="translate(600, 100)">
+      <rect width="280" height="180" rx="16" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <circle cx="24" cy="24" r="12" fill="#EC4899" opacity="0.2"/>
+      <text x="24" y="60" font-family="system-ui" font-size="16" font-weight="600" fill="#FFFFFF">Ads Manager</text>
+      <text x="24" y="82" font-family="system-ui" font-size="12" fill="#9CA3AF">Run Meta campaigns</text>
+      <text x="24" y="98" font-family="system-ui" font-size="12" fill="#9CA3AF">with guided setup</text>
+      <rect x="24" y="130" width="100" height="32" rx="8" fill="#EC4899"/>
+      <text x="50" y="151" font-family="system-ui" font-size="13" font-weight="500" fill="#FFFFFF">Set up</text>
+    </g>
+
+    <!-- Card 4: Analytics -->
+    <g transform="translate(0, 300)">
+      <rect width="280" height="180" rx="16" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <circle cx="24" cy="24" r="12" fill="#10B981" opacity="0.2"/>
+      <text x="24" y="60" font-family="system-ui" font-size="16" font-weight="600" fill="#FFFFFF">Analytics</text>
+      <text x="24" y="82" font-family="system-ui" font-size="12" fill="#9CA3AF">Track clicks, conversions</text>
+      <text x="24" y="98" font-family="system-ui" font-size="12" fill="#9CA3AF">and campaign performance</text>
+      <rect x="24" y="130" width="100" height="32" rx="8" fill="#10B981"/>
+      <text x="64" y="151" font-family="system-ui" font-size="13" font-weight="500" fill="#FFFFFF">View</text>
+    </g>
+
+    <!-- Card 5: Ghoste AI -->
+    <g transform="translate(300, 300)">
+      <rect width="280" height="180" rx="16" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <circle cx="24" cy="24" r="12" fill="#F59E0B" opacity="0.2"/>
+      <text x="24" y="60" font-family="system-ui" font-size="16" font-weight="600" fill="#FFFFFF">Ghoste AI</text>
+      <text x="24" y="82" font-family="system-ui" font-size="12" fill="#9CA3AF">Your AI-powered</text>
+      <text x="24" y="98" font-family="system-ui" font-size="12" fill="#9CA3AF">artist manager</text>
+      <rect x="24" y="130" width="100" height="32" rx="8" fill="#F59E0B"/>
+      <text x="57" y="151" font-family="system-ui" font-size="13" font-weight="500" fill="#FFFFFF">Chat</text>
+    </g>
+
+    <!-- Card 6: Wallet -->
+    <g transform="translate(600, 300)">
+      <rect width="280" height="180" rx="16" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <circle cx="24" cy="24" r="12" fill="#06B6D4" opacity="0.2"/>
+      <text x="24" y="60" font-family="system-ui" font-size="16" font-weight="600" fill="#FFFFFF">Wallet</text>
+      <text x="24" y="82" font-family="system-ui" font-size="12" fill="#9CA3AF">7,500 credits/month</text>
+      <text x="24" y="98" font-family="system-ui" font-size="12" fill="#9CA3AF">on Free plan</text>
+      <rect x="24" y="130" width="100" height="32" rx="8" fill="#06B6D4"/>
+      <text x="52" y="151" font-family="system-ui" font-size="13" font-weight="500" fill="#FFFFFF">Manage</text>
+    </g>
+  </g>
+
+  <!-- Subtle glow effect -->
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+</svg>

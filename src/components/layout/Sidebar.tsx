@@ -10,6 +10,7 @@ import {
   X,
   Wallet,
   BarChart3,
+  BookOpen,
 } from 'lucide-react';
 
 const navigation = [
@@ -19,6 +20,7 @@ const navigation = [
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Fan Communication', href: '/studio/fan-communication', icon: Mail },
   { name: 'Wallet', href: '/wallet', icon: Wallet },
+  { name: 'Help Center', href: '/help', icon: BookOpen },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

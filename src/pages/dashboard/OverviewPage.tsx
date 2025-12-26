@@ -18,6 +18,8 @@ import { OverviewHeader } from './components/OverviewHeader';
 import { OverviewTodoBanner } from './components/OverviewTodoBanner';
 import MetaApprovalTracker from '../../components/meta/MetaApprovalTracker';
 import { isSafeMode, enableSafeMode, disableSafeMode } from '../../debug/safeMode';
+import OnboardingChecklist from '../../components/OnboardingChecklist';
+import InteractiveTutorial from '../../components/InteractiveTutorial';
 
 interface OverviewStats {
   totalLinks: number;
@@ -346,6 +348,12 @@ export default function OverviewPage() {
         />
 
         <OverviewTodoBanner />
+
+        {/* Getting Started Checklist */}
+        <OnboardingChecklist />
+
+        {/* Interactive Tutorial */}
+        <InteractiveTutorial />
 
         {/* Safe Mode Banner */}
         {safeMode && (

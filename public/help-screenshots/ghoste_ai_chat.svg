@@ -1,0 +1,45 @@
+<svg width="1200" height="800" viewBox="0 0 1200 800" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1200" height="800" fill="#0A0F29"/>
+  <rect width="1200" height="64" fill="#0B1120"/>
+  <text x="24" y="40" font-family="system-ui" font-size="20" font-weight="600" fill="#E5E7EB">Ghoste AI</text>
+
+  <g transform="translate(100, 120)">
+    <rect width="1000" height="620" rx="20" fill="#0B1120" stroke="#1F2937" stroke-width="1"/>
+
+    <g transform="translate(40, 40)">
+      <rect width="920" height="80" rx="12" fill="#1F2937"/>
+      <circle cx="20" cy="40" r="16" fill="#F59E0B" opacity="0.2"/>
+      <text x="52" y="35" font-family="system-ui" font-size="14" fill="#9CA3AF">You</text>
+      <text x="52" y="58" font-family="system-ui" font-size="14" fill="#FFFFFF">I'm releasing an EP in 2 months. What should I do first?</text>
+    </g>
+
+    <g transform="translate(40, 140)">
+      <rect width="920" height="360" rx="12" fill="#1E293B"/>
+      <circle cx="20" cy="20" r="16" fill="#3B82F6" opacity="0.2"/>
+      <text x="52" y="28" font-family="system-ui" font-size="14" font-weight="600" fill="#3B82F6">Ghoste AI</text>
+
+      <text x="20" y="60" font-family="system-ui" font-size="14" fill="#FFFFFF">Here's your 8-week pre-release plan:</text>
+
+      <text x="20" y="90" font-family="system-ui" font-size="13" font-weight="600" fill="#F59E0B">Weeks 8-7 (Now):</text>
+      <text x="20" y="110" font-family="system-ui" font-size="13" fill="#D1D5DB">• Create Smart Links for all tracks</text>
+      <text x="20" y="130" font-family="system-ui" font-size="13" fill="#D1D5DB">• Design cover art</text>
+      <text x="20" y="150" font-family="system-ui" font-size="13" fill="#D1D5DB">• Record 3-5 behind-the-scenes videos</text>
+
+      <text x="20" y="180" font-family="system-ui" font-size="13" font-weight="600" fill="#10B981">Weeks 6-5:</text>
+      <text x="20" y="200" font-family="system-ui" font-size="13" fill="#D1D5DB">• Set up Pre-Save campaign</text>
+      <text x="20" y="220" font-family="system-ui" font-size="13" fill="#D1D5DB">• Tease snippets on social media</text>
+      <text x="20" y="240" font-family="system-ui" font-size="13" fill="#D1D5DB">• Email your list with first announcement</text>
+
+      <text x="20" y="270" font-family="system-ui" font-size="13" font-weight="600" fill="#8B5CF6">Weeks 4-3:</text>
+      <text x="20" y="290" font-family="system-ui" font-size="13" fill="#D1D5DB">• Launch Meta ad campaign (target: pre-saves)</text>
+      <text x="20" y="310" font-family="system-ui" font-size="13" fill="#D1D5DB">• Post daily content (lyrics, studio clips)</text>
+
+      <text x="20" y="340" font-family="system-ui" font-size="13" fill="#9CA3AF">Want me to break down any of these steps?</text>
+    </g>
+
+    <g transform="translate(40, 520)">
+      <rect width="920" height="56" rx="12" fill="#1F2937" stroke="#374151" stroke-width="1"/>
+      <text x="20" y="35" font-family="system-ui" font-size="14" fill="#6B7280">Ask a question...</text>
+    </g>
+  </g>
+</svg>

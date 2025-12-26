@@ -22,6 +22,7 @@ const CalendarPage = lazyWithRecovery(() => import('./pages/CalendarPage'));
 const WalletPage = lazyWithRecovery(() => import('./pages/WalletPage'));
 const AnalyticsPage = lazyWithRecovery(() => import('./pages/AnalyticsPage'));
 const LinksPage = lazyWithRecovery(() => import('./pages/LinksPage'));
+const HelpCenter = lazyWithRecovery(() => import('./pages/HelpCenter'));
 
 // Manager & Autopilot
 const ManagerPage = lazyWithRecovery(() => import('./pages/ManagerPage'));
@@ -125,6 +126,25 @@ function App() {
               <RouteErrorBoundary routeName="subscriptions">
                 <SubscriptionsPage />
               </RouteErrorBoundary>
+            }
+          />
+
+          {/* Help Center - Public Access */}
+          <Route path="/help" element={<HelpCenter />} />
+          <Route path="/help/:category" element={<HelpCenter />} />
+          <Route path="/help/:category/:slug" element={<HelpCenter />} />
+
+          {/* Welcome/Tutorial - Protected */}
+          <Route
+            path="/welcome"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <RouteErrorBoundary routeName="welcome">
+                    <HelpCenter />
+                  </RouteErrorBoundary>
+                </AppShell>
+              </ProtectedRoute>
             }
           />
 
