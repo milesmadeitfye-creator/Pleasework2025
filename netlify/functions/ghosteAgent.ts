@@ -161,9 +161,103 @@ function getBaseUrl() {
   );
 }
 
+/**
+ * Apply guardrails to prevent AI from contradicting setupStatus
+ * Returns corrected content if contradictions detected
+ */
+function applySetupStatusGuardrails(content: string, setupStatus: any): string {
+  if (!content || !setupStatus) return content;
+
+  let corrected = content;
+  let hasCorrected = false;
+
+  // GUARDRAIL 1: Meta connection status
+  const hasMeta = setupStatus.meta?.has_meta === true;
+  const metaAccountId = setupStatus.meta?.ad_account_id;
+  const metaPageId = setupStatus.meta?.page_id;
+  const metaPixelId = setupStatus.meta?.pixel_id;
+
+  if (hasMeta) {
+    // If Meta IS connected but AI says it's not, correct it
+    const notConnectedPatterns = [
+      /meta.*not connected/i,
+      /haven't connected.*meta/i,
+      /need to connect.*meta/i,
+      /connect your meta/i,
+      /meta.*isn't connected/i,
+    ];
+
+    for (const pattern of notConnectedPatterns) {
+      if (pattern.test(corrected)) {
+        console.warn('[ghosteAgent] ⚠️ GUARDRAIL: AI incorrectly claimed Meta not connected. Correcting...');
+        hasCorrected = true;
+
+        // Remove the incorrect claim
+        corrected = corrected.replace(pattern, '');
+
+        // Add correction
+        corrected += `\n\n**Meta Ads Status:**\nYour Meta account is connected:\n- Ad Account: ${metaAccountId || 'N/A'}\n- Page: ${metaPageId || 'N/A'}\n- Pixel: ${metaPixelId || 'N/A'}`;
+        break;
+      }
+    }
+  }
+
+  // GUARDRAIL 2: Smart Links count
+  const smartLinksCount = setupStatus.smart_links_count || 0;
+  if (smartLinksCount > 0) {
+    const noLinksPatterns = [
+      /no smart links/i,
+      /haven't created any links/i,
+      /don't have any links/i,
+    ];
+
+    for (const pattern of noLinksPatterns) {
+      if (pattern.test(corrected)) {
+        console.warn('[ghosteAgent] ⚠️ GUARDRAIL: AI incorrectly claimed no smart links. Correcting...');
+        hasCorrected = true;
+
+        // Remove the incorrect claim
+        corrected = corrected.replace(pattern, '');
+
+        // Add correction
+        corrected += `\n\n**Smart Links:**\nYou have ${smartLinksCount} smart link${smartLinksCount === 1 ? '' : 's'} created.`;
+        break;
+      }
+    }
+  }
+
+  if (hasCorrected) {
+    console.log('[ghosteAgent] ✅ Applied setupStatus guardrails to AI response');
+  }
+
+  return corrected;
+}
+
+function getCorsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept',
+    'Content-Type': 'application/json',
+  };
+}
+
 export const handler: Handler = async (event) => {
+  // Handle CORS preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 200,
+      headers: getCorsHeaders(),
+      body: '',
+    };
+  }
+
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return {
+      statusCode: 405,
+      headers: getCorsHeaders(),
+      body: JSON.stringify({ error: 'method_not_allowed' }),
+    };
   }
 
   try {
@@ -173,7 +267,8 @@ export const handler: Handler = async (event) => {
       console.error('[ghosteAgent] No Authorization header');
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: 'missing_auth', message: 'Authorization header required' })
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ ok: false, error: 'missing_auth', message: 'Authorization header required' })
       };
     }
 
@@ -181,7 +276,8 @@ export const handler: Handler = async (event) => {
       console.error('[ghosteAgent] Invalid Authorization format');
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: 'invalid_auth_format', message: 'Authorization must be Bearer token' })
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ ok: false, error: 'invalid_auth_format', message: 'Authorization must be Bearer token' })
       };
     }
 
@@ -194,7 +290,8 @@ export const handler: Handler = async (event) => {
       console.error('[ghosteAgent] Auth verification failed:', authError);
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: 'invalid_token', message: 'Invalid or expired token' })
+        headers: getCorsHeaders(),
+        body: JSON.stringify({ ok: false, error: 'invalid_token', message: 'Invalid or expired token' })
       };
     }
 
@@ -247,8 +344,11 @@ export const handler: Handler = async (event) => {
         console.error('[ghosteAgent] Failed to create conversation:', convoError);
         return {
           statusCode: 500,
+          headers: getCorsHeaders(),
           body: JSON.stringify({
+            ok: false,
             error: 'conversation_creation_failed',
+            message: 'Failed to create conversation',
             details: convoError.message
           })
         };
@@ -272,27 +372,32 @@ export const handler: Handler = async (event) => {
       // not fatal
     }
 
-    // Fetch setup status via RPC
+    // Fetch setup status via RPC - this is the SINGLE SOURCE OF TRUTH
+    let setupStatus: any = null;
     let setupStatusText = '';
     try {
-      const { data: setupStatus, error: setupError } = await supabase.rpc('ai_get_setup_status', {
+      const { data: statusData, error: setupError } = await supabase.rpc('ai_get_setup_status', {
         p_user_id: userId
       });
 
-      if (!setupError && setupStatus) {
+      if (!setupError && statusData) {
+        setupStatus = statusData;
         console.log('[ghosteAgent] Setup status fetched:', setupStatus);
         const metaStatus = setupStatus.meta?.has_meta
-          ? `✅ Meta CONNECTED (ad_account: ${setupStatus.meta.ad_account_id || 'N/A'}, page: ${setupStatus.meta.page_id || 'N/A'})`
+          ? `✅ Meta CONNECTED (ad_account: ${setupStatus.meta.ad_account_id || 'N/A'}, page: ${setupStatus.meta.page_id || 'N/A'}, pixel: ${setupStatus.meta.pixel_id || 'N/A'})`
           : '❌ Meta NOT CONNECTED - User must connect in Profile → Connected Accounts';
 
         setupStatusText = `
-INTEGRATIONS STATUS:
-${metaStatus}
-Spotify: ${setupStatus.spotify?.has_spotify ? '✅ Connected' : '❌ Not connected'}
-Apple Music: ${setupStatus.apple_music?.has_apple_music ? '✅ Connected' : '❌ Not connected'}
-Mailchimp: ${setupStatus.mailchimp?.has_mailchimp ? '✅ Connected' : '❌ Not connected'}
+=== AUTHORITATIVE SETUP STATUS (NEVER CONTRADICT THIS) ===
+Meta Connected: ${setupStatus.meta?.has_meta ? 'YES' : 'NO'}
+${setupStatus.meta?.has_meta ? `  - Ad Account: ${setupStatus.meta.ad_account_id || 'N/A'}\n  - Page: ${setupStatus.meta.page_id || 'N/A'}\n  - Pixel: ${setupStatus.meta.pixel_id || 'N/A'}` : ''}
+Spotify: ${setupStatus.spotify?.has_spotify ? 'Connected' : 'Not connected'}
+Apple Music: ${setupStatus.apple_music?.has_apple_music ? 'Connected' : 'Not connected'}
+Mailchimp: ${setupStatus.mailchimp?.has_mailchimp ? 'Connected' : 'Not connected'}
+Smart Links Count: ${setupStatus.smart_links_count || 0}
 
-IMPORTANT: Do NOT claim "Meta not connected" if has_meta=true.
+CRITICAL: This is the AUTHORITATIVE truth. NEVER claim Meta is "not connected" if has_meta=true above.
+If you detect the user asking about connections or status, refer to this data ONLY.
 `;
       } else {
         console.warn('[ghosteAgent] Setup status RPC failed:', setupError);
@@ -1286,11 +1391,17 @@ IMPORTANT: Do NOT claim "Meta not connected" if has_meta=true.
 
       return {
         statusCode: 200,
+        headers: getCorsHeaders(),
         body: JSON.stringify({
           ok: true,
           message: fallbackMessage,
           conversation_id: finalConversationId,
           ai_unavailable: true,
+          debug: {
+            buildStamp: BUILD_STAMP,
+            userId,
+            error: 'openai_error_first_call',
+          },
         })
       };
     }
@@ -2438,18 +2549,31 @@ IMPORTANT: Do NOT claim "Meta not connected" if has_meta=true.
 
         return {
           statusCode: 200,
+          headers: getCorsHeaders(),
           body: JSON.stringify({
             ok: true,
             message: fallbackMessage,
             conversation_id: finalConversationId,
             ai_unavailable: true,
+            debug: {
+              buildStamp: BUILD_STAMP,
+              userId,
+              error: 'openai_error_second_call',
+            },
           })
         };
       }
 
       const finalMsg = second?.choices?.[0]?.message;
 
+      // Apply guardrails to prevent contradictions
       if (finalMsg?.content) {
+        const correctedContent = applySetupStatusGuardrails(finalMsg.content, setupStatus);
+        if (correctedContent !== finalMsg.content) {
+          finalMsg.content = correctedContent;
+          console.log('[ghosteAgent] Applied guardrails to final message after tool execution');
+        }
+
         await supabase
           .from('ai_conversations')
           .update({
@@ -2460,15 +2584,29 @@ IMPORTANT: Do NOT claim "Meta not connected" if has_meta=true.
 
       return {
         statusCode: 200,
+        headers: getCorsHeaders(),
         body: JSON.stringify({
           ok: true,
           message: finalMsg,
           conversation_id: finalConversationId,
+          debug: {
+            buildStamp: BUILD_STAMP,
+            userId,
+            hasMeta: setupStatus?.meta?.has_meta ?? null,
+            smartLinksCount: setupStatus?.smart_links_count ?? null,
+          },
         })
       };
     }
 
+    // Apply guardrails to prevent contradictions
     if (choice?.message?.content) {
+      const correctedContent = applySetupStatusGuardrails(choice.message.content, setupStatus);
+      if (correctedContent !== choice.message.content) {
+        choice.message.content = correctedContent;
+        console.log('[ghosteAgent] Applied guardrails to message (no tool calls)');
+      }
+
       await supabase
         .from('ai_conversations')
         .update({
@@ -2479,19 +2617,29 @@ IMPORTANT: Do NOT claim "Meta not connected" if has_meta=true.
 
     return {
       statusCode: 200,
+      headers: getCorsHeaders(),
       body: JSON.stringify({
         ok: true,
         message: choice?.message,
         conversation_id: finalConversationId,
+        debug: {
+          buildStamp: BUILD_STAMP,
+          userId,
+          hasMeta: setupStatus?.meta?.has_meta ?? null,
+          smartLinksCount: setupStatus?.smart_links_count ?? null,
+        },
       })
     };
   } catch (err: any) {
-    console.error('ghosteAgent error', err);
+    console.error('[ghosteAgent] Fatal error:', err);
     return {
       statusCode: 500,
+      headers: getCorsHeaders(),
       body: JSON.stringify({
+        ok: false,
         error: 'ghoste_agent_failed',
-        detail: err?.message || String(err)
+        message: 'An unexpected error occurred. Please try again.',
+        detail: err?.message || String(err),
       })
     };
   }

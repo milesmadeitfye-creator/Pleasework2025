@@ -25,7 +25,6 @@ import type { GhosteConversation, GhosteMessage } from '../../types/conversation
 import { GhosteMediaUploader } from '../manager/GhosteMediaUploader';
 import { chargeCredits, InsufficientCreditsError, getWallet } from '../../lib/credits';
 import InsufficientCreditsModal from '../ui/InsufficientCreditsModal';
-import { getManagerContext, formatManagerContextForAI } from '../../ai/context/getManagerContext';
 import { AIDebugPanel } from './AIDebugPanel';
 import { BUILD_STAMP } from '../../lib/buildStamp';
 
@@ -507,44 +506,12 @@ export const GhosteAIChat: React.FC = () => {
 
       console.log('[GhosteAIChat] Calling Ghoste AI with', conversationMessages.length, 'messages');
 
-      // Fetch manager context (non-blocking with 3s timeout)
-      console.log('[GhosteAIChat] Fetching manager context...');
-      let managerContextText = '';
-      try {
-        const managerContext = await Promise.race([
-          getManagerContext(user.id),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
-        ]);
-        managerContextText = formatManagerContextForAI(managerContext as any);
-        console.log('[GhosteAIChat] Manager context fetched successfully');
-      } catch (contextErr) {
-        console.warn('[GhosteAIChat] Failed to fetch manager context (non-blocking):', contextErr);
-        managerContextText = 'Manager context temporarily unavailable.';
-      }
-
-      // Build enhanced system prompt with STRICT rules
-      const basePrompt = `You are Ghoste AI, a helpful music marketing and artist development assistant. Help users with smart links, ad campaigns, fan communication, calendar planning, and more.
-
-CRITICAL RULES FOR DATA ACCURACY:
-- NEVER claim "Meta is not connected" without checking the data below
-- If Meta status shows "Connected: YES" but no campaigns: say "Meta is connected, but no campaigns found yet. Ready to create your first campaign?"
-- If Meta status shows "Connected: NO": say "Meta Ads not connected yet. Would you like help connecting?"
-- ALWAYS reference actual campaign names, spend amounts, CTRs, and CPCs when available
-- When user asks "how are my stats today?" or "how are my ads?", provide SPECIFIC numbers from the data below
-- If data is missing or unavailable, explain what's missing truthfully
-- Use the manager context below as your SINGLE SOURCE OF TRUTH
-
-=== MANAGER CONTEXT (YOUR SINGLE SOURCE OF TRUTH) ===
-${managerContextText}
-=== END MANAGER CONTEXT ===`;
-
-      // Call Ghoste AI - backend will save both user and assistant messages
+      // Call Ghoste AI - backend will handle system prompt and setup status via RPC
       const aiResponse = await ghosteChat({
         userId: user.id,
         conversationId: currentConversation.id,
-        clientMessageId: clientMessageId,
+        clientMessageId: tempUserMessageId,
         messages: conversationMessages,
-        systemPrompt: basePrompt,
       });
 
       const aiUnavailable = (aiResponse as any).ai_unavailable === true;
