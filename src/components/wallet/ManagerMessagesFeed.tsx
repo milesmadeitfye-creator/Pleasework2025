@@ -5,10 +5,15 @@ import { useSafeRealtime } from '../../hooks/useSafeRealtime';
 
 type ManagerMessage = {
   id: string;
-  title: string;
-  body: string;
-  priority: 'low' | 'normal' | 'high';
-  ctas: Array<{ label: string; link: string; action: string }>;
+  title?: string | null;
+  body?: string | null;
+  message?: string | null;
+  summary?: string | null;
+  action_label?: string | null;
+  event_name?: string | null;
+  type?: string | null;
+  priority?: 'low' | 'normal' | 'high' | null;
+  ctas?: Array<{ label: string; link: string; action: string }> | null;
   created_at: string;
 };
 
@@ -21,6 +26,33 @@ export function ManagerMessagesFeed({ userId, limit = 20 }: Props) {
   const [messages, setMessages] = useState<ManagerMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  // Normalize message to ensure it has display text
+  const normalizeMessage = (msg: ManagerMessage): ManagerMessage & { displayTitle: string; displayBody: string } => {
+    // Try title fields in priority order
+    const displayTitle =
+      msg.title ||
+      msg.summary ||
+      msg.event_name ||
+      msg.type ||
+      'Manager Update';
+
+    // Try body fields in priority order
+    const displayBody =
+      msg.body ||
+      msg.message ||
+      msg.summary ||
+      msg.action_label ||
+      'Ghoste checked in and reviewed your activity. Tap to view details.';
+
+    return {
+      ...msg,
+      displayTitle: displayTitle.trim(),
+      displayBody: displayBody.trim(),
+      priority: msg.priority || 'normal',
+      ctas: msg.ctas || [],
+    };
+  };
 
   const fetchMessages = async () => {
     setLoading(true);
@@ -37,7 +69,13 @@ export function ManagerMessagesFeed({ userId, limit = 20 }: Props) {
         setMessages([]);
         return;
       }
-      setMessages(data || []);
+
+      // Filter out messages with no displayable content after normalization
+      const normalized = (data || []).map(normalizeMessage).filter(msg =>
+        msg.displayTitle || msg.displayBody
+      );
+
+      setMessages(normalized);
     } catch (err) {
       console.error('[ManagerMessagesFeed] fetch error', err);
       setMessages([]);
@@ -77,7 +115,7 @@ export function ManagerMessagesFeed({ userId, limit = 20 }: Props) {
     }
   };
 
-  const getPriorityColor = (priority: string) => {
+  const getPriorityColor = (priority?: string | null) => {
     switch (priority) {
       case 'high':
         return 'border-red-500/30 bg-red-500/5';
@@ -90,7 +128,7 @@ export function ManagerMessagesFeed({ userId, limit = 20 }: Props) {
     }
   };
 
-  const getPriorityIcon = (priority: string) => {
+  const getPriorityIcon = (priority?: string | null) => {
     switch (priority) {
       case 'high':
         return '🔥';
@@ -99,7 +137,7 @@ export function ManagerMessagesFeed({ userId, limit = 20 }: Props) {
       case 'low':
         return '📝';
       default:
-        return '📬';
+        return '🤖';
     }
   };
 
@@ -126,49 +164,52 @@ export function ManagerMessagesFeed({ userId, limit = 20 }: Props) {
 
   return (
     <div className="space-y-3">
-      {messages.map((msg) => (
-        <div key={msg.id} className={`rounded-xl border p-4 ${getPriorityColor(msg.priority)}`}>
-          {/* Header */}
-          <div className="flex items-start gap-3 mb-3">
-            <div className="text-2xl">{getPriorityIcon(msg.priority)}</div>
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-slate-100 text-sm mb-1">{msg.title}</div>
-              <div className="text-xs text-slate-400">
-                {new Date(msg.created_at).toLocaleString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
+      {messages.map((msg) => {
+        const normalized = normalizeMessage(msg);
+        return (
+          <div key={msg.id} className={`rounded-xl border p-4 ${getPriorityColor(normalized.priority)}`}>
+            {/* Header */}
+            <div className="flex items-start gap-3 mb-3">
+              <div className="text-2xl">{getPriorityIcon(normalized.priority)}</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-slate-100 text-sm mb-1">{normalized.displayTitle}</div>
+                <div className="text-xs text-slate-400">
+                  {new Date(msg.created_at).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </div>
               </div>
+              {normalized.priority === 'high' && (
+                <div className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-semibold">
+                  URGENT
+                </div>
+              )}
             </div>
-            {msg.priority === 'high' && (
-              <div className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-[10px] font-semibold">
-                URGENT
+
+            {/* Body */}
+            <div className="text-sm text-slate-300 mb-3 whitespace-pre-line">{normalized.displayBody}</div>
+
+            {/* CTAs */}
+            {normalized.ctas && normalized.ctas.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {normalized.ctas.map((cta, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleCTAClick(cta)}
+                    className="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-medium transition-colors"
+                  >
+                    {cta.label}
+                  </button>
+                ))}
               </div>
             )}
           </div>
-
-          {/* Body */}
-          <div className="text-sm text-slate-300 mb-3 whitespace-pre-line">{msg.body}</div>
-
-          {/* CTAs */}
-          {msg.ctas && msg.ctas.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {msg.ctas.map((cta, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => handleCTAClick(cta)}
-                  className="px-3 py-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs font-medium transition-colors"
-                >
-                  {cta.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

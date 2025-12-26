@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Activity, AlertCircle, CheckCircle, Clock, Database } from 'lucide-react';
+import { Activity, AlertCircle, CheckCircle, Clock, Database, RefreshCw } from 'lucide-react';
 import { getManagerContext } from '../../ai/context/getManagerContext';
-import type { ManagerContext } from '../../ai/context/getManagerContext';
+import type { ManagerContext, SetupStatusInput } from '../../ai/context/getManagerContext';
+import { supabase } from '../../lib/supabase';
 
 interface AdsDataStatusProps {
   userId: string;
@@ -10,6 +11,7 @@ interface AdsDataStatusProps {
 export const AdsDataStatus: React.FC<AdsDataStatusProps> = ({ userId }) => {
   const [context, setContext] = useState<ManagerContext | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   useEffect(() => {
@@ -17,15 +19,47 @@ export const AdsDataStatus: React.FC<AdsDataStatusProps> = ({ userId }) => {
   }, [userId]);
 
   const loadContext = async () => {
-    setLoading(true);
+    const isRefresh = context !== null;
+    setLoading(!isRefresh);
+    setRefreshing(isRefresh);
+
     try {
-      const ctx = await getManagerContext(userId);
+      // Call ai_get_setup_status RPC to get canonical Meta connection status
+      const { data: setupData, error: setupError } = await supabase
+        .rpc('ai_get_setup_status', { p_user_id: userId });
+
+      if (setupError) {
+        console.error('[AdsDataStatus] RPC error:', setupError);
+        // Fallback: try to get context without setup status
+        const ctx = await getManagerContext(userId);
+        setContext(ctx);
+        setLastRefresh(new Date());
+        return;
+      }
+
+      // Transform RPC response to SetupStatusInput format
+      const setupStatus: SetupStatusInput = {
+        meta: {
+          connected: setupData?.meta?.has_meta ?? false,
+          adAccounts: setupData?.meta?.ad_accounts || [],
+          pages: setupData?.meta?.pages || [],
+          pixels: setupData?.meta?.pixels || [],
+        },
+        smartLinks: {
+          count: setupData?.smart_links_count || 0,
+          recent: setupData?.smart_links_preview || [],
+        },
+      };
+
+      // Get full context with setup status
+      const ctx = await getManagerContext(userId, setupStatus);
       setContext(ctx);
       setLastRefresh(new Date());
     } catch (error) {
       console.error('[AdsDataStatus] Failed to load context:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -58,30 +92,45 @@ export const AdsDataStatus: React.FC<AdsDataStatusProps> = ({ userId }) => {
         </div>
         <button
           onClick={loadContext}
-          className="text-xs text-white/60 hover:text-white transition"
+          disabled={refreshing}
+          className="flex items-center gap-1.5 text-xs text-white/60 hover:text-white transition disabled:opacity-50"
         >
-          Refresh
+          <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
       <div className="space-y-2">
         {/* Meta Status */}
-        <div className="flex items-start gap-2">
-          {context.meta.connected ? (
-            <CheckCircle className="w-4 h-4 text-emerald-400 mt-0.5" />
-          ) : (
-            <AlertCircle className="w-4 h-4 text-amber-400 mt-0.5" />
-          )}
-          <div className="flex-1">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${context.meta.connected ? 'bg-emerald-400' : 'bg-gray-500'}`} />
             <div className="text-xs font-medium text-white">Meta Ads</div>
-            <div className="text-xs text-white/60">{metaStatus}</div>
-            {context.meta.errors.length > 0 && (
-              <div className="text-xs text-red-400 mt-1">
-                {context.meta.errors[0]}
-              </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {context.meta.connected ? (
+              <>
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-xs text-emerald-400 font-medium">Connected</span>
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-xs text-white/60">Not connected</span>
+              </>
             )}
           </div>
         </div>
+        {context.meta.connected && context.meta.campaigns.length > 0 && (
+          <div className="text-xs text-white/40 ml-4">
+            {context.meta.campaigns.length} campaign{context.meta.campaigns.length !== 1 ? 's' : ''}, {context.meta.adAccounts.length} account{context.meta.adAccounts.length !== 1 ? 's' : ''}
+          </div>
+        )}
+        {context.meta.errors.length > 0 && (
+          <div className="text-xs text-red-400 ml-4">
+            {context.meta.errors[0]}
+          </div>
+        )}
 
         {/* Ghoste Ads Status */}
         <div className="flex items-start gap-2">
