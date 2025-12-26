@@ -1,8 +1,20 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { getSupabaseAdmin } from './_supabaseAdmin';
+import {
+  detectPlatformFromUrl,
+  trackOneClickEvent,
+  trackOneClickMetaPixel,
+  extractUtmParams,
+  extractMetaParams,
+  getClientIp,
+  type OneClickEventPayload
+} from './_oneClickTracking';
 
 interface OneClickLinkRow {
   id: string;
+  user_id: string;
+  short_code: string;
+  slug?: string | null;
   spotify_url?: string | null;
   apple_music_url?: string | null;
   youtube_url?: string | null;
@@ -11,6 +23,7 @@ interface OneClickLinkRow {
   deezer_url?: string | null;
   audiomack_url?: string | null;
   target_url?: string | null;
+  destination_url?: string | null;
   clicks?: number;
 }
 
@@ -104,11 +117,6 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       };
     }
 
-    await supabase
-      .from('oneclick_links')
-      .update({ clicks: (link.clicks || 0) + 1 })
-      .eq('id', link.id);
-
     const targetUrl = (link.target_url as string) || (link.destination_url as string) || selectBestUrl(link) || '';
 
     if (!targetUrl) {
@@ -132,7 +140,43 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
       };
     }
 
-    console.log('[oneclick-redirect] Redirecting to:', deepLinkUrl);
+    const platform = detectPlatformFromUrl(deepLinkUrl);
+    const utmParams = extractUtmParams(event);
+    const metaParams = extractMetaParams(event);
+    const clientIp = getClientIp(event);
+    const userAgent = event.headers['user-agent'];
+    const referrer = event.headers.referer || event.headers.referrer;
+    const eventSourceUrl = `https://ghoste.one/${shortCode}`;
+
+    const trackingPayload: OneClickEventPayload = {
+      link_id: link.id,
+      slug: link.slug || undefined,
+      short_code: shortCode,
+      owner_user_id: link.user_id,
+      platform,
+      destination_url: deepLinkUrl,
+      event_source_url: eventSourceUrl,
+      referrer,
+      user_agent: userAgent,
+      client_ip: clientIp,
+      ...utmParams,
+      ...metaParams,
+    };
+
+    const trackingPromises = [
+      trackOneClickEvent(trackingPayload),
+      trackOneClickMetaPixel(trackingPayload),
+      supabase
+        .from('oneclick_links')
+        .update({ clicks: (link.clicks || 0) + 1 })
+        .eq('id', link.id)
+    ];
+
+    Promise.allSettled(trackingPromises).catch(err => {
+      console.error('[oneclick-redirect] Tracking error (non-blocking):', err);
+    });
+
+    console.log('[oneclick-redirect] Redirecting to:', deepLinkUrl, '| Platform:', platform);
 
     return {
       statusCode: 302,

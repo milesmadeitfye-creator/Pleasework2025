@@ -5,6 +5,7 @@ import { RefreshCw, TrendingUp, Users, Search, Music } from 'lucide-react';
 import { AnalyticsKpiCard } from '../components/analytics/AnalyticsKpiCard';
 import { AnalyticsPanel } from '../components/analytics/AnalyticsPanel';
 import SmartLinkClicksPanel from '../components/analytics/SmartLinkClicksPanel';
+import OneClickAnalyticsPanel from '../components/analytics/OneClickAnalyticsPanel';
 import { fetchSmartlinkClickSummary, fetchSmartlinkClicksByDay } from '../lib/analytics/smartlinkClicks';
 import { useSmartlinkAnalytics } from '../hooks/useSmartlinkAnalytics';
 import { AudienceDemographicsCard } from '../components/analytics/AudienceDemographicsCard';
@@ -69,6 +70,7 @@ export default function AnalyticsPage() {
   } | null>(null);
 
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [linksTab, setLinksTab] = useState<'smart' | 'oneclick'>('smart');
 
   const [q, setQ] = useState("");
   const [searching, setSearching] = useState(false);
@@ -1053,8 +1055,40 @@ export default function AnalyticsPage() {
         />
       </section>
 
-      {/* Smart Links Analytics */}
-      <SmartLinkClicksPanel />
+      {/* Links Analytics - Smart Links + One-Click */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2 border-b border-gray-800">
+          <button
+            onClick={() => setLinksTab('smart')}
+            className={`px-6 py-3 text-sm font-semibold transition-colors relative ${
+              linksTab === 'smart'
+                ? 'text-blue-400'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Smart Links
+            {linksTab === 'smart' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400"></div>
+            )}
+          </button>
+          <button
+            onClick={() => setLinksTab('oneclick')}
+            className={`px-6 py-3 text-sm font-semibold transition-colors relative ${
+              linksTab === 'oneclick'
+                ? 'text-blue-400'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            One-Click Links
+            {linksTab === 'oneclick' && (
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-400"></div>
+            )}
+          </button>
+        </div>
+
+        {linksTab === 'smart' && <SmartLinkClicksPanel />}
+        {linksTab === 'oneclick' && <OneClickAnalyticsPanel />}
+      </section>
 
       {/* Section 6: Future Metrics (styled placeholders) */}
       <section className="grid gap-3 md:grid-cols-3 lg:grid-cols-3">
