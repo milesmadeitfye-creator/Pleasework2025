@@ -5,7 +5,7 @@ import { useUserPlan } from '../hooks/useUserPlan';
 import { CheckCircle } from 'lucide-react';
 import AppShell from './layout/AppShell';
 import FanCommunication from './FanCommunication';
-import AdsManager from './AdsManagerEnhanced';
+import AdsManager from './AdsManager';
 import CoverArtGenerator from './CoverArtGenerator';
 import SocialPoster from './SocialPoster';
 import StatsDashboard from './StatsDashboard';

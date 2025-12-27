@@ -132,57 +132,6 @@ export function useUserProfile() {
     void loadProfile();
   }, [user, authLoading, refetchTrigger]);
 
-  // Refetch profile when tab becomes visible
-  useEffect(() => {
-    if (!user) return;
-
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        console.log('[useUserProfile] Tab became visible, refetching profile');
-        refetch();
-      }
-    };
-
-    const handleFocus = () => {
-      console.log('[useUserProfile] Window focused, refetching profile');
-      refetch();
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleFocus);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleFocus);
-    };
-  }, [user]);
-
-  // Optional: Subscribe to realtime changes on user_profiles
-  useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel(`profile:${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_profiles',
-          filter: `id=eq.${user.id}`,
-        },
-        (payload) => {
-          console.log('[useUserProfile] Realtime update detected:', payload);
-          refetch();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
   const plan = profile?.plan ?? "free";
   const isPro = profile?.is_pro === true || plan === "pro";
   const creditsManager = profile?.credits_manager ?? 0;
