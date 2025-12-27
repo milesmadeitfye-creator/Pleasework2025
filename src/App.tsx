@@ -50,7 +50,8 @@ const UnreleasedMusicPage = lazyWithRecovery(() => import('./pages/studio/Unrele
 const AutomationLogsPage = lazyWithRecovery(() => import('./pages/studio/AutomationLogsPage'));
 
 // Profile pages
-const ConnectedAccountsPage = lazyWithRecovery(() => import('./pages/ConnectedAccounts'));
+const ProfileOverviewPage = lazyWithRecovery(() => import('./pages/profile/ProfileOverviewPage'));
+const ConnectedAccountsPage = lazyWithRecovery(() => import('./pages/profile/ConnectAccountsPage'));
 
 // Public link landing pages
 const SmartLinkLanding = lazyWithRecovery(() => import('./components/SmartLinkLanding'));
@@ -505,18 +506,34 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <Settings />
+                  <ProfileOverviewPage />
                 </AppShell>
               </ProtectedRoute>
             }
           />
           <Route
-            path="/connected-accounts"
+            path="/profile/overview"
             element={
               <ProtectedRoute>
-                <ConnectedAccountsPage />
+                <AppShell>
+                  <ProfileOverviewPage />
+                </AppShell>
               </ProtectedRoute>
             }
+          />
+          <Route
+            path="/profile/connect-accounts"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <ConnectedAccountsPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile/connect"
+            element={<Navigate to="/profile/connect-accounts" replace />}
           />
 
           {/* Public Success Page - must be accessible to unauthenticated users */}
