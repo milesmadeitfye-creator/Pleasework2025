@@ -45,6 +45,7 @@ const SocialMediaPage = lazyWithRecovery(() => import('./pages/studio/SocialMedi
 const FanCommunicationPage = lazyWithRecovery(() => import('./pages/studio/FanCommunicationPage'));
 const ListeningPartiesPage = lazyWithRecovery(() => import('./pages/studio/ListeningPartiesPage'));
 const SplitsPage = lazyWithRecovery(() => import('./pages/studio/SplitsPage'));
+const SplitNegotiationView = lazyWithRecovery(() => import('./pages/SplitNegotiationView'));
 const UnreleasedMusicPage = lazyWithRecovery(() => import('./pages/studio/UnreleasedMusicPage'));
 const AutomationLogsPage = lazyWithRecovery(() => import('./pages/studio/AutomationLogsPage'));
 
@@ -418,6 +419,16 @@ function App() {
               <ProtectedRoute>
                 <AppShell>
                   <SplitsPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/studio/splits/:negotiationId"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <SplitNegotiationView />
                 </AppShell>
               </ProtectedRoute>
             }

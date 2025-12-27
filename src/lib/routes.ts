@@ -28,6 +28,7 @@ export const ROUTES = {
   studioFanCommunication: '/studio/fan-communication',
   studioListeningParties: '/studio/listening-parties',
   studioSplits: '/studio/splits',
+  studioSplitsDetail: (id: string) => `/studio/splits/${id}`,
   studioUnreleasedMusic: '/studio/unreleased-music',
 
   // Ads

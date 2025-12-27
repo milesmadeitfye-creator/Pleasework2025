@@ -861,11 +861,11 @@ export default function SplitNegotiations() {
                       Messages
                     </button>
                     <button
-                      onClick={() => openMessagesModal(negotiation)}
+                      onClick={() => navigate(ROUTES.studioSplitsDetail(negotiation.id))}
                       className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 hover:border-emerald-500/30 rounded-xl transition-all duration-200 text-sm font-medium"
                     >
                       <FileText className="w-4 h-4" />
-                      Open
+                      Open Split Breakdown
                     </button>
                   </div>
                 </div>
