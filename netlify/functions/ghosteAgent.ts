@@ -26,6 +26,7 @@ import {
   getArtistAdsContext,
   formatAdsContextForAI,
 } from './_ghosteAdsContext';
+import { normalizeSetupStatus } from './_aiSetupStatus';
 
 const BUILD_STAMP = `DEPLOY_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
@@ -406,10 +407,14 @@ export const handler: Handler = async (event) => {
       });
 
       if (!setupError && statusData) {
-        // Import and use normalizeSetupStatus to ensure both flat and nested fields exist
-        const { normalizeSetupStatus } = await import('./_aiSetupStatus.js');
+        // ALWAYS normalize to ensure both flat and nested fields exist
         setupStatus = normalizeSetupStatus(statusData);
-        console.log('[ghosteAgent] Setup status fetched and normalized:', setupStatus);
+
+        console.log('[ghosteAgent] Setup status fetched and normalized');
+        console.log('[ghosteAgent] Normalized keys:', Object.keys(setupStatus));
+        console.log('[ghosteAgent] Has meta:', setupStatus.meta?.has_meta);
+        console.log('[ghosteAgent] Flat adAccountId:', setupStatus.adAccountId);
+        console.log('[ghosteAgent] Resolved ad_account_id:', setupStatus.resolved?.ad_account_id);
 
         // DEBUG MODE: Return setup status immediately without calling OpenAI
         if (debug) {
@@ -430,6 +435,9 @@ export const handler: Handler = async (event) => {
                 resolved_adAccountId: setupStatus.resolved?.ad_account_id,
                 flat_pageId: setupStatus.pageId,
                 resolved_pageId: setupStatus.resolved?.page_id,
+                normalized_keys: Object.keys(setupStatus),
+                meta_keys: Object.keys(setupStatus.meta || {}),
+                resolved_keys: Object.keys(setupStatus.resolved || {}),
               }
             })
           };
@@ -438,11 +446,7 @@ export const handler: Handler = async (event) => {
         // Guard: Check if RPC returned empty/null
         if (!setupStatus || Object.keys(setupStatus).length === 0) {
           console.warn('[ghosteAgent] RPC returned empty object - treating as not connected');
-          setupStatus = {
-            meta: { has_meta: false },
-            smart_links_count: 0,
-            resolved: {}
-          };
+          setupStatus = normalizeSetupStatus(null);
         }
 
         // Use RESOLVED fields (canonical source of truth)
