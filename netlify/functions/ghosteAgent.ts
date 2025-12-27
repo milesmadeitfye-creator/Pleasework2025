@@ -406,8 +406,10 @@ export const handler: Handler = async (event) => {
       });
 
       if (!setupError && statusData) {
-        setupStatus = statusData;
-        console.log('[ghosteAgent] Setup status fetched:', setupStatus);
+        // Import and use normalizeSetupStatus to ensure both flat and nested fields exist
+        const { normalizeSetupStatus } = await import('./_aiSetupStatus.js');
+        setupStatus = normalizeSetupStatus(statusData);
+        console.log('[ghosteAgent] Setup status fetched and normalized:', setupStatus);
 
         // DEBUG MODE: Return setup status immediately without calling OpenAI
         if (debug) {
@@ -420,7 +422,15 @@ export const handler: Handler = async (event) => {
               userId,
               setupStatus,
               debug: true,
-              message: 'Debug mode - setup status fetched successfully'
+              message: 'Debug mode - setup status fetched successfully',
+              // Include key fields for quick verification
+              verification: {
+                has_meta: setupStatus.meta?.has_meta,
+                flat_adAccountId: setupStatus.adAccountId,
+                resolved_adAccountId: setupStatus.resolved?.ad_account_id,
+                flat_pageId: setupStatus.pageId,
+                resolved_pageId: setupStatus.resolved?.page_id,
+              }
             })
           };
         }

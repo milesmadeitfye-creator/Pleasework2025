@@ -118,31 +118,43 @@ function getSupabaseAdmin(): SupabaseClient | null {
 
 /**
  * Transform RPC response to client-facing format
+ * CRITICAL: Returns BOTH flat fields (backward compat) AND nested meta/resolved
  */
 function transformRPCResponse(rpcData: any): Omit<AISetupStatus, 'errors'> {
+  const resolved = {
+    adAccountId: rpcData.resolved?.ad_account_id || null,
+    pageId: rpcData.resolved?.page_id || null,
+    pixelId: rpcData.resolved?.pixel_id || null,
+    destinationUrl: rpcData.resolved?.destination_url || null,
+  };
+
+  const instagramAccounts = (rpcData.meta?.instagram_accounts || []).map((ig: any) => ({
+    id: ig.id,
+    username: ig.username,
+    profilePictureUrl: ig.profile_picture_url,
+  }));
+
+  const firstInstagram = instagramAccounts[0] || null;
+
   return {
     meta: {
-      connected: rpcData.meta.has_meta,
-      sourceTable: rpcData.meta.source_table,
-      adAccounts: (rpcData.meta.ad_accounts || []).map((acc: any) => ({
+      connected: rpcData.meta?.has_meta || false,
+      sourceTable: rpcData.meta?.source_table || null,
+      adAccounts: (rpcData.meta?.ad_accounts || []).map((acc: any) => ({
         id: acc.id,
         name: acc.name,
         accountId: acc.account_id,
         currency: acc.currency,
         source: acc.source,
       })),
-      pages: (rpcData.meta.pages || []).map((page: any) => ({
+      pages: (rpcData.meta?.pages || []).map((page: any) => ({
         id: page.id,
         name: page.name,
         category: page.category,
         source: page.source,
       })),
-      instagramAccounts: (rpcData.meta.instagram_accounts || []).map((ig: any) => ({
-        id: ig.id,
-        username: ig.username,
-        profilePictureUrl: ig.profile_picture_url,
-      })),
-      pixels: (rpcData.meta.pixels || []).map((px: any) => ({
+      instagramAccounts,
+      pixels: (rpcData.meta?.pixels || []).map((px: any) => ({
         id: px.id,
         name: px.name,
         isAvailable: px.is_available,
@@ -159,13 +171,66 @@ function transformRPCResponse(rpcData: any): Omit<AISetupStatus, 'errors'> {
         createdAt: link.created_at,
       })),
     },
-    resolved: {
-      adAccountId: rpcData.resolved?.ad_account_id || null,
-      pageId: rpcData.resolved?.page_id || null,
-      pixelId: rpcData.resolved?.pixel_id || null,
-      destinationUrl: rpcData.resolved?.destination_url || null,
-    },
+    resolved,
   };
+}
+
+/**
+ * Normalize RPC response to include BOTH shapes:
+ * - Flat fields (adAccountId, pageId, pixelId, etc.) for backward compat
+ * - Nested fields (meta, resolved) for structured access
+ *
+ * This ensures all consumers get consistent data regardless of which shape they expect
+ */
+export function normalizeSetupStatus(rpcData: any): any {
+  if (!rpcData) {
+    return {
+      meta: { has_meta: false },
+      resolved: {},
+      adAccountId: null,
+      pageId: null,
+      pixelId: null,
+      destinationUrl: null,
+    };
+  }
+
+  const resolved = rpcData.resolved || {};
+  const meta = rpcData.meta || {};
+  const instagramAccounts = meta.instagram_accounts || [];
+  const firstInstagram = instagramAccounts[0];
+
+  // Create normalized object with BOTH flat and nested fields
+  const normalized = {
+    // Preserve original nested structure
+    meta: {
+      has_meta: meta.has_meta || false,
+      source_table: meta.source_table || null,
+      ad_accounts: meta.ad_accounts || [],
+      pages: meta.pages || [],
+      pixels: meta.pixels || [],
+      instagram_accounts: instagramAccounts,
+    },
+    resolved: {
+      ad_account_id: resolved.ad_account_id || null,
+      page_id: resolved.page_id || null,
+      pixel_id: resolved.pixel_id || null,
+      destination_url: resolved.destination_url || null,
+      instagram_actor_id: firstInstagram?.id || null,
+      instagram_username: firstInstagram?.username || null,
+    },
+    smart_links_count: rpcData.smart_links_count || 0,
+    smart_links_preview: rpcData.smart_links_preview || [],
+
+    // Add flat fields (backward compat)
+    adAccountId: resolved.ad_account_id || null,
+    pageId: resolved.page_id || null,
+    pixelId: resolved.pixel_id || null,
+    destinationUrl: resolved.destination_url || null,
+    instagramActorId: firstInstagram?.id || null,
+    instagramUsername: firstInstagram?.username || null,
+  };
+
+  return normalized;
 }
 
 /**
@@ -192,20 +257,29 @@ async function callSetupStatusRPC(supabase: SupabaseClient | null, userId: strin
     throw new Error('RPC returned no data');
   }
 
-  console.log('[callSetupStatusRPC] RPC success:', {
-    has_meta: data.meta?.has_meta,
-    source_table: data.meta?.source_table,
-    ad_accounts: data.meta?.ad_accounts?.length || 0,
-    pages: data.meta?.pages?.length || 0,
-    pixels: data.meta?.pixels?.length || 0,
-    smart_links_count: data.smart_links_count,
-    resolved_ad_account: data.resolved?.ad_account_id || null,
-    resolved_page: data.resolved?.page_id || null,
-    resolved_pixel: data.resolved?.pixel_id || null,
-    resolved_destination: data.resolved?.destination_url || null,
+  // Normalize the response to include both flat and nested fields
+  const normalized = normalizeSetupStatus(data);
+
+  console.log('[callSetupStatusRPC] RPC success (normalized):', {
+    has_meta: normalized.meta?.has_meta,
+    source_table: normalized.meta?.source_table,
+    ad_accounts: normalized.meta?.ad_accounts?.length || 0,
+    pages: normalized.meta?.pages?.length || 0,
+    pixels: normalized.meta?.pixels?.length || 0,
+    smart_links_count: normalized.smart_links_count,
+    // Flat fields
+    adAccountId: normalized.adAccountId,
+    pageId: normalized.pageId,
+    pixelId: normalized.pixelId,
+    destinationUrl: normalized.destinationUrl,
+    // Resolved fields
+    resolved_ad_account: normalized.resolved?.ad_account_id || null,
+    resolved_page: normalized.resolved?.page_id || null,
+    resolved_pixel: normalized.resolved?.pixel_id || null,
+    resolved_destination: normalized.resolved?.destination_url || null,
   });
 
-  return data;
+  return normalized;
 }
 
 /**
