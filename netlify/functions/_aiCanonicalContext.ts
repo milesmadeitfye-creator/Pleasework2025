@@ -94,15 +94,17 @@ export async function getAIMediaAssets(userId: string): Promise<AIMediaAsset[]> 
 }
 
 /**
- * Get user's Meta connection status from ai_meta_context view
+ * Get user's Meta connection status from meta_credentials
  * Uses service role to bypass RLS
+ * CRITICAL: Derives connection status from resolved IDs (not stale boolean flags)
  */
 export async function getAIMetaContext(userId: string): Promise<AIMetaContext | null> {
   const supabase = getSupabaseAdmin();
 
+  // Get credentials from meta_credentials (primary source)
   const { data, error } = await supabase
-    .from('ai_meta_context')
-    .select('*')
+    .from('meta_credentials')
+    .select('ad_account_id, ad_account_name, page_id, page_name, pixel_id, pixel_name, instagram_actor_id, instagram_username, updated_at')
     .eq('user_id', userId)
     .maybeSingle();
 
@@ -111,7 +113,34 @@ export async function getAIMetaContext(userId: string): Promise<AIMetaContext | 
     return null;
   }
 
-  return data;
+  if (!data) {
+    return null;
+  }
+
+  // CRITICAL: Derive connection status from resolved IDs (not a boolean flag)
+  // Meta is connected if we have ad_account_id AND page_id AND pixel_id
+  const connected = !!(data.ad_account_id && data.page_id && data.pixel_id);
+
+  console.log('[getAIMetaContext] Derived connection from IDs:', {
+    connected,
+    ad_account_id: data.ad_account_id,
+    page_id: data.page_id,
+    pixel_id: data.pixel_id,
+  });
+
+  return {
+    user_id: userId,
+    connected,
+    ad_account_id: data.ad_account_id || null,
+    ad_account_name: data.ad_account_name || null,
+    page_id: data.page_id || null,
+    page_name: data.page_name || null,
+    pixel_id: data.pixel_id || null,
+    pixel_name: data.pixel_name || null,
+    instagram_id: data.instagram_actor_id || null,
+    instagram_username: data.instagram_username || null,
+    updated_at: data.updated_at || new Date().toISOString(),
+  };
 }
 
 /**
@@ -159,6 +188,8 @@ export async function getAIRunAdsContext(userId: string): Promise<AIRunAdsContex
   const latestImage = media.find(m => m.kind === 'image') || null;
 
   const hasMedia = media.length > 0;
+  // CRITICAL: metaConnected is derived from resolved IDs (ad_account_id && page_id && pixel_id)
+  // See getAIMetaContext() which derives 'connected' from IDs, not from stale boolean flags
   const metaConnected = metaContext?.connected === true;
   const smartLinksCount = smartLinks.length;
 
@@ -227,16 +258,31 @@ export function formatMediaForAI(media: AIMediaAsset[]): string {
  * Format Meta context for AI prompt (short version)
  */
 export function formatMetaForAI(meta: AIMetaContext | null): string {
-  if (!meta || !meta.connected) {
+  if (!meta) {
     return `🔴 META NOT CONNECTED
    Guide user to Profile → Connected Accounts
    Say: "Meta isn't connected yet. Want me to open setup?"`;
   }
 
+  // Derive connection from resolved IDs
+  const connected = !!(meta.ad_account_id && meta.page_id && meta.pixel_id);
+
+  if (!connected) {
+    // Show which fields are missing
+    const missing: string[] = [];
+    if (!meta.ad_account_id) missing.push('Ad Account');
+    if (!meta.page_id) missing.push('Facebook Page');
+    if (!meta.pixel_id) missing.push('Pixel');
+
+    return `🔴 META INCOMPLETE - Missing: ${missing.join(', ')}
+   Guide user to Profile → Connected Accounts
+   Say: "Meta setup incomplete. You need to configure: ${missing.join(', ')}"`;
+  }
+
   return `✅ META CONNECTED
-   Ad Account: ${meta.ad_account_name || 'Default'}
-   Page: ${meta.page_name || 'Default'}
-   Pixel: ${meta.pixel_name || 'Default'}
+   Ad Account: ${meta.ad_account_name || meta.ad_account_id}
+   Page: ${meta.page_name || meta.page_id}
+   Pixel: ${meta.pixel_name || meta.pixel_id}
    🚨 NEVER say "not connected" - it IS connected`;
 }
 
@@ -249,14 +295,26 @@ export function formatRunAdsContextForAI(ctx: AIRunAdsContext): string {
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   lines.push('');
 
-  // Meta status
+  // Meta status (derive from resolved IDs)
   if (ctx.metaConnected) {
     lines.push('✅ Meta: CONNECTED');
-    if (ctx.meta?.ad_account_name) {
-      lines.push(`   ${ctx.meta.ad_account_name}`);
+    if (ctx.meta) {
+      lines.push(`   Ad Account: ${ctx.meta.ad_account_name || ctx.meta.ad_account_id || 'N/A'}`);
+      lines.push(`   Page: ${ctx.meta.page_name || ctx.meta.page_id || 'N/A'}`);
+      lines.push(`   Pixel: ${ctx.meta.pixel_name || ctx.meta.pixel_id || 'N/A'}`);
     }
   } else {
     lines.push('🔴 Meta: NOT CONNECTED');
+    if (ctx.meta) {
+      // Show which fields are missing
+      const missing: string[] = [];
+      if (!ctx.meta.ad_account_id) missing.push('Ad Account');
+      if (!ctx.meta.page_id) missing.push('Facebook Page');
+      if (!ctx.meta.pixel_id) missing.push('Pixel');
+      if (missing.length > 0) {
+        lines.push(`   Missing: ${missing.join(', ')}`);
+      }
+    }
     lines.push('   Say: "Meta isn\'t connected yet. Want me to open setup?"');
   }
   lines.push('');
