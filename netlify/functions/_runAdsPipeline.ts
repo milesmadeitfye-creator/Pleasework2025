@@ -139,8 +139,8 @@ async function ensureSmartLinkFromUrl(
   const { data: existing } = await supabase
     .from('smart_links')
     .select('id, slug')
-    .eq('user_id', user_id)
-    .eq('destination_url', url)
+    .eq('owner_user_id', user_id)
+    .or(`spotify_url.eq.${url},apple_music_url.eq.${url},youtube_url.eq.${url}`)
     .maybeSingle();
 
   if (existing) {
@@ -159,7 +159,7 @@ async function ensureSmartLinkFromUrl(
     const { data: newLink, error } = await supabase
       .from('smart_links')
       .insert({
-        user_id: user_id,
+        owner_user_id: user_id,
         slug,
         title: 'Run Ads Link',
       })

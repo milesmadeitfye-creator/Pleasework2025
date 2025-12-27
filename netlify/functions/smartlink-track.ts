@@ -5,36 +5,28 @@ const supabaseUrl = process.env.SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 /**
- * Fetch smart link by slug with fallback strategy:
- * 1. Try smart_links_v view (stable compatibility view)
- * 2. Try smart_links table (base table)
- * 3. Try smartlinks table (legacy naming)
- * 4. Try links table (alternative naming)
+ * Fetch smart link by slug - uses canonical base table ONLY
+ * NO legacy fallbacks, NO views
  */
 async function fetchSmartLinkBySlug(supabase: any, slug: string): Promise<any | null> {
-  const tables = ["smart_links_v", "smart_links", "smartlinks", "links"];
+  try {
+    const { data, error } = await supabase
+      .from('smart_links')
+      .select('*')
+      .eq('slug', slug)
+      .maybeSingle();
 
-  for (const table of tables) {
-    try {
-      const { data, error } = await supabase
-        .from(table)
-        .select("*")
-        .eq("slug", slug)
-        .maybeSingle();
-
-      if (error) {
-        // Table/view doesn't exist or query failed - try next
-        continue;
-      }
-
-      if (data) {
-        console.log(`[fetchSmartLinkBySlug] Found link in ${table}`);
-        return data;
-      }
-    } catch (e) {
-      // Table doesn't exist - try next
-      continue;
+    if (error) {
+      console.error('[fetchSmartLinkBySlug] Query error:', error);
+      return null;
     }
+
+    if (data) {
+      console.log('[fetchSmartLinkBySlug] Found link in smart_links');
+      return data;
+    }
+  } catch (e) {
+    console.error('[fetchSmartLinkBySlug] Exception:', e);
   }
 
   return null;
