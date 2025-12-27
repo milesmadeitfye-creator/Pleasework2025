@@ -41,8 +41,8 @@ function getCorsHeaders(): Record<string, string> {
   };
 }
 
-// Supabase client helper
-function getSupabaseClient(): SupabaseClient {
+// Supabase client helper (service role - for admin operations)
+function getSupabaseAdminClient(): SupabaseClient {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -51,6 +51,28 @@ function getSupabaseClient(): SupabaseClient {
   }
 
   return createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+// Supabase client helper (user-context - for user-scoped operations)
+function getSupabaseUserClient(authHeader: string): SupabaseClient {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const anonKey = process.env.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !anonKey) {
+    throw new Error('Missing SUPABASE_URL or SUPABASE_ANON_KEY');
+  }
+
+  return createClient(supabaseUrl, anonKey, {
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
     auth: {
       autoRefreshToken: false,
       persistSession: false,
@@ -612,22 +634,60 @@ export const handler: Handler = async (event) => {
   }
 
   try {
-    // Parse request
-    const body: GhosteAiRequest = JSON.parse(event.body || '{}');
-    const { user_id, conversation_id, task, messages, meta } = body;
+    // STEP 1: Authenticate with Authorization header
+    const authHeader = event.headers.authorization || event.headers.Authorization;
+    const hasAuthHeader = !!authHeader;
+    const authHeaderPrefix = authHeader?.slice(0, 20);
 
-    // Validate
-    if (!user_id) {
+    console.log('[ghoste-ai] AI_AUTH_DEBUG', { hasAuthHeader, authHeaderPrefix });
+
+    if (!authHeader) {
+      console.error('[ghoste-ai] No Authorization header');
       return {
-        statusCode: 400,
+        statusCode: 401,
         headers: {
           ...corsHeaders,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ error: 'Missing user_id' }),
+        body: JSON.stringify({
+          error: 'Missing/invalid Authorization header',
+          debug: { hasAuthHeader: false },
+        }),
       };
     }
 
+    // Create user-context Supabase client
+    const supabase = getSupabaseUserClient(authHeader);
+
+    // Verify user from JWT
+    const { data: userData, error: authError } = await supabase.auth.getUser();
+    const authenticatedUserId = userData?.user?.id;
+
+    if (authError || !authenticatedUserId) {
+      console.error('[ghoste-ai] Auth verification failed:', authError);
+      return {
+        statusCode: 401,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          error: 'Invalid or expired token',
+          debug: { hasAuthHeader: true, authError: authError?.message },
+        }),
+      };
+    }
+
+    console.log('[ghoste-ai] Authenticated user:', authenticatedUserId);
+
+    // Parse request
+    const body: GhosteAiRequest = JSON.parse(event.body || '{}');
+    const { conversation_id, task, messages, meta } = body;
+
+    // Use authenticated user ID (ignore user_id from body)
+    const user_id = authenticatedUserId;
+
+    // Validate
     if (!messages || messages.length === 0) {
       return {
         statusCode: 400,
@@ -645,9 +705,6 @@ export const handler: Handler = async (event) => {
       task: task || 'chat',
       messageCount: messages.length,
     });
-
-    // Initialize Supabase
-    const supabase = getSupabaseClient();
 
     // Ensure conversation exists
     const finalConversationId = await ensureConversation(

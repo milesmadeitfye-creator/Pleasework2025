@@ -267,45 +267,47 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
     }
   }
 
-  // 6. Create campaign draft
+  // 6. Create campaign draft (non-blocking - still return draft JSON if DB save fails)
   const supabase = getSupabaseAdmin();
+
+  // Build draft payload
+  const draftPayload = {
+    user_id: input.user_id,
+    conversation_id: input.conversation_id,
+    goal: 'song_promo',
+    budget_daily: budget,
+    duration_days: duration,
+    destination_url: destinationUrl,
+    smart_link_id: smartLinkId,
+    creative_media_asset_id: creativeMediaAssetId,
+    creative_url: creativeUrl,
+    ad_account_id: context.meta?.ad_account_id,
+    page_id: context.meta?.page_id,
+    pixel_id: context.meta?.pixel_id,
+    status: 'draft' as const,
+  };
+
+  let draftId: string | undefined;
+
   const { data: draft, error: draftError } = await supabase
     .from('campaign_drafts')
-    .insert({
-      user_id: input.user_id,
-      conversation_id: input.conversation_id,
-      goal: 'song_promo',
-      budget_daily: budget,
-      duration_days: duration,
-      destination_url: destinationUrl,
-      smart_link_id: smartLinkId,
-      creative_media_asset_id: creativeMediaAssetId,
-      creative_url: creativeUrl,
-      ad_account_id: context.meta?.ad_account_id,
-      page_id: context.meta?.page_id,
-      pixel_id: context.meta?.pixel_id,
-      status: 'draft',
-    })
+    .insert(draftPayload)
     .select('id')
     .single();
 
   if (draftError || !draft) {
-    console.error('[runAdsFromChat] Failed to create draft:', draftError);
-    return {
-      ok: false,
-      status: 'blocked',
-      response: "Something went wrong. Try again.",
-      blocker: 'draft_creation_failed',
-      debug: {
-        hasMeta: context.hasMeta,
-        smartLinksCount: context.smartLinksCount,
-        uploadsCount: input.attachments.length,
-        usedServiceRole: true,
-      },
-    };
+    // Log error but don't block - still return draft JSON
+    console.warn('[runAdsFromChat] Failed to save draft to DB (non-blocking):', {
+      error: draftError?.message || String(draftError),
+      code: (draftError as any)?.code,
+      userId: input.user_id,
+      conversationId: input.conversation_id,
+    });
+    draftId = undefined;
+  } else {
+    draftId = draft.id;
+    console.log('[runAdsFromChat] Draft saved to DB:', draftId);
   }
-
-  console.log('[runAdsFromChat] Draft created:', draft.id);
 
   // 7. TODO: Create Meta objects in paused state
   // For now, just return draft created
@@ -313,14 +315,18 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
 
   return {
     ok: true,
-    draft_id: draft.id,
-    status: 'draft_created',
-    response: "Say less. I'm on it. Draft ready.",
+    draft_id: draftId,
+    status: draftId ? 'draft_created' : 'draft_json_only',
+    response: draftId
+      ? "Say less. I'm on it. Draft ready."
+      : "Draft created (JSON). Check logs if persistence is needed.",
     debug: {
-      hasMeta: context.hasMeta,
+      hasMeta: context.metaConnected,
       smartLinksCount: context.smartLinksCount,
       uploadsCount: input.attachments.length,
       usedServiceRole: true,
+      draftSaved: !!draftId,
+      draftPayload,
     },
   };
 }
