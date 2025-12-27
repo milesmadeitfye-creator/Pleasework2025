@@ -71,10 +71,37 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const hasMeta = setupData?.meta?.has_meta ?? false;
+    // Guard: Check if RPC returned empty/null
+    if (!setupData || Object.keys(setupData).length === 0) {
+      console.warn('[run-ads-context] RPC returned empty object');
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: true,
+          hasMeta: false,
+          resolved: {
+            adAccountId: null,
+            pageId: null,
+            pixelId: null,
+            destinationUrl: null,
+          },
+          meta: null,
+          smartLinksCount: 0,
+          smartLinks: [],
+          uploadsCount: 0,
+          uploads: [],
+        }),
+      };
+    }
+
+    // Use RESOLVED fields (canonical source of truth)
+    const resolved = setupData.resolved || {};
+    const hasMeta = Boolean(resolved.ad_account_id || resolved.page_id || resolved.pixel_id);
     const adAccounts = setupData?.meta?.ad_accounts || [];
     const pages = setupData?.meta?.pages || [];
     const pixels = setupData?.meta?.pixels || [];
+    const instagramAccounts = setupData?.meta?.instagram_accounts || [];
     const smartLinksCount = setupData?.smart_links_count || 0;
     const smartLinksPreview = setupData?.smart_links_preview || [];
 
@@ -88,19 +115,27 @@ export const handler: Handler = async (event) => {
 
     const uploadsCount = uploads?.length || 0;
 
-    // 3. Build response (matches UI data structure)
-    const meta = hasMeta && adAccounts.length > 0 && pages.length > 0 ? {
-      ad_account_id: adAccounts[0].account_id || adAccounts[0].id,
-      ad_account_name: adAccounts[0].name,
-      page_id: pages[0].id,
-      page_name: pages[0].name,
-      pixel_id: pixels.length > 0 ? pixels[0].id : null,
-      pixel_name: pixels.length > 0 ? pixels[0].name : null,
+    // 3. Build response (uses RESOLVED fields as canonical source)
+    const meta = hasMeta ? {
+      ad_account_id: resolved.ad_account_id,
+      ad_account_name: adAccounts.find((a: any) => a.id === resolved.ad_account_id)?.name || 'Default',
+      page_id: resolved.page_id,
+      page_name: pages.find((p: any) => p.id === resolved.page_id)?.name || 'Default',
+      pixel_id: resolved.pixel_id,
+      pixel_name: pixels.find((px: any) => px.id === resolved.pixel_id)?.name || 'Default',
+      instagram_accounts: instagramAccounts,
+      source: setupData.meta?.source_table || 'unknown',
     } : null;
 
     const response = {
       ok: true,
       hasMeta,
+      resolved: {
+        adAccountId: resolved.ad_account_id,
+        pageId: resolved.page_id,
+        pixelId: resolved.pixel_id,
+        destinationUrl: resolved.destination_url,
+      },
       meta,
       smartLinksCount,
       smartLinks: smartLinksPreview.map((link: any) => ({

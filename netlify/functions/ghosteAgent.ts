@@ -409,55 +409,83 @@ export const handler: Handler = async (event) => {
         setupStatus = statusData;
         console.log('[ghosteAgent] Setup status fetched:', setupStatus);
 
-        // Extract arrays (single source of truth)
+        // Guard: Check if RPC returned empty/null
+        if (!setupStatus || Object.keys(setupStatus).length === 0) {
+          console.warn('[ghosteAgent] RPC returned empty object - treating as not connected');
+          setupStatus = {
+            meta: { has_meta: false },
+            smart_links_count: 0,
+            resolved: {}
+          };
+        }
+
+        // Use RESOLVED fields (canonical source of truth)
+        const resolved = setupStatus.resolved || {};
+        const adAccountId = resolved.ad_account_id;
+        const pageId = resolved.page_id;
+        const pixelId = resolved.pixel_id;
+        const destinationUrl = resolved.destination_url;
+
+        // Extract arrays for display (may include profile_fallback tagged items)
         const adAccounts = setupStatus.meta?.ad_accounts || [];
         const pages = setupStatus.meta?.pages || [];
         const pixels = setupStatus.meta?.pixels || [];
+        const instagramAccounts = setupStatus.meta?.instagram_accounts || [];
 
-        const firstAdAccount = adAccounts[0];
-        const firstPage = pages[0];
-        const firstPixel = pixels[0];
+        // Build display strings using RESOLVED IDs
+        const firstAdAccount = adAccounts.find((a: any) => a.id === adAccountId) || adAccounts[0];
+        const firstPage = pages.find((p: any) => p.id === pageId) || pages[0];
+        const firstPixel = pixels.find((px: any) => px.id === pixelId) || pixels[0];
 
-        // Format display strings
-        const adAccountDisplay = firstAdAccount
-          ? `${firstAdAccount.name || 'Ad Account'} (${firstAdAccount.id})`
-          : 'Connected (no ad accounts synced yet)';
-        const pageDisplay = firstPage
-          ? `${firstPage.name || 'Page'} (${firstPage.id})`
-          : 'Connected (no pages synced yet)';
-        const pixelDisplay = firstPixel
-          ? `${firstPixel.name || 'Pixel'} (${firstPixel.id})`
-          : 'Connected (no pixels synced yet)';
+        const adAccountDisplay = adAccountId
+          ? `${firstAdAccount?.name || 'Default'} (${adAccountId})${firstAdAccount?.source === 'profile_fallback' ? ' [from profile]' : ''}`
+          : 'No ad account configured';
+        const pageDisplay = pageId
+          ? `${firstPage?.name || 'Default'} (${pageId})${firstPage?.source === 'profile_fallback' ? ' [from profile]' : ''}`
+          : 'No page configured';
+        const pixelDisplay = pixelId
+          ? `${firstPixel?.name || 'Default'} (${pixelId})${firstPixel?.source === 'profile_fallback' ? ' [from profile]' : ''}`
+          : 'No pixel configured';
 
-        const metaStatus = setupStatus.meta?.has_meta
-          ? `✅ Meta CONNECTED: Ad Account: ${adAccountDisplay}, Page: ${pageDisplay}, Pixel: ${pixelDisplay}`
-          : '❌ Meta NOT CONNECTED - User must connect in Profile → Connected Accounts';
+        const hasResolvedAssets = Boolean(adAccountId || pageId || pixelId);
+        const sourceTable = setupStatus.meta?.source_table || 'none';
+
+        const metaStatus = hasResolvedAssets
+          ? `✅ Meta AVAILABLE (source: ${sourceTable}): Ad Account: ${adAccountDisplay}, Page: ${pageDisplay}, Pixel: ${pixelDisplay}`
+          : '❌ Meta NOT CONFIGURED - User must connect in Profile → Connected Accounts or set profile defaults';
 
         console.log('[ghosteAgent] Meta status:', metaStatus);
 
         // Build authoritative status text
         let metaDetails = '';
-        if (setupStatus.meta?.has_meta) {
+        if (hasResolvedAssets) {
           metaDetails = `  - Ad Account: ${adAccountDisplay}\n  - Page: ${pageDisplay}\n  - Pixel: ${pixelDisplay}`;
-          if (adAccounts.length === 0 || pages.length === 0 || pixels.length === 0) {
-            metaDetails += '\n  - Note: Some assets may not be synced yet. This is normal.';
+          if (sourceTable === 'profile_fallback') {
+            metaDetails += '\n  - Note: Using profile defaults. Consider connecting Meta OAuth for full sync.';
+          }
+          if (instagramAccounts.length > 0) {
+            metaDetails += `\n  - Instagram: ${instagramAccounts.length} account(s) connected`;
           }
         }
 
+        const destinationStatus = destinationUrl
+          ? `\nAd Destination: ${destinationUrl}`
+          : '\nAd Destination: Not configured (user should create smart link or set default_ad_destination_url)';
+
         setupStatusText = `
 === AUTHORITATIVE SETUP STATUS (NEVER CONTRADICT THIS) ===
-Meta Connected: ${setupStatus.meta?.has_meta ? 'YES' : 'NO'}
+Meta Assets Available: ${hasResolvedAssets ? 'YES' : 'NO'}
+Source: ${sourceTable}
 ${metaDetails}
-Spotify: ${setupStatus.spotify?.has_spotify ? 'Connected' : 'Not connected'}
-Apple Music: ${setupStatus.apple_music?.has_apple_music ? 'Connected' : 'Not connected'}
-Mailchimp: ${setupStatus.mailchimp?.has_mailchimp ? 'Connected' : 'Not connected'}
+${destinationStatus}
 Smart Links Count: ${setupStatus.smart_links_count || 0}
 
 CRITICAL: This is the AUTHORITATIVE truth.
-- NEVER claim Meta is "not connected", "not fully set up", or "need to connect" if has_meta=YES above.
-- NEVER claim "no ad accounts" or "no pixels" if has_meta=YES. Some assets may not be synced yet.
-- If you detect the user asking about connections or status, refer to this data ONLY.
-- If arrays are empty but Meta is connected, say "Some assets may not be synced yet" instead of claiming disconnection.
+- Meta assets available = ${hasResolvedAssets} (DO NOT contradict this)
+- If assets available = YES, user CAN create ads (even if source is profile_fallback)
+- NEVER claim "not connected" if assets are available from ANY source
+- Destination URL = ${destinationUrl ? 'available' : 'missing'}
+- If destination missing, suggest creating smart link or setting profile default
 `;
       } else {
         console.warn('[ghosteAgent] Setup status RPC failed:', setupError);

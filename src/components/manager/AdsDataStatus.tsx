@@ -45,10 +45,22 @@ export const AdsDataStatus: React.FC<AdsDataStatusProps> = ({ userId }) => {
         return;
       }
 
-      // Transform RPC response to SetupStatusInput format
+      // Guard: Check if RPC returned empty/null
+      if (!setupData || Object.keys(setupData).length === 0) {
+        console.warn('[AdsDataStatus] RPC returned empty object');
+        const ctx = await getManagerContext(userId);
+        setContext(ctx);
+        setLastRefresh(new Date());
+        return;
+      }
+
+      // Transform RPC response to SetupStatusInput format (use RESOLVED fields)
+      const resolved = setupData.resolved || {};
+      const hasResolvedAssets = Boolean(resolved.ad_account_id || resolved.page_id || resolved.pixel_id);
+
       const setupStatus: SetupStatusInput = {
         meta: {
-          connected: setupData?.meta?.has_meta ?? false,
+          connected: hasResolvedAssets,
           adAccounts: setupData?.meta?.ad_accounts || [],
           pages: setupData?.meta?.pages || [],
           pixels: setupData?.meta?.pixels || [],
