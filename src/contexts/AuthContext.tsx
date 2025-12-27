@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, AuthError } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase.client';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase.client';
 import { trackCompleteRegistration } from '../lib/ownerMetaPixel';
 import { getConfirmRedirectUrl } from '../lib/authRedirect';
 import { buildDefaultOnboardingSchedule } from '../lib/scheduler/onboarding';
@@ -41,6 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     console.log('[AuthContext] Init - checking Supabase session');
     console.log('[AuthContext] Storage available:', typeof window !== 'undefined' && !!window.localStorage);
+    console.log('[AuthContext] Supabase configured:', isSupabaseConfigured);
+
+    if (!isSupabaseConfigured) {
+      console.error('[AuthContext] Supabase not configured - auth disabled');
+      setUser(null);
+      setLoading(false);
+      return;
+    }
 
     // Load Supabase session with auth error handling
     supabase.auth.getSession()
@@ -176,9 +184,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               safePostAuth({ user_id: uid });
 
               // Increment login count for upgrade eligibility tracking
-              supabase.rpc('increment_login_count').catch(err => {
-                console.warn('[AuthContext] Login count increment failed (non-critical):', err);
-              });
+              try {
+                const { error: rpcError } = await supabase.rpc('increment_login_count');
+                if (rpcError) {
+                  console.warn('[AuthContext] Login count increment failed (non-critical):', rpcError);
+                }
+              } catch (rpcErr) {
+                console.warn('[AuthContext] Login count RPC error (non-critical):', rpcErr);
+              }
             }
           } catch (error) {
             console.warn('[AuthContext] Profile/wallet setup error (non-critical):', error);

@@ -308,7 +308,11 @@ export default function SmartLinkLanding() {
     }
 
     // Track click count in database
-    await supabase.rpc('increment_smart_link_clicks', { link_id: link.id }).catch(() => {});
+    try {
+      await supabase.rpc('increment_smart_link_clicks', { link_id: link.id });
+    } catch (err) {
+      // Silently fail - non-critical
+    }
 
     // Load TikTok pixel if available (from user_profiles)
     const { data: profileData } = await supabase
