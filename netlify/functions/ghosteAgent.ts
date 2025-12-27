@@ -408,13 +408,18 @@ export const handler: Handler = async (event) => {
 
       if (!setupError && statusData) {
         // ALWAYS normalize to ensure both flat and nested fields exist
-        setupStatus = normalizeSetupStatus(statusData);
+        const normalizedSetupStatus = normalizeSetupStatus(statusData);
+        setupStatus = normalizedSetupStatus;
 
         console.log('[ghosteAgent] Setup status fetched and normalized');
-        console.log('[ghosteAgent] Normalized keys:', Object.keys(setupStatus));
+        console.log('[ghosteAgent] Input statusData keys:', Object.keys(statusData));
+        console.log('[ghosteAgent] Normalized setupStatus keys:', Object.keys(setupStatus));
         console.log('[ghosteAgent] Has meta:', setupStatus.meta?.has_meta);
+        console.log('[ghosteAgent] meta keys:', Object.keys(setupStatus.meta || {}));
+        console.log('[ghosteAgent] resolved keys:', Object.keys(setupStatus.resolved || {}));
         console.log('[ghosteAgent] Flat adAccountId:', setupStatus.adAccountId);
         console.log('[ghosteAgent] Resolved ad_account_id:', setupStatus.resolved?.ad_account_id);
+        console.log('[ghosteAgent] Full normalized object:', JSON.stringify(setupStatus, null, 2));
 
         // DEBUG MODE: Return setup status immediately without calling OpenAI
         if (debug) {
@@ -425,7 +430,7 @@ export const handler: Handler = async (event) => {
             body: JSON.stringify({
               ok: true,
               userId,
-              setupStatus,
+              setupStatus: setupStatus,
               debug: true,
               message: 'Debug mode - setup status fetched successfully',
               // Include key fields for quick verification
@@ -435,9 +440,16 @@ export const handler: Handler = async (event) => {
                 resolved_adAccountId: setupStatus.resolved?.ad_account_id,
                 flat_pageId: setupStatus.pageId,
                 resolved_pageId: setupStatus.resolved?.page_id,
+                flat_pixelId: setupStatus.pixelId,
+                resolved_pixelId: setupStatus.resolved?.pixel_id,
                 normalized_keys: Object.keys(setupStatus),
                 meta_keys: Object.keys(setupStatus.meta || {}),
                 resolved_keys: Object.keys(setupStatus.resolved || {}),
+                meta_present: !!setupStatus.meta,
+                resolved_present: !!setupStatus.resolved,
+                meta_ad_accounts_count: setupStatus.meta?.ad_accounts?.length || 0,
+                meta_pages_count: setupStatus.meta?.pages?.length || 0,
+                meta_pixels_count: setupStatus.meta?.pixels?.length || 0,
               }
             })
           };
@@ -502,12 +514,19 @@ export const handler: Handler = async (event) => {
           ? `\nAd Destination: ${destinationUrl}`
           : '\nAd Destination: Not configured (user should create smart link or set default_ad_destination_url)';
 
-        // Build RAW JSON for AI to parse directly
+        // Build RAW JSON for AI to parse directly - use FULL normalized setupStatus with meta and resolved
         const rawSetupStatus = {
+          // Include full nested structure from normalized setupStatus
+          meta: setupStatus.meta,
+          resolved: setupStatus.resolved,
+
+          // Also include flat fields for backward compat
           adAccountId: adAccountId || null,
           pageId: pageId || null,
           pixelId: pixelId || null,
           destinationUrl: destinationUrl || null,
+          instagramActorId: setupStatus.resolved?.instagram_actor_id || null,
+          instagramUsername: setupStatus.resolved?.instagram_username || null,
           instagramAccounts: instagramAccounts.map((ig: any) => ({
             instagramActorId: ig.id,
             instagramId: ig.id,
@@ -763,12 +782,13 @@ CRITICAL: This is the AUTHORITATIVE truth.
       '',
       ...((() => {
         const ss = setupStatus ?? {};
-        const adAccountId = ss.adAccountId ?? ss.resolved?.ad_account_id ?? null;
-        const pageId = ss.pageId ?? ss.resolved?.page_id ?? null;
-        const pixelId = ss.pixelId ?? ss.resolved?.pixel_id ?? null;
-        const destinationUrl = ss.destinationUrl ?? ss.resolved?.destination_url ?? null;
-        const instagramActorId = ss.instagramActorId ?? ss.resolved?.instagram_actor_id ?? null;
-        const instagramUsername = ss.instagramUsername ?? ss.resolved?.instagram_username ?? null;
+        // Use resolved fields first, then fall back to flat fields
+        const adAccountId = ss.resolved?.ad_account_id ?? ss.adAccountId ?? null;
+        const pageId = ss.resolved?.page_id ?? ss.pageId ?? null;
+        const pixelId = ss.resolved?.pixel_id ?? ss.pixelId ?? null;
+        const destinationUrl = ss.resolved?.destination_url ?? ss.destinationUrl ?? null;
+        const instagramActorId = ss.resolved?.instagram_actor_id ?? ss.instagramActorId ?? null;
+        const instagramUsername = ss.resolved?.instagram_username ?? ss.instagramUsername ?? null;
         const connected = Boolean(adAccountId && pageId && pixelId);
 
         const lines: string[] = [];
@@ -2050,12 +2070,13 @@ CRITICAL: This is the AUTHORITATIVE truth.
           try {
             // Use the same setupStatus that was fetched and normalized earlier
             const ss = setupStatus ?? {};
-            const adAccountId = ss.adAccountId ?? ss.resolved?.ad_account_id ?? null;
-            const pageId = ss.pageId ?? ss.resolved?.page_id ?? null;
-            const pixelId = ss.pixelId ?? ss.resolved?.pixel_id ?? null;
-            const destinationUrl = ss.destinationUrl ?? ss.resolved?.destination_url ?? null;
-            const instagramActorId = ss.instagramActorId ?? ss.resolved?.instagram_actor_id ?? null;
-            const instagramUsername = ss.instagramUsername ?? ss.resolved?.instagram_username ?? null;
+            // Use resolved fields first, then fall back to flat fields
+            const adAccountId = ss.resolved?.ad_account_id ?? ss.adAccountId ?? null;
+            const pageId = ss.resolved?.page_id ?? ss.pageId ?? null;
+            const pixelId = ss.resolved?.pixel_id ?? ss.pixelId ?? null;
+            const destinationUrl = ss.resolved?.destination_url ?? ss.destinationUrl ?? null;
+            const instagramActorId = ss.resolved?.instagram_actor_id ?? ss.instagramActorId ?? null;
+            const instagramUsername = ss.resolved?.instagram_username ?? ss.instagramUsername ?? null;
             const connected = Boolean(adAccountId && pageId && pixelId);
 
             const response = {
