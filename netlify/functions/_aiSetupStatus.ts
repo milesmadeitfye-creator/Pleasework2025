@@ -283,6 +283,41 @@ export function formatSetupStatusForAI(status: AISetupStatus): string {
   lines.push('=== CANONICAL SETUP STATUS (from RPC) ===');
   lines.push('');
 
+  // RAW SETUPSTATUS OBJECT (for AI to parse and reference directly)
+  lines.push('RAW setupStatus (authoritative - use these exact values when answering):');
+  lines.push('```json');
+  lines.push(JSON.stringify({
+    adAccountId: status.resolved.adAccountId,
+    pageId: status.resolved.pageId,
+    pixelId: status.resolved.pixelId,
+    destinationUrl: status.resolved.destinationUrl,
+    instagramAccounts: status.meta.instagramAccounts.map(ig => ({
+      instagramActorId: ig.id,
+      instagramId: ig.id,
+      instagramUsername: ig.username,
+    })),
+    defaultInstagramId: status.meta.instagramAccounts[0]?.id || null,
+    smartLinksCount: status.smartLinks.count,
+    smartLinks: status.smartLinks.recent.map(link => ({
+      id: link.id,
+      title: link.title,
+      slug: link.slug,
+      url: `https://ghoste.one/s/${link.slug}`,
+      destinationUrl: link.destinationUrl,
+    })),
+    metaConnected: Boolean(
+      status.resolved.adAccountId ||
+      status.resolved.pageId ||
+      status.resolved.pixelId
+    ),
+    sourceTable: status.meta.sourceTable,
+  }, null, 2));
+  lines.push('```');
+  lines.push('');
+  lines.push('🚨 CRITICAL: When user asks "What is my Meta setup status?", you MUST print these exact values above.');
+  lines.push('DO NOT say "I cannot call RPCs" or "no data available" - the data is RIGHT HERE in this context.');
+  lines.push('');
+
   // RESOLVED ASSETS (single source of truth - no contradictions)
   const hasResolvedAssets = Boolean(
     status.resolved.adAccountId ||
@@ -318,7 +353,7 @@ export function formatSetupStatusForAI(status: AISetupStatus): string {
     if (status.meta.instagramAccounts.length > 0) {
       lines.push(`  Instagram Accounts: ${status.meta.instagramAccounts.length}`);
       status.meta.instagramAccounts.slice(0, 2).forEach(ig => {
-        lines.push(`    - @${ig.username}`);
+        lines.push(`    - @${ig.username} (ID: ${ig.id})`);
       });
     }
   } else {
@@ -364,7 +399,9 @@ export function formatSetupStatusForAI(status: AISetupStatus): string {
   lines.push(`  2. Destination URL = ${status.resolved.destinationUrl ? 'available' : 'missing'}`);
   lines.push(`  3. If assets available AND destination exists, ads CAN be created`);
   lines.push(`  4. NEVER say "not connected" if resolved assets exist (even from profile fallback)`);
-  lines.push(`  5. Source "${status.meta.sourceTable}" includes profile_fallback as valid`);
+  lines.push(`  5. NEVER say "I cannot call RPCs" - setupStatus is RIGHT HERE in this context`);
+  lines.push(`  6. Source "${status.meta.sourceTable}" includes profile_fallback as valid`);
+  lines.push(`  7. When user asks about Meta setup, cite the RAW setupStatus JSON above`);
 
   // Errors
   if (status.errors.length > 0) {
