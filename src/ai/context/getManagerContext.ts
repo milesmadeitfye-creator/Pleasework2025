@@ -4,9 +4,11 @@
  * CRITICAL: Meta connection and smart links status come from ai_get_setup_status RPC
  * This context only fetches campaigns, clicks, and performance metrics
  * DO NOT use meta.connected or tracking.smartLinksCount for connection decisions
+ *
+ * SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
  */
 
-import { supabase } from '@/lib/supabase.client';
+import { supabaseServer } from '../../lib/supabase.server';
 
 export interface SetupStatusInput {
   meta: {
@@ -216,7 +218,7 @@ async function fetchMetaCampaigns(userId: string, isConnected: boolean) {
     }
 
     // Fetch campaigns ONLY (connection status already determined by RPC)
-    const { data: campaigns, error: campaignsError } = await supabase
+    const { data: campaigns, error: campaignsError } = await supabaseServer
       .from('meta_ad_campaigns')
       .select('*')
       .eq('user_id', userId)
@@ -288,7 +290,7 @@ async function fetchGhosteContext(userId: string) {
 
   try {
     // Fetch internal Ghoste campaigns
-    const { data: campaigns } = await supabase
+    const { data: campaigns } = await supabaseServer
       .from('ad_campaigns')
       .select('*')
       .eq('user_id', userId)
@@ -309,7 +311,7 @@ async function fetchGhosteContext(userId: string) {
     }
 
     // Fetch autopilot rules
-    const { data: rules } = await supabase
+    const { data: rules } = await supabaseServer
       .from('ads_autopilot_rules')
       .select('id')
       .eq('user_id', userId)
@@ -349,7 +351,7 @@ async function fetchTrackingClicks(userId: string) {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     // Fetch 7-day clicks
-    const { data: events7d } = await supabase
+    const { data: events7d } = await supabaseServer
       .from('smartlink_events')
       .select('event_type, platform, link_id')
       .eq('user_id', userId)
@@ -383,7 +385,7 @@ async function fetchTrackingClicks(userId: string) {
         .slice(0, 5);
 
       for (const [linkId, clicks] of topLinkIds) {
-        const { data: link } = await supabase
+        const { data: link } = await supabaseServer
           .from('smart_links')
           .select('slug')
           .eq('id', linkId)
@@ -396,7 +398,7 @@ async function fetchTrackingClicks(userId: string) {
     }
 
     // Fetch 30-day clicks (count only)
-    const { count } = await supabase
+    const { count } = await supabaseServer
       .from('smartlink_events')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', userId)

@@ -3,7 +3,8 @@
  * Generates a structured release plan without committing to calendar/campaigns
  */
 
-import { supabase } from '@/lib/supabase.client';
+// SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
+import { supabaseServer } from '../../lib/supabase.server';
 
 export interface ReleaseAction {
   phase: string;
@@ -360,7 +361,7 @@ export async function planRelease(
 
     console.log('[planRelease] Inserting proposed actions:', proposedActionRows.length);
 
-    const { data: insertedActions, error: insertError } = await supabase
+    const { data: insertedActions, error: insertError } = await supabaseServer
       .from('ai_operator_actions')
       .insert(proposedActionRows)
       .select('id');

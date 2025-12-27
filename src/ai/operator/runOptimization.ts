@@ -3,7 +3,8 @@
  * Uses rule-based logic (no LLM) to suggest improvements
  */
 
-import { supabase } from '@/lib/supabase.client';
+// SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
+import { supabaseServer } from '../../lib/supabase.server';
 import { getManagerContext, type ManagerContext } from '../context/getManagerContext';
 
 export interface ProposedAction {
@@ -33,7 +34,7 @@ export async function runOptimization(userId: string): Promise<{
     });
 
     // Fetch settings to get thresholds
-    const { data: settings } = await supabase
+    const { data: settings } = await supabaseServer
       .from('ai_operator_settings')
       .select('*')
       .eq('user_id', userId)
@@ -246,7 +247,7 @@ export async function runOptimization(userId: string): Promise<{
         safety_checks: a.safetyChecks,
       }));
 
-      const { error: insertError } = await supabase
+      const { error: insertError } = await supabaseServer
         .from('ai_operator_actions')
         .insert(actionRows);
 

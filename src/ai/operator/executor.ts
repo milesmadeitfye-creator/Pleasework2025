@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase.client';
+// SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
+import { supabaseServer } from '../../lib/supabase.server';
 import type { OperatorContext } from './context';
 import type { ProposedAction } from './brain';
 
@@ -115,7 +116,7 @@ export async function executeAction(
     }
 
     // Update action record
-    await supabase
+    await supabaseServer
       .from('ai_operator_actions')
       .update({
         status: 'executed',
@@ -129,7 +130,7 @@ export async function executeAction(
     console.error('[Executor] Action execution failed:', error);
 
     // Update action record with error
-    await supabase
+    await supabaseServer
       .from('ai_operator_actions')
       .update({
         status: 'failed',
@@ -157,7 +158,7 @@ async function executeBudgetChange(action: ProposedAction, context: OperatorCont
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      'Authorization': `Bearer ${(await supabaseServer.auth.getSession()).data.session?.access_token}`,
     },
     body: JSON.stringify({
       action: 'update_budget',
@@ -192,7 +193,7 @@ async function executePause(action: ProposedAction, context: OperatorContext): P
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`,
+      'Authorization': `Bearer ${(await supabaseServer.auth.getSession()).data.session?.access_token}`,
     },
     body: JSON.stringify({
       action: 'pause',

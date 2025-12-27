@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase.client';
+// SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
+import { supabaseServer } from '../../lib/supabase.server';
 
 export interface OperatorContext {
   userId: string;
@@ -134,7 +135,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const { data: smartlinkEvents } = await supabase
+    const { data: smartlinkEvents } = await supabaseServer
       .from('smartlink_events')
       .select('event_type, platform, created_at, link_id')
       .eq('user_id', userId)
@@ -171,7 +172,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
         .slice(0, 5);
 
       for (const [linkId, clicks] of sortedLinks) {
-        const { data: link } = await supabase
+        const { data: link } = await supabaseServer
           .from('smart_links')
           .select('id, slug')
           .eq('id', linkId)
@@ -188,7 +189,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     }
 
     // 2. Get ALL ads performance (Meta + Ghoste unified)
-    const { data: allCampaigns } = await supabase
+    const { data: allCampaigns } = await supabaseServer
       .from('ai_ads_unified')
       .select('*')
       .eq('user_id', userId)
@@ -218,7 +219,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
       }));
     } else {
       // Check if Meta credentials exist (even without campaigns)
-      const { data: metaCreds } = await supabase
+      const { data: metaCreds } = await supabaseServer
         .from('meta_credentials')
         .select('pixel_id, capi_token')
         .eq('user_id', userId)
@@ -231,7 +232,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     }
 
     // Check pixel tracking (for Meta users)
-    const { data: pixelConfig } = await supabase
+    const { data: pixelConfig } = await supabaseServer
       .from('meta_credentials')
       .select('pixel_id, capi_token')
       .eq('user_id', userId)
@@ -246,7 +247,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     }
 
     // 3. Get user wallet/plan
-    const { data: wallet } = await supabase
+    const { data: wallet } = await supabaseServer
       .from('user_wallets')
       .select('plan, credits_remaining')
       .eq('user_id', userId)
@@ -258,7 +259,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     }
 
     // Get user profile goals
-    const { data: profile } = await supabase
+    const { data: profile } = await supabaseServer
       .from('user_profiles')
       .select('goals, artist_name')
       .eq('id', userId)
@@ -270,7 +271,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     }
 
     // 4. Get operator settings
-    const { data: operatorSettings } = await supabase
+    const { data: operatorSettings } = await supabaseServer
       .from('ai_operator_settings')
       .select('*')
       .eq('user_id', userId)
@@ -288,7 +289,7 @@ export async function getOperatorContext(userId: string): Promise<OperatorContex
     }
 
     // 5. Get recent actions (last 50)
-    const { data: recentActions } = await supabase
+    const { data: recentActions } = await supabaseServer
       .from('ai_operator_actions')
       .select('id, category, title, status, created_at, payload')
       .eq('user_id', userId)

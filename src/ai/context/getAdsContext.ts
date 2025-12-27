@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase.client';
+// SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
+import { supabaseServer } from '../../lib/supabase.server';
 
 export interface AdsContext {
   meta: {
@@ -184,7 +185,7 @@ async function fetchMetaData(userId: string) {
 
   try {
     // Check credentials
-    const { data: creds, error: credsError } = await supabase
+    const { data: creds, error: credsError } = await supabaseServer
       .from('meta_credentials')
       .select('access_token, expires_at, updated_at')
       .eq('user_id', userId)
@@ -212,7 +213,7 @@ async function fetchMetaData(userId: string) {
     }
 
     // Fetch ad accounts
-    const { data: adAccounts } = await supabase
+    const { data: adAccounts } = await supabaseServer
       .from('meta_ad_accounts')
       .select('*')
       .eq('user_id', userId);
@@ -227,7 +228,7 @@ async function fetchMetaData(userId: string) {
     }
 
     // Fetch campaigns
-    const { data: campaigns } = await supabase
+    const { data: campaigns } = await supabaseServer
       .from('meta_ad_campaigns')
       .select('*')
       .eq('user_id', userId)
@@ -254,7 +255,7 @@ async function fetchMetaData(userId: string) {
     }
 
     // Fetch assets/creatives
-    const { data: assets } = await supabase
+    const { data: assets } = await supabaseServer
       .from('user_meta_assets')
       .select('*')
       .eq('user_id', userId)
@@ -317,7 +318,7 @@ async function fetchGhosteAds(userId: string) {
 
   try {
     // Fetch Ghoste internal ad campaigns
-    const { data: campaigns } = await supabase
+    const { data: campaigns } = await supabaseServer
       .from('ad_campaigns')
       .select('*')
       .eq('user_id', userId)
@@ -340,7 +341,7 @@ async function fetchGhosteAds(userId: string) {
     }
 
     // Fetch autopilot rules
-    const { data: rules } = await supabase
+    const { data: rules } = await supabaseServer
       .from('ads_autopilot_rules')
       .select('*')
       .eq('user_id', userId);
@@ -372,7 +373,7 @@ async function fetchPerformanceData(userId: string) {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const { data: events } = await supabase
+    const { data: events } = await supabaseServer
       .from('smartlink_events')
       .select('event_type, platform, created_at, link_id')
       .eq('user_id', userId)
@@ -411,7 +412,7 @@ async function fetchPerformanceData(userId: string) {
         .slice(0, 5);
 
       for (const [linkId, clicks] of sortedLinks) {
-        const { data: link } = await supabase
+        const { data: link } = await supabaseServer
           .from('smart_links')
           .select('slug')
           .eq('id', linkId)

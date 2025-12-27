@@ -4,7 +4,8 @@
  * Each action wrapped in try/catch for resilience
  */
 
-import { supabase } from '@/lib/supabase.client';
+// SERVER-SAFE: This file is bundled by Netlify Functions - uses process.env, no @ alias
+import { supabaseServer } from '../../lib/supabase.server';
 
 export interface CommitResult {
   action_id: string;
@@ -45,7 +46,7 @@ export async function commitReleasePlan(
     }
 
     // Fetch approved actions
-    const { data: actions, error: fetchError } = await supabase
+    const { data: actions, error: fetchError } = await supabaseServer
       .from('ai_operator_actions')
       .select('*')
       .in('id', actionIds)
@@ -90,7 +91,7 @@ export async function commitReleasePlan(
         // CALENDAR EVENTS
         // ========================================
         if (actionType === 'calendar' || actionType === 'content' || actionType === 'social') {
-          const { data: event, error: calendarError } = await supabase
+          const { data: event, error: calendarError } = await supabaseServer
             .from('ai_calendar_events')
             .insert({
               user_id: userId,
@@ -124,7 +125,7 @@ export async function commitReleasePlan(
         // ========================================
         else if (actionType === 'campaign') {
           // Create draft campaign in meta_ad_campaigns
-          const { data: campaign, error: campaignError } = await supabase
+          const { data: campaign, error: campaignError } = await supabaseServer
             .from('meta_ad_campaigns')
             .insert({
               user_id: userId,
@@ -156,7 +157,7 @@ export async function commitReleasePlan(
         // ========================================
         else if (actionType === 'email') {
           // Create scheduled email in social_posts (reuse for all content)
-          const { data: email, error: emailError } = await supabase
+          const { data: email, error: emailError } = await supabaseServer
             .from('social_posts')
             .insert({
               user_id: userId,
@@ -187,7 +188,7 @@ export async function commitReleasePlan(
         // ========================================
         else if (actionType === 'tracking') {
           // Create calendar reminder for tracking tasks
-          const { data: tracking, error: trackingError } = await supabase
+          const { data: tracking, error: trackingError } = await supabaseServer
             .from('ai_calendar_events')
             .insert({
               user_id: userId,
@@ -223,7 +224,7 @@ export async function commitReleasePlan(
 
         // Update action status to executed
         if (result.success) {
-          await supabase
+          await supabaseServer
             .from('ai_operator_actions')
             .update({
               status: 'executed',
@@ -241,7 +242,7 @@ export async function commitReleasePlan(
         failed++;
 
         // Update action status to failed
-        await supabase
+        await supabaseServer
           .from('ai_operator_actions')
           .update({
             status: 'failed',
