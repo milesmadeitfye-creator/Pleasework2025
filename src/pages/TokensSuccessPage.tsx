@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Loader2, XCircle } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useUserProfile } from '../hooks/useUserProfile';
 
 export default function TokensSuccessPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const { refetch: refetchProfile } = useUserProfile();
   const [loading, setLoading] = useState(true);
   const [verificationResult, setVerificationResult] = useState<{
     success: boolean;
@@ -107,9 +105,6 @@ export default function TokensSuccessPage() {
             eventID: `stripe_${sessionId}`,
           });
         }
-
-        // Refetch profile to update credits
-        refetchProfile();
 
         // Auto-redirect to wallet after 3 seconds
         setTimeout(() => {
