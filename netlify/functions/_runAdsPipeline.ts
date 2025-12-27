@@ -218,11 +218,12 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
   console.log('[runAdsFromChat] Budget:', budget, 'Duration:', duration);
 
   // 4. Extract/ensure destination
+  // CRITICAL: context.destinationUrl ALWAYS has a value (includes fallback)
   let destinationUrl = extractDestinationUrl(input.text);
   let smartLinkId: string | null = null;
 
   if (destinationUrl) {
-    // Try to create/find smart link
+    // User provided a URL in chat - try to create/find smart link
     const smartLink = await ensureSmartLinkFromUrl(input.user_id, destinationUrl);
     smartLinkId = smartLink.smart_link_id;
     destinationUrl = smartLink.destination_url;
@@ -232,22 +233,13 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
     smartLinkId = latest.id;
     destinationUrl = `https://ghoste.one/s/${latest.slug}`;
   } else {
-    // Blocker: no destination
-    return {
-      ok: false,
-      status: 'blocked',
-      response: "Drop the song link and I got you.",
-      blocker: 'no_destination',
-      debug: {
-        hasMeta: true,
-        smartLinksCount: 0,
-        uploadsCount: input.attachments.length,
-        usedServiceRole: true,
-      },
-    };
+    // No user URL, no smart links -> use fallback from context
+    // CRITICAL: This guarantees we can always run ads if Meta is connected
+    destinationUrl = context.destinationUrl;
+    console.log('[runAdsFromChat] Using fallback destination:', destinationUrl);
   }
 
-  console.log('[runAdsFromChat] Destination:', destinationUrl);
+  console.log('[runAdsFromChat] Final destination:', destinationUrl);
 
   // 5. Handle media (non-blocking)
   let creativeMediaAssetId: string | null = null;

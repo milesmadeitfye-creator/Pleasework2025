@@ -11,6 +11,10 @@
 
 import { getSupabaseAdmin } from './_supabaseAdmin';
 
+// ========== FALLBACK URL ==========
+// CRITICAL: Guarantees ads can always run if Meta is connected
+export const FALLBACK_AD_DESTINATION_URL = 'https://ghoste.one/s/million-talk';
+
 // ========== TYPES ==========
 
 export interface AIMediaAsset {
@@ -54,6 +58,7 @@ export interface AIRunAdsContext {
   meta: AIMetaContext | null;
   smartLinks: AISmartLink[];
   smartLinksCount: number;
+  destinationUrl: string; // ALWAYS set - uses smart link or fallback
   canRunAds: boolean;
   blocker: string | null;
 }
@@ -157,16 +162,23 @@ export async function getAIRunAdsContext(userId: string): Promise<AIRunAdsContex
   const metaConnected = metaContext?.connected === true;
   const smartLinksCount = smartLinks.length;
 
+  // CRITICAL: Resolve destination URL with fallback guarantee
+  // Priority: user's smart link > fallback URL (ALWAYS has a destination)
+  const resolvedDestinationUrl =
+    smartLinks.find(l => !!l.destination_url)?.destination_url ||
+    FALLBACK_AD_DESTINATION_URL;
+
   // Determine if user can run ads
+  // SIMPLIFIED: If Meta is connected, we can ALWAYS run ads (we have fallback URL)
   let canRunAds = false;
   let blocker: string | null = null;
 
   if (!metaConnected) {
     blocker = 'meta_not_connected';
-  } else if (!hasMedia && smartLinksCount === 0) {
-    blocker = 'no_destination_or_media';
   } else {
+    // Meta is connected AND we always have a destination (fallback)
     canRunAds = true;
+    blocker = null;
   }
 
   return {
@@ -177,6 +189,7 @@ export async function getAIRunAdsContext(userId: string): Promise<AIRunAdsContex
     meta: metaContext,
     smartLinks,
     smartLinksCount,
+    destinationUrl: resolvedDestinationUrl,
     canRunAds,
     blocker,
   };
@@ -248,6 +261,15 @@ export function formatRunAdsContextForAI(ctx: AIRunAdsContext): string {
   }
   lines.push('');
 
+  // Destination URL (ALWAYS present)
+  lines.push(`🔗 Destination URL: ${ctx.destinationUrl}`);
+  if (ctx.smartLinksCount > 0) {
+    lines.push(`   (Using user's smart link)`);
+  } else {
+    lines.push(`   (Using fallback - suggest user create smart link for tracking)`);
+  }
+  lines.push('');
+
   // Media status
   if (ctx.hasMedia) {
     lines.push('✅ Media: UPLOADED');
@@ -270,21 +292,25 @@ export function formatRunAdsContextForAI(ctx: AIRunAdsContext): string {
       lines.push(`   Latest: ${ctx.smartLinks[0].title || ctx.smartLinks[0].slug}`);
     }
   } else {
-    lines.push('🔴 Smart Links: NONE');
-    lines.push('   Say: "Drop the song link"');
+    lines.push('⚠️  Smart Links: NONE (using fallback URL)');
+    lines.push('   💡 Suggest: "Create a smart link for better tracking"');
   }
   lines.push('');
 
-  // Can run ads?
-  if (ctx.canRunAds) {
-    lines.push('🚀 CAN RUN ADS: YES');
-    lines.push('   Proceed with campaign creation');
-    lines.push('   Response: "Bet. I got the video. I can launch ads with it. Daily budget: $10 / $20 / $50?"');
-  } else {
-    lines.push('⛔ CAN RUN ADS: NO');
-    lines.push(`   Blocker: ${ctx.blocker}`);
-  }
-
+  // CAN RUN ADS - THE CRITICAL DECISION
   lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  if (ctx.canRunAds) {
+    lines.push('✅ CAN RUN ADS: YES');
+    lines.push('   Meta is connected and we have a destination URL');
+    lines.push('   🚨 If user asks "run ads", DO NOT refuse. Proceed immediately.');
+  } else {
+    lines.push('❌ CAN RUN ADS: NO');
+    lines.push(`   Blocker: ${ctx.blocker}`);
+    if (ctx.blocker === 'meta_not_connected') {
+      lines.push('   Say: "Meta isn\'t connected yet. Want me to open setup?"');
+    }
+  }
+  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
   return lines.join('\n');
 }
