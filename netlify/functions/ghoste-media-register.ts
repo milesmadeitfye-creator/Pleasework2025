@@ -95,7 +95,7 @@ export const handler: Handler = async (event) => {
       console.log('[ghoste-media-register] Created user_uploads record:', uploadRecord?.id);
     }
 
-    // Insert into ghoste_media_assets table
+    // Insert into ghoste_media_assets table (optional - don't block on failure)
     const { data, error } = await supabase
       .from('ghoste_media_assets')
       .insert({
@@ -111,11 +111,17 @@ export const handler: Handler = async (event) => {
       .maybeSingle();
 
     if (error) {
-      console.error('[ghoste-media-register] Insert error:', error);
+      console.error('[ghoste-media-register] ghoste_media_assets insert error:', error);
+      // Don't block - return success with warning
+      console.log('[ghoste-media-register] Returning success despite ghoste_media_assets error (non-blocking)');
       return {
-        statusCode: 500,
+        statusCode: 200,
         headers: RESPONSE_HEADERS,
-        body: JSON.stringify({ error: 'INSERT_FAILED', details: error.message }),
+        body: JSON.stringify({
+          ok: true,
+          warning: 'media_assets_insert_failed',
+          upload_id: uploadRecord?.id,
+        }),
       };
     }
 
@@ -124,7 +130,7 @@ export const handler: Handler = async (event) => {
     return {
       statusCode: 200,
       headers: RESPONSE_HEADERS,
-      body: JSON.stringify({ ok: true, asset: data }),
+      body: JSON.stringify({ ok: true, asset: data, upload_id: uploadRecord?.id }),
     };
   } catch (err: any) {
     console.error('[ghoste-media-register] Unexpected error:', err);

@@ -1,6 +1,9 @@
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { listSmartLinksForUser, getSmartLink } from "./_data/smartLinks";
+import { getRunAdsContext } from "./_runAdsContext";
+import { ensureSmartLinkFromUrlSafe } from "./_smartLinkEnsure";
+import { launchAds } from "./_adLaunchHelper";
 
 const sb = () => createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 const UPLOADS_BUCKET = process.env.SUPABASE_UPLOADS_BUCKET || "uploads";
@@ -491,6 +494,74 @@ export const handler: Handler = async (event) => {
       if (!data) return json(404, { error: "upload_not_found" });
 
       return json(200, { ok: true, upload: data });
+    }
+
+    // -------------------------
+    // RUN ADS (integrated flow)
+    // -------------------------
+    if (action === "run_ads") {
+      const { userMessage, campaignName, dailyBudgetDollars, targetCountries, linkUrl, goal } = body;
+
+      try {
+        const result = await launchAds({
+          userId,
+          userMessage: userMessage || "",
+          campaignName,
+          dailyBudgetDollars,
+          targetCountries,
+          linkUrl,
+          goal,
+        });
+
+        if (result.success) {
+          return json(200, {
+            ok: true,
+            campaign_id: result.campaign_id,
+            campaign_name: result.campaign_name,
+            message: result.message,
+          });
+        } else {
+          return json(400, {
+            ok: false,
+            blocker: result.blocker,
+            next_action: result.next_action,
+          });
+        }
+      } catch (e: any) {
+        return json(500, {
+          ok: false,
+          error: "launch_failed",
+          message: e.message,
+        });
+      }
+    }
+
+    // -------------------------
+    // GET RUN ADS CONTEXT (for AI to check readiness)
+    // -------------------------
+    if (action === "get_run_ads_context") {
+      const context = await getRunAdsContext(userId);
+      return json(200, { ok: true, context });
+    }
+
+    // -------------------------
+    // ENSURE SMART LINK FROM URL (idempotent link creation)
+    // -------------------------
+    if (action === "ensure_smart_link_from_url") {
+      const { url, title } = body;
+      if (!url) return json(400, { error: "missing_url" });
+
+      const link = await ensureSmartLinkFromUrlSafe(userId, url, title);
+      return json(200, {
+        ok: true,
+        link: {
+          id: link.id,
+          slug: link.slug,
+          title: link.title,
+          destination_url: link.destination_url,
+          created: link.created,
+        },
+      });
     }
 
     return json(400, { error: "unknown_action", action });
