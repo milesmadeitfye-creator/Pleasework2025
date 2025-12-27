@@ -409,6 +409,22 @@ export const handler: Handler = async (event) => {
         setupStatus = statusData;
         console.log('[ghosteAgent] Setup status fetched:', setupStatus);
 
+        // DEBUG MODE: Return setup status immediately without calling OpenAI
+        if (debug) {
+          console.log('[ghosteAgent] Debug mode enabled - returning setupStatus without OpenAI call');
+          return {
+            statusCode: 200,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({
+              ok: true,
+              userId,
+              setupStatus,
+              debug: true,
+              message: 'Debug mode - setup status fetched successfully'
+            })
+          };
+        }
+
         // Guard: Check if RPC returned empty/null
         if (!setupStatus || Object.keys(setupStatus).length === 0) {
           console.warn('[ghosteAgent] RPC returned empty object - treating as not connected');
