@@ -79,6 +79,10 @@ export async function listGhosteAdCampaignsForUser(userId: string): Promise<Ghos
   console.log('[ghosteAds] Listing campaigns for user:', userId);
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    console.warn('[ghosteAds] Supabase not configured, returning empty campaigns');
+    return [];
+  }
 
   const { data, error } = await supabase
     .from(AD_CAMPAIGNS_TABLE)
@@ -107,6 +111,10 @@ export async function getGhosteAdCampaignById(
   console.log('[ghosteAds] Getting campaign:', { userId, id });
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    console.warn('[ghosteAds] Supabase not configured, returning null');
+    return null;
+  }
 
   const { data, error } = await supabase
     .from(AD_CAMPAIGNS_TABLE)
@@ -134,6 +142,9 @@ export async function upsertGhosteAdCampaignDraft(
   console.log('[ghosteAds] Upserting draft campaign:', { userId, existingId, plan });
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot save campaign draft');
+  }
 
   const payload: any = {
     user_id: userId,
@@ -194,6 +205,9 @@ export async function updateGhosteAdCampaign(params: {
   console.log('[ghosteAds] Updating campaign:', { userId, id, name, daily_budget });
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot update campaign');
+  }
 
   const updates: any = {
     updated_at: new Date().toISOString(),
@@ -231,6 +245,9 @@ export async function updateGhosteAdCampaignStatus(params: {
   console.log('[ghosteAds] Updating campaign status:', { userId, id, status });
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot update campaign status');
+  }
 
   const { data, error } = await supabase
     .from(AD_CAMPAIGNS_TABLE)
@@ -264,6 +281,9 @@ export async function updateGhosteAdCampaignMetaIds(params: {
   console.log('[ghosteAds] Updating campaign Meta IDs:', { userId, id, campaign_id, adset_id, ad_id, status });
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot update Meta IDs');
+  }
 
   const updates: any = {
     updated_at: new Date().toISOString(),
@@ -300,6 +320,10 @@ export async function deleteGhosteAdCampaignDraft(
   console.log('[ghosteAds] Deleting draft campaign:', { userId, id });
 
   const supabase = getSupabaseAdminClient();
+  if (!supabase) {
+    console.warn('[ghosteAds] Supabase not configured, cannot delete draft');
+    return;
+  }
 
   // Only allow deletion if status is 'DRAFT' (not launched to Meta yet)
   const { error } = await supabase

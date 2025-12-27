@@ -90,12 +90,13 @@ export interface AISetupStatus {
 /**
  * Get Supabase admin client (service role)
  */
-function getSupabaseAdmin(): SupabaseClient {
+function getSupabaseAdmin(): SupabaseClient | null {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    console.error('[_aiSetupStatus] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    return null;
   }
 
   return createClient(supabaseUrl, serviceRoleKey, {
@@ -153,8 +154,12 @@ function transformRPCResponse(rpcData: RPCSetupStatus): Omit<AISetupStatus, 'err
  * Call the canonical RPC function
  * This is the SINGLE SOURCE OF TRUTH for AI setup status
  */
-async function callSetupStatusRPC(supabase: SupabaseClient, userId: string): Promise<RPCSetupStatus> {
+async function callSetupStatusRPC(supabase: SupabaseClient | null, userId: string): Promise<RPCSetupStatus> {
   console.log('[callSetupStatusRPC] Calling ai_get_setup_status RPC for user:', userId);
+
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot call RPC');
+  }
 
   const { data, error } = await supabase.rpc('ai_get_setup_status', {
     p_user_id: userId,

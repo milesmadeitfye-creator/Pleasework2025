@@ -1,42 +1,64 @@
 // netlify/functions/_supabaseAdmin.ts
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-if (!process.env.SUPABASE_URL) {
-  throw new Error(
-    "[Supabase Admin] SUPABASE_URL is not set in Netlify environment variables. " +
-    "Check Netlify Dashboard → Site Settings → Environment Variables"
-  );
-}
-if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error(
-    "[Supabase Admin] SUPABASE_SERVICE_ROLE_KEY is not set in Netlify environment variables. " +
-    "Check Netlify Dashboard → Site Settings → Environment Variables"
-  );
-}
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-export const supabaseAdmin = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
+const hasUrl = !!SUPABASE_URL;
+const hasKey = !!SUPABASE_SERVICE_ROLE_KEY;
+const isConfigured = hasUrl && hasKey;
+
+console.log(
+  '[Supabase Admin] configured=', isConfigured,
+  '| urlLen=', SUPABASE_URL?.length ?? 0,
+  '| keyLen=', SUPABASE_SERVICE_ROLE_KEY?.length ?? 0
 );
 
-// Alias export for imports that expect { supabase }
-export const supabase = supabaseAdmin;
+if (!isConfigured) {
+  console.warn(
+    "[Supabase Admin] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. " +
+    "Admin functions will be disabled. " +
+    "Check Netlify Dashboard → Site Settings → Environment Variables"
+  );
+}
 
-// Legacy export for backward compatibility
-export function getSupabaseAdmin() {
-  return supabaseAdmin;
+// Create admin client only if configured
+let adminInstance: SupabaseClient | null = null;
+
+if (isConfigured) {
+  adminInstance = createClient(
+    SUPABASE_URL!,
+    SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    }
+  );
+}
+
+// Export config status
+export const isSupabaseAdminConfigured = isConfigured;
+
+// Safe getter functions - ALWAYS use these, never raw exports
+export function getSupabaseAdmin(): SupabaseClient | null {
+  if (!isConfigured) {
+    console.error('[Supabase Admin] Cannot get admin client - not configured');
+    return null;
+  }
+  return adminInstance;
 }
 
 // Alias for consistency with function naming
-export function getSupabaseAdminClient() {
-  return supabaseAdmin;
+export function getSupabaseAdminClient(): SupabaseClient | null {
+  return getSupabaseAdmin();
 }
+
+// Legacy raw exports (DEPRECATED - use getSupabaseAdmin() instead)
+// These may be null - callers MUST check before using
+export const supabaseAdmin: SupabaseClient | null = adminInstance;
+export const supabase: SupabaseClient | null = adminInstance;
 
 /**
  * Get Meta access token for a user from user_meta_connections table.
@@ -47,7 +69,20 @@ export function getSupabaseAdminClient() {
 export async function getMetaAccessTokenForUser(
   userId: string
 ): Promise<{ token: string; source: 'user' | 'system' }> {
-  const { data, error } = await supabaseAdmin
+  const admin = getSupabaseAdmin();
+
+  if (!admin) {
+    console.warn('[getMetaAccessTokenForUser] Supabase not configured, using system token');
+
+    const systemToken = process.env.META_ACCESS_TOKEN || process.env.META_SYSTEM_USER_TOKEN;
+    if (!systemToken) {
+      throw new Error('No Meta user token and no system token configured');
+    }
+
+    return { token: systemToken, source: 'system' };
+  }
+
+  const { data, error } = await admin
     .from('user_meta_connections')
     .select('access_token, expires_at')
     .eq('user_id', userId)
@@ -83,4 +118,24 @@ export async function getMetaAccessTokenForUser(
   }
 
   return { token: data.access_token as string, source: 'user' };
+}
+
+/**
+ * Helper to create a standard "Supabase disabled" response
+ * Use this in functions when Supabase is not configured
+ */
+export function createSupabaseDisabledResponse() {
+  return {
+    statusCode: 200,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+    },
+    body: JSON.stringify({
+      ok: false,
+      disabled: true,
+      reason: 'Supabase server not configured',
+      message: 'Database connection not available. Check environment variables.',
+    }),
+  };
 }
