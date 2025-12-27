@@ -57,11 +57,13 @@ export interface AISetupStatus {
       name: string;
       accountId: string;
       currency?: string;
+      source?: string; // 'profile_fallback' if from user_profiles
     }>;
     pages: Array<{
       id: string;
       name: string;
       category?: string;
+      source?: string; // 'profile_fallback' if from user_profiles
     }>;
     instagramAccounts: Array<{
       id: string;
@@ -72,6 +74,7 @@ export interface AISetupStatus {
       id: string;
       name: string;
       isAvailable: boolean;
+      source?: string; // 'profile_fallback' if from user_profiles
     }>;
   };
   smartLinks: {
@@ -83,6 +86,12 @@ export interface AISetupStatus {
       destinationUrl: string;
       createdAt: string;
     }>;
+  };
+  resolved: {
+    adAccountId: string | null;
+    pageId: string | null;
+    pixelId: string | null;
+    destinationUrl: string | null;
   };
   errors: string[];
 }
@@ -110,42 +119,51 @@ function getSupabaseAdmin(): SupabaseClient | null {
 /**
  * Transform RPC response to client-facing format
  */
-function transformRPCResponse(rpcData: RPCSetupStatus): Omit<AISetupStatus, 'errors'> {
+function transformRPCResponse(rpcData: any): Omit<AISetupStatus, 'errors'> {
   return {
     meta: {
       connected: rpcData.meta.has_meta,
       sourceTable: rpcData.meta.source_table,
-      adAccounts: rpcData.meta.ad_accounts.map(acc => ({
+      adAccounts: (rpcData.meta.ad_accounts || []).map((acc: any) => ({
         id: acc.id,
         name: acc.name,
         accountId: acc.account_id,
         currency: acc.currency,
+        source: acc.source,
       })),
-      pages: rpcData.meta.pages.map(page => ({
+      pages: (rpcData.meta.pages || []).map((page: any) => ({
         id: page.id,
         name: page.name,
         category: page.category,
+        source: page.source,
       })),
-      instagramAccounts: rpcData.meta.instagram_accounts.map(ig => ({
+      instagramAccounts: (rpcData.meta.instagram_accounts || []).map((ig: any) => ({
         id: ig.id,
         username: ig.username,
         profilePictureUrl: ig.profile_picture_url,
       })),
-      pixels: rpcData.meta.pixels.map(px => ({
+      pixels: (rpcData.meta.pixels || []).map((px: any) => ({
         id: px.id,
         name: px.name,
         isAvailable: px.is_available,
+        source: px.source,
       })),
     },
     smartLinks: {
-      count: rpcData.smart_links_count,
-      recent: rpcData.smart_links_preview.map(link => ({
+      count: rpcData.smart_links_count || 0,
+      recent: (rpcData.smart_links_preview || []).map((link: any) => ({
         id: link.id,
         title: link.title,
         slug: link.slug,
         destinationUrl: link.destination_url,
         createdAt: link.created_at,
       })),
+    },
+    resolved: {
+      adAccountId: rpcData.resolved?.ad_account_id || null,
+      pageId: rpcData.resolved?.page_id || null,
+      pixelId: rpcData.resolved?.pixel_id || null,
+      destinationUrl: rpcData.resolved?.destination_url || null,
     },
   };
 }
@@ -154,7 +172,7 @@ function transformRPCResponse(rpcData: RPCSetupStatus): Omit<AISetupStatus, 'err
  * Call the canonical RPC function
  * This is the SINGLE SOURCE OF TRUTH for AI setup status
  */
-async function callSetupStatusRPC(supabase: SupabaseClient | null, userId: string): Promise<RPCSetupStatus> {
+async function callSetupStatusRPC(supabase: SupabaseClient | null, userId: string): Promise<any> {
   console.log('[callSetupStatusRPC] Calling ai_get_setup_status RPC for user:', userId);
 
   if (!supabase) {
@@ -181,9 +199,13 @@ async function callSetupStatusRPC(supabase: SupabaseClient | null, userId: strin
     pages: data.meta?.pages?.length || 0,
     pixels: data.meta?.pixels?.length || 0,
     smart_links_count: data.smart_links_count,
+    resolved_ad_account: data.resolved?.ad_account_id || null,
+    resolved_page: data.resolved?.page_id || null,
+    resolved_pixel: data.resolved?.pixel_id || null,
+    resolved_destination: data.resolved?.destination_url || null,
   });
 
-  return data as RPCSetupStatus;
+  return data;
 }
 
 /**
@@ -216,6 +238,10 @@ export async function getAISetupStatus(userId: string): Promise<AISetupStatus> {
       metaPixels: setupStatus.meta.pixels.length,
       smartLinksCount: setupStatus.smartLinks.count,
       smartLinksWithDestination: setupStatus.smartLinks.recent.filter(l => l.destinationUrl).length,
+      resolvedAdAccount: setupStatus.resolved.adAccountId,
+      resolvedPage: setupStatus.resolved.pageId,
+      resolvedPixel: setupStatus.resolved.pixelId,
+      resolvedDestination: setupStatus.resolved.destinationUrl,
     });
 
     return setupStatus;
@@ -237,6 +263,12 @@ export async function getAISetupStatus(userId: string): Promise<AISetupStatus> {
         count: 0,
         recent: [],
       },
+      resolved: {
+        adAccountId: null,
+        pageId: null,
+        pixelId: null,
+        destinationUrl: null,
+      },
       errors,
     };
   }
@@ -251,28 +283,36 @@ export function formatSetupStatusForAI(status: AISetupStatus): string {
   lines.push('=== CANONICAL SETUP STATUS (from RPC) ===');
   lines.push('');
 
-  // Meta status
-  lines.push('Meta Connection:');
-  if (status.meta.connected) {
-    lines.push(`  ✅ CONNECTED (source: ${status.meta.sourceTable || 'unknown'})`);
+  // RESOLVED ASSETS (single source of truth - no contradictions)
+  const hasResolvedAssets = Boolean(
+    status.resolved.adAccountId ||
+    status.resolved.pageId ||
+    status.resolved.pixelId
+  );
 
-    if (status.meta.adAccounts.length > 0) {
-      lines.push(`  Ad Accounts: ${status.meta.adAccounts.length}`);
-      status.meta.adAccounts.slice(0, 3).forEach(acc => {
-        lines.push(`    - ${acc.name} (${acc.accountId}${acc.currency ? ', ' + acc.currency : ''})`);
-      });
-      if (status.meta.adAccounts.length > 3) {
-        lines.push(`    ... and ${status.meta.adAccounts.length - 3} more`);
-      }
-    } else {
-      lines.push('  ⚠️  Connected but no ad accounts found');
+  lines.push('Meta Assets (Resolved):');
+  if (hasResolvedAssets) {
+    lines.push(`  ✅ AVAILABLE (source: ${status.meta.sourceTable || 'profile_fallback'})`);
+
+    if (status.resolved.adAccountId) {
+      const acc = status.meta.adAccounts.find(a => a.id === status.resolved.adAccountId);
+      const accName = acc?.name || 'Default';
+      const accSource = acc?.source === 'profile_fallback' ? ' [from profile]' : '';
+      lines.push(`  Ad Account: ${accName} (${status.resolved.adAccountId})${accSource}`);
     }
 
-    if (status.meta.pages.length > 0) {
-      lines.push(`  Facebook Pages: ${status.meta.pages.length}`);
-      status.meta.pages.slice(0, 2).forEach(page => {
-        lines.push(`    - ${page.name}`);
-      });
+    if (status.resolved.pageId) {
+      const page = status.meta.pages.find(p => p.id === status.resolved.pageId);
+      const pageName = page?.name || 'Default';
+      const pageSource = page?.source === 'profile_fallback' ? ' [from profile]' : '';
+      lines.push(`  Facebook Page: ${pageName} (${status.resolved.pageId})${pageSource}`);
+    }
+
+    if (status.resolved.pixelId) {
+      const pixel = status.meta.pixels.find(p => p.id === status.resolved.pixelId);
+      const pixelName = pixel?.name || 'Default';
+      const pixelSource = pixel?.source === 'profile_fallback' ? ' [from profile]' : '';
+      lines.push(`  Pixel: ${pixelName} (${status.resolved.pixelId})${pixelSource}`);
     }
 
     if (status.meta.instagramAccounts.length > 0) {
@@ -281,52 +321,55 @@ export function formatSetupStatusForAI(status: AISetupStatus): string {
         lines.push(`    - @${ig.username}`);
       });
     }
-
-    if (status.meta.pixels.length > 0) {
-      lines.push(`  Pixels: ${status.meta.pixels.length}`);
-      status.meta.pixels.slice(0, 2).forEach(px => {
-        lines.push(`    - ${px.name} (${px.id})`);
-      });
-    }
   } else {
-    lines.push('  ❌ NOT CONNECTED');
+    lines.push('  ❌ NOT CONFIGURED');
     lines.push('  → User must connect Meta in Profile → Connected Accounts');
-    lines.push('  → DO NOT create ads or campaigns until Meta is connected');
+    lines.push('  → DO NOT create ads or campaigns until Meta assets are configured');
   }
 
   lines.push('');
 
-  // Smart Links status
-  lines.push('Smart Links:');
-  if (status.smartLinks.count > 0) {
-    lines.push(`  ✅ ${status.smartLinks.count} smart link${status.smartLinks.count === 1 ? '' : 's'} available`);
-    if (status.smartLinks.recent.length > 0) {
-      lines.push('  Recent links (use these for ad destinations):');
-      status.smartLinks.recent.forEach(link => {
-        const dest = link.destinationUrl ? ` → ${link.destinationUrl}` : '';
-        lines.push(`    - "${link.title}" (ghoste.one/s/${link.slug})${dest}`);
-      });
+  // Destination URL (resolved)
+  lines.push('Ad Destination:');
+  if (status.resolved.destinationUrl) {
+    lines.push(`  ✅ ${status.resolved.destinationUrl}`);
+    if (status.smartLinks.count === 0) {
+      lines.push('  [Using profile default - suggest creating smart link for tracking]');
+    } else {
+      lines.push(`  [${status.smartLinks.count} smart link${status.smartLinks.count === 1 ? '' : 's'} available]`);
     }
   } else {
-    lines.push('  ❌ NO SMART LINKS');
-    lines.push('  → User must create a smart link before running ads');
-    lines.push('  → Cannot create ads without a destination URL');
+    lines.push('  ❌ NO DESTINATION');
+    if (status.smartLinks.count === 0) {
+      lines.push('  → User must create a smart link or set default_ad_destination_url');
+    } else {
+      lines.push(`  → ${status.smartLinks.count} smart links exist but no destination resolved`);
+    }
   }
 
   lines.push('');
+
+  // Smart Links (informational)
+  if (status.smartLinks.count > 0 && status.smartLinks.recent.length > 0) {
+    lines.push('Smart Links (Recent):');
+    status.smartLinks.recent.slice(0, 3).forEach(link => {
+      lines.push(`  - "${link.title}" (ghoste.one/s/${link.slug})`);
+    });
+    lines.push('');
+  }
 
   // Critical AI rules
   lines.push('CRITICAL AI RULES:');
-  lines.push(`  1. Meta connected = ${status.meta.connected} (DO NOT contradict this)`);
-  lines.push(`  2. Smart links count = ${status.smartLinks.count} (DO NOT say "no links" if count > 0)`);
-  lines.push('  3. If RPC data says connected=true, NEVER claim "not connected"');
-  lines.push('  4. If user asks to create ads and connected=false, guide to Profile → Connected Accounts');
-  lines.push('  5. If user asks to create ads and smart_links_count=0, guide to create smart link first');
+  lines.push(`  1. Meta assets available = ${hasResolvedAssets} (DO NOT contradict this)`);
+  lines.push(`  2. Destination URL = ${status.resolved.destinationUrl ? 'available' : 'missing'}`);
+  lines.push(`  3. If assets available AND destination exists, ads CAN be created`);
+  lines.push(`  4. NEVER say "not connected" if resolved assets exist (even from profile fallback)`);
+  lines.push(`  5. Source "${status.meta.sourceTable}" includes profile_fallback as valid`);
 
   // Errors
   if (status.errors.length > 0) {
     lines.push('');
-    lines.push('⚠️  RPC Errors:');
+    lines.push('⚠️  Errors:');
     status.errors.forEach(err => lines.push(`  - ${err}`));
   }
 
