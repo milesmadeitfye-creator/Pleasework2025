@@ -419,6 +419,8 @@ export const handler: Handler = async (event) => {
     // Fetch setup status via RPC - this is the SINGLE SOURCE OF TRUTH
     let setupStatus: any = null;
     let setupStatusText = '';
+    let pickedFields: any = null;
+    let pickedConnected = false;
     try {
       const { data: statusData, error: setupError } = await supabase.rpc('ai_get_setup_status', {
         p_user_id: userId
@@ -439,16 +441,16 @@ export const handler: Handler = async (event) => {
         console.log('[ghosteAgent] Resolved ad_account_id:', setupStatus.resolved?.ad_account_id);
         console.log('[ghosteAgent] Full normalized object:', JSON.stringify(setupStatus, null, 2));
 
+        // COMPUTE CANONICAL PICKED FIELDS (single source of truth for all output)
+        pickedFields = pickSetupFields(setupStatus);
+        pickedConnected = Boolean(pickedFields.adAccountId && pickedFields.pageId && pickedFields.pixelId);
+
+        console.log('[ghosteAgent] 🎯 CANONICAL pickedFields:', pickedFields);
+        console.log('[ghosteAgent] 🎯 CANONICAL pickedConnected:', pickedConnected);
+
         // DEBUG MODE: Return setup status immediately without calling OpenAI
         if (debug) {
           console.log('[ghosteAgent] Debug mode enabled - returning setupStatus without OpenAI call');
-
-          // Use canonical field picker to show what will be used for output
-          const pickedFields = pickSetupFields(setupStatus);
-          const connected = Boolean(pickedFields.adAccountId && pickedFields.pageId && pickedFields.pixelId);
-
-          console.log('[ghosteAgent] Picked fields from setupStatus:', pickedFields);
-          console.log('[ghosteAgent] Connected status:', connected);
 
           return {
             statusCode: 200,
@@ -460,10 +462,8 @@ export const handler: Handler = async (event) => {
               debug: true,
               message: 'Debug mode - setup status fetched successfully',
               // Show what fields were picked for printing
-              pickedFields: {
-                ...pickedFields,
-                connected
-              },
+              pickedFields: pickedFields,
+              pickedConnected: pickedConnected,
               // Include key fields for quick verification
               verification: {
                 has_meta: setupStatus.meta?.has_meta,
@@ -490,6 +490,44 @@ export const handler: Handler = async (event) => {
         if (!setupStatus || Object.keys(setupStatus).length === 0) {
           console.warn('[ghosteAgent] RPC returned empty object - treating as not connected');
           setupStatus = normalizeSetupStatus(null);
+        }
+
+        // HARD OVERRIDE: If user asks about meta setup status, bypass OpenAI and return server truth immediately
+        const latestUserMessage = clientMessages.filter(m => m.role === 'user').pop();
+        const userText = (latestUserMessage?.content || '').toLowerCase();
+        const isMetaSetupQuestion =
+          userText.includes('setup status') ||
+          (userText.includes('meta') && userText.includes('status')) ||
+          userText.includes('ad account') ||
+          userText.includes('pixel');
+
+        if (isMetaSetupQuestion && !debug) {
+          console.log('[ghosteAgent] 🚨 META SETUP QUESTION DETECTED - Bypassing OpenAI, returning server truth');
+
+          const statusMessage = `Here is your Meta setup status with the requested fields:
+
+${JSON.stringify({
+  adAccountId: pickedFields.adAccountId,
+  pageId: pickedFields.pageId,
+  pixelId: pickedFields.pixelId,
+  destinationUrl: pickedFields.destinationUrl,
+  instagramActorId: pickedFields.instagramActorId,
+  instagramUsername: pickedFields.instagramUsername
+}, null, 2)}
+
+${pickedConnected ? 'Meta assets are connected and ready to use.' : 'No Meta assets are connected. Please connect Meta in Profile → Connected Accounts.'}`;
+
+          return {
+            statusCode: 200,
+            headers: getCorsHeaders(),
+            body: JSON.stringify({
+              ok: true,
+              pickedFields,
+              pickedConnected,
+              message: statusMessage,
+              bypassedOpenAI: true
+            })
+          };
         }
 
         // Use RESOLVED fields (canonical source of truth)
@@ -812,24 +850,21 @@ CRITICAL: This is the AUTHORITATIVE truth.
       'When user asks about Meta setup, these are the EXACT values to report:',
       '',
       ...((() => {
-        // Use canonical field picker to extract fields
-        const fields = pickSetupFields(setupStatus);
-        const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
-
-        console.log('[ghosteAgent] System prompt - picked fields:', fields);
-        console.log('[ghosteAgent] System prompt - connected:', connected);
+        // Use the ALREADY COMPUTED canonical pickedFields (computed at line 443)
+        console.log('[ghosteAgent] System prompt - using canonical pickedFields:', pickedFields);
+        console.log('[ghosteAgent] System prompt - using canonical pickedConnected:', pickedConnected);
 
         const lines: string[] = [];
-        lines.push(`adAccountId: ${fields.adAccountId || 'null'}`);
-        lines.push(`pageId: ${fields.pageId || 'null'}`);
-        lines.push(`pixelId: ${fields.pixelId || 'null'}`);
-        lines.push(`destinationUrl: ${fields.destinationUrl || 'null'}`);
-        lines.push(`instagramActorId: ${fields.instagramActorId || 'null'}`);
-        lines.push(`instagramUsername: ${fields.instagramUsername || 'null'}`);
-        lines.push(`connected: ${connected}`);
+        lines.push(`adAccountId: ${pickedFields.adAccountId || 'null'}`);
+        lines.push(`pageId: ${pickedFields.pageId || 'null'}`);
+        lines.push(`pixelId: ${pickedFields.pixelId || 'null'}`);
+        lines.push(`destinationUrl: ${pickedFields.destinationUrl || 'null'}`);
+        lines.push(`instagramActorId: ${pickedFields.instagramActorId || 'null'}`);
+        lines.push(`instagramUsername: ${pickedFields.instagramUsername || 'null'}`);
+        lines.push(`connected: ${pickedConnected}`);
         lines.push('');
         lines.push('MetaSetup JSON (use this when answering):');
-        lines.push(JSON.stringify({ connected, ...fields }, null, 2));
+        lines.push(JSON.stringify({ connected: pickedConnected, ...pickedFields }, null, 2));
         lines.push('');
         lines.push('🚨 CRITICAL: When user asks "What is my Meta setup status?" or similar,');
         lines.push('you MUST reply with these EXACT values above. DO NOT say "null" if values are present.');
@@ -2099,24 +2134,21 @@ CRITICAL: This is the AUTHORITATIVE truth.
           console.log('[ghosteAgent] 📊 Handling get_meta_setup_status');
 
           try {
-            // Use canonical field picker to extract fields
-            const fields = pickSetupFields(setupStatus);
-            const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
-
-            console.log('[ghosteAgent] Tool handler - picked fields:', fields);
-            console.log('[ghosteAgent] Tool handler - connected:', connected);
+            // Use the ALREADY COMPUTED canonical pickedFields (computed at line 443)
+            console.log('[ghosteAgent] Tool handler - using canonical pickedFields:', pickedFields);
+            console.log('[ghosteAgent] Tool handler - using canonical pickedConnected:', pickedConnected);
 
             const response = {
               ok: true,
-              connected,
-              adAccountId: fields.adAccountId,
-              pageId: fields.pageId,
-              pixelId: fields.pixelId,
-              destinationUrl: fields.destinationUrl,
-              instagramActorId: fields.instagramActorId,
-              instagramUsername: fields.instagramUsername,
+              connected: pickedConnected,
+              adAccountId: pickedFields.adAccountId,
+              pageId: pickedFields.pageId,
+              pixelId: pickedFields.pixelId,
+              destinationUrl: pickedFields.destinationUrl,
+              instagramActorId: pickedFields.instagramActorId,
+              instagramUsername: pickedFields.instagramUsername,
               source: (setupStatus as any)?.meta?.source_table || 'unknown',
-              message: connected
+              message: pickedConnected
                 ? `Meta is connected via ${(setupStatus as any)?.meta?.source_table || 'unknown'} source`
                 : 'Meta is not connected - user needs to connect in Profile settings'
             };
@@ -2921,6 +2953,8 @@ CRITICAL: This is the AUTHORITATIVE truth.
         ok: true,
         message: choice?.message,
         conversation_id: finalConversationId,
+        pickedFields: pickedFields || null,
+        pickedConnected: pickedConnected || false,
         debug: {
           buildStamp: BUILD_STAMP,
           userId,
