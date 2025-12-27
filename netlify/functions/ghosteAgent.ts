@@ -755,7 +755,39 @@ CRITICAL: This is the AUTHORITATIVE truth.
       '',
       `User id: ${userId}`,
       `Artist name (if known): ${artistName ?? 'Unknown'}`,
-      `Additional context: ${JSON.stringify(context).slice(0, 500)}`
+      `Additional context: ${JSON.stringify(context).slice(0, 500)}`,
+      '',
+      '=== CURRENT META SETUP (CANONICAL VALUES) ===',
+      '',
+      'When user asks about Meta setup, these are the EXACT values to report:',
+      '',
+      ...((() => {
+        const ss = setupStatus ?? {};
+        const adAccountId = ss.adAccountId ?? ss.resolved?.ad_account_id ?? null;
+        const pageId = ss.pageId ?? ss.resolved?.page_id ?? null;
+        const pixelId = ss.pixelId ?? ss.resolved?.pixel_id ?? null;
+        const destinationUrl = ss.destinationUrl ?? ss.resolved?.destination_url ?? null;
+        const instagramActorId = ss.instagramActorId ?? ss.resolved?.instagram_actor_id ?? null;
+        const instagramUsername = ss.instagramUsername ?? ss.resolved?.instagram_username ?? null;
+        const connected = Boolean(adAccountId && pageId && pixelId);
+
+        const lines: string[] = [];
+        lines.push(`adAccountId: ${adAccountId || 'null'}`);
+        lines.push(`pageId: ${pageId || 'null'}`);
+        lines.push(`pixelId: ${pixelId || 'null'}`);
+        lines.push(`destinationUrl: ${destinationUrl || 'null'}`);
+        lines.push(`instagramActorId: ${instagramActorId || 'null'}`);
+        lines.push(`instagramUsername: ${instagramUsername || 'null'}`);
+        lines.push(`connected: ${connected}`);
+        lines.push('');
+        lines.push('🚨 CRITICAL: When user asks "What is my Meta setup status?" or similar,');
+        lines.push('you MUST reply with these EXACT values above. DO NOT say "null" if values are present.');
+        lines.push('DO NOT say "I cannot access" or "not available" - the data is RIGHT HERE.');
+
+        return lines;
+      })()),
+      '',
+      '=== END META SETUP ==='
     ];
 
     const systemContent = systemLines.join('\n');
@@ -1127,6 +1159,18 @@ CRITICAL: This is the AUTHORITATIVE truth.
               }
             },
             required: ['id']
+          }
+        }
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'get_meta_setup_status',
+          description:
+            'Get current Meta connection status including ad account, page, pixel, and Instagram IDs. Use this when user asks "What is my Meta setup?" or similar questions.',
+          parameters: {
+            type: 'object',
+            properties: {}
           }
         }
       },
@@ -1985,6 +2029,60 @@ CRITICAL: This is the AUTHORITATIVE truth.
             });
           } catch (error: any) {
             console.error('[ghosteAgent] ❌ duplicate_ad_campaign failed:', error);
+
+            allMessages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              name: toolName,
+              content: JSON.stringify({
+                ok: false,
+                error: error.message || String(error),
+              }),
+            });
+          }
+        }
+
+        // === META SETUP STATUS (DIRECT ACCESS) ===
+
+        if (toolName === 'get_meta_setup_status') {
+          console.log('[ghosteAgent] 📊 Handling get_meta_setup_status');
+
+          try {
+            // Use the same setupStatus that was fetched and normalized earlier
+            const ss = setupStatus ?? {};
+            const adAccountId = ss.adAccountId ?? ss.resolved?.ad_account_id ?? null;
+            const pageId = ss.pageId ?? ss.resolved?.page_id ?? null;
+            const pixelId = ss.pixelId ?? ss.resolved?.pixel_id ?? null;
+            const destinationUrl = ss.destinationUrl ?? ss.resolved?.destination_url ?? null;
+            const instagramActorId = ss.instagramActorId ?? ss.resolved?.instagram_actor_id ?? null;
+            const instagramUsername = ss.instagramUsername ?? ss.resolved?.instagram_username ?? null;
+            const connected = Boolean(adAccountId && pageId && pixelId);
+
+            const response = {
+              ok: true,
+              connected,
+              adAccountId,
+              pageId,
+              pixelId,
+              destinationUrl,
+              instagramActorId,
+              instagramUsername,
+              source: ss.meta?.source_table || 'unknown',
+              message: connected
+                ? `Meta is connected via ${ss.meta?.source_table || 'unknown'} source`
+                : 'Meta is not connected - user needs to connect in Profile settings'
+            };
+
+            console.log('[ghosteAgent] ✅ get_meta_setup_status completed:', response);
+
+            allMessages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              name: toolName,
+              content: JSON.stringify(response),
+            });
+          } catch (error: any) {
+            console.error('[ghosteAgent] ❌ get_meta_setup_status failed:', error);
 
             allMessages.push({
               role: 'tool',
