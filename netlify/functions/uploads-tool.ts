@@ -16,9 +16,9 @@ export const handler: Handler = async (event) => {
 
     if (action === "list_uploads") {
       const { data, error } = await supabase
-        .from("user_uploads")
-        .select("id,kind,filename,mime_type,public_url,storage_bucket,storage_path,meta_video_id,meta_image_hash,created_at")
-        .eq("user_id", userId)
+        .from("media_assets")
+        .select("id,kind,filename,mime,public_url,storage_bucket,storage_key,created_at")
+        .eq("owner_user_id", userId)
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -30,9 +30,9 @@ export const handler: Handler = async (event) => {
       const { uploadId, filename } = body;
 
       let q = supabase
-        .from("user_uploads")
-        .select("id,kind,filename,mime_type,public_url,storage_bucket,storage_path,meta_video_id,meta_image_hash,created_at")
-        .eq("user_id", userId);
+        .from("media_assets")
+        .select("id,kind,filename,mime,public_url,storage_bucket,storage_key,created_at")
+        .eq("owner_user_id", userId);
 
       if (uploadId) q = q.eq("id", uploadId);
       else if (filename) q = q.ilike("filename", `%${filename}%`);
@@ -46,7 +46,7 @@ export const handler: Handler = async (event) => {
         const bucket = data.storage_bucket || BUCKET;
         const { data: signed, error: signErr } = await supabase.storage
           .from(bucket)
-          .createSignedUrl(data.storage_path, 60 * 30);
+          .createSignedUrl(data.storage_key, 60 * 30);
 
         if (signErr) return { statusCode: 500, body: JSON.stringify({ error: "signed_url_failed", details: signErr }) };
         usableUrl = signed?.signedUrl;

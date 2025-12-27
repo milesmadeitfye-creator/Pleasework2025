@@ -5,6 +5,7 @@ import { getManagerContext, type ManagerContext } from '../../src/ai/context/get
 import { getAISetupStatus, formatSetupStatusForAI, type AISetupStatus } from './_aiSetupStatus';
 import { runAdsFromChat } from './_runAdsPipeline';
 import { getRunAdsContext, formatRunAdsContextForAI } from './_runAdsContext';
+import { resolveAttachments, formatAttachmentsForAI } from './_ghosteAttachments';
 
 // Types
 type Role = 'system' | 'user' | 'assistant';
@@ -139,14 +140,15 @@ async function storeMessages(
     .eq('id', conversationId);
 }
 
-// Build system prompt with setup status, ads context, run ads context, and operator insights
+// Build system prompt with setup status, ads context, run ads context, attachments, and operator insights
 function buildSystemPrompt(
   task: string | undefined,
   meta?: Record<string, any>,
   setupStatus?: AISetupStatus | null,
   adsContext?: ManagerContext | null,
   operatorInsights?: any[],
-  runAdsContext?: string
+  runAdsContext?: string,
+  attachments?: string
 ): string {
   // Inject RUN ADS CONTEXT at the top (SINGLE SOURCE OF TRUTH)
   // CRITICAL: This section OVERRIDES all other Meta/smart link detection
@@ -284,6 +286,8 @@ Your job is to:
 - NEVER pretend something is created or live if the system did not actually do it
 
 ${runAdsSection}
+
+${attachments || ''}
 
 ====================================================
 VOICE & VIBE (SAY LESS MANAGER MODE)
@@ -781,6 +785,21 @@ export const handler: Handler = async (event) => {
       // Continue without run ads context - chat still works
     }
 
+    // STEP 4: Resolve attachments from media_assets (CANONICAL SOURCE)
+    // CRITICAL: Uses service role to bypass RLS
+    let resolvedAttachments: Awaited<ReturnType<typeof resolveAttachments>> = [];
+    let attachmentsFormatted = '';
+    if (meta?.attachments && meta.attachments.length > 0) {
+      try {
+        resolvedAttachments = await resolveAttachments(user_id, meta.attachments);
+        attachmentsFormatted = formatAttachmentsForAI(resolvedAttachments);
+        console.log('[ghoste-ai] Resolved', resolvedAttachments.length, 'attachments from media_assets');
+      } catch (error) {
+        console.error('[ghoste-ai] Failed to resolve attachments:', error);
+        // Continue without attachments - chat still works
+      }
+    }
+
     // Fetch recent operator insights (fail-safe)
     let operatorInsights: any[] = [];
     try {
@@ -801,8 +820,16 @@ export const handler: Handler = async (event) => {
       // Continue without operator insights - chat still works
     }
 
-    // Build system prompt with setup status, ads context, run ads context, and operator insights
-    const systemMessage = buildSystemPrompt(task, meta, setupStatus, adsContext, operatorInsights, runAdsContextFormatted);
+    // Build system prompt with setup status, ads context, run ads context, attachments, and operator insights
+    const systemMessage = buildSystemPrompt(
+      task,
+      meta,
+      setupStatus,
+      adsContext,
+      operatorInsights,
+      runAdsContextFormatted,
+      attachmentsFormatted
+    );
 
     // Build full messages array for OpenAI
     const fullMessages: Array<{ role: Role; content: string }> = [

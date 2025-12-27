@@ -427,19 +427,21 @@ export const handler: Handler = async (event) => {
       if (!resp.ok) return json(500, { error: "cover_art_failed", details: j });
 
       // Expect your function returns { image_url, storage_path, ... }
-      // Save to user_uploads so AI + ads + links can use it
+      // Save to media_assets so AI + ads + links can use it
       const imageUrl = j?.image_url || j?.public_url || null;
-      const storagePath = j?.storage_path || null;
+      const storagePath = j?.storage_path || j?.storage_key || null;
 
       if (imageUrl || storagePath) {
-        await supabase.from("user_uploads").insert([{
-          user_id: userId,
+        await supabase.from("media_assets").insert([{
+          owner_user_id: userId,
           kind: "image",
           filename: j?.filename || `cover-art-${Date.now()}.png`,
-          mime_type: "image/png",
+          mime: "image/png",
           public_url: imageUrl,
           storage_bucket: UPLOADS_BUCKET,
-          storage_path: storagePath,
+          storage_key: storagePath || `cover-art-${Date.now()}.png`,
+          size: j?.size || 0,
+          status: "ready",
         }]);
       }
 
@@ -469,9 +471,9 @@ export const handler: Handler = async (event) => {
     // -------------------------
     if (action === "list_uploads") {
       const { data, error } = await supabase
-        .from("user_uploads")
-        .select("id, filename, public_url, mime_type, kind, size_bytes, created_at")
-        .eq("user_id", userId)
+        .from("media_assets")
+        .select("id, filename, public_url, mime, kind, size, created_at")
+        .eq("owner_user_id", userId)
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -484,9 +486,9 @@ export const handler: Handler = async (event) => {
       if (!id) return json(400, { error: "missing_id" });
 
       const { data, error } = await supabase
-        .from("user_uploads")
+        .from("media_assets")
         .select("*")
-        .eq("user_id", userId)
+        .eq("owner_user_id", userId)
         .eq("id", id)
         .maybeSingle();
 

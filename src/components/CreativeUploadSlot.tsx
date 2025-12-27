@@ -77,18 +77,20 @@ export function CreativeUploadSlot({
         .from("ad-assets")
         .getPublicUrl(path);
 
-      // Register upload in user_uploads table for AI access
+      // Register upload in media_assets table for AI access
       try {
-        await supabase.from('user_uploads').insert({
-          user_id: userId,
+        await supabase.from('media_assets').insert({
+          owner_user_id: userId,
           kind: file.type.startsWith('video/') ? 'video' : 'image',
           filename: file.name,
-          mime_type: file.type,
+          mime: file.type,
           storage_bucket: 'ad-assets',
-          storage_path: data.path,
+          storage_key: data.path,
           public_url: publicData.publicUrl,
+          size: file.size,
+          status: 'ready',
         });
-        console.log('[CreativeUploadSlot] Registered in user_uploads');
+        console.log('[CreativeUploadSlot] Registered in media_assets');
       } catch (regErr) {
         console.error('[CreativeUploadSlot] Failed to register upload:', regErr);
       }

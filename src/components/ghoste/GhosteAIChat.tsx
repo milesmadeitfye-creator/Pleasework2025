@@ -1119,26 +1119,8 @@ export const GhosteAIChat: React.FC = () => {
 
                     console.log('[GhosteAIChat] Media asset ready:', info.media_asset_id);
 
-                    // Optional: Store in user_uploads for legacy compatibility
-                    try {
-                      await supabase
-                        .from('user_uploads')
-                        .insert({
-                          user_id: user.id,
-                          kind,
-                          filename: info.fileName,
-                          mime_type: info.type,
-                          public_url: info.url,
-                          storage_bucket: 'uploads',
-                          storage_path: info.path,
-                          size_bytes: info.size || 0,
-                        })
-                        .select('id')
-                        .maybeSingle();
-                    } catch (err) {
-                      console.warn('[GhosteAIChat] Legacy user_uploads insert failed:', err);
-                      // Non-fatal - media_assets is the source of truth
-                    }
+                    // Media asset already stored in media_assets table
+                    // No need for legacy user_uploads compatibility
                   }}
                 />
               </div>

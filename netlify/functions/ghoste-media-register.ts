@@ -74,25 +74,27 @@ export const handler: Handler = async (event) => {
 
     const bucket = path.split('/').length > 1 ? 'uploads' : 'uploads';
 
-    // Insert into user_uploads table (new index for AI access)
+    // Insert into media_assets table (canonical storage for AI access)
     const { data: uploadRecord, error: uploadError } = await supabase
-      .from('user_uploads')
+      .from('media_assets')
       .insert({
-        user_id: userId,
-        kind: type === 'video' ? 'video' : type === 'image' ? 'image' : type === 'audio' ? 'audio' : 'document',
+        owner_user_id: userId,
+        kind: type === 'video' ? 'video' : type === 'image' ? 'image' : type === 'audio' ? 'audio' : 'file',
         filename: fileName,
-        mime_type: mimeType,
+        mime: mimeType,
         storage_bucket: bucket,
-        storage_path: path,
+        storage_key: path,
         public_url: url,
+        size: size,
+        status: 'ready',
       })
       .select()
       .maybeSingle();
 
     if (uploadError) {
-      console.error('[ghoste-media-register] user_uploads insert error:', uploadError);
+      console.error('[ghoste-media-register] media_assets insert error:', uploadError);
     } else {
-      console.log('[ghoste-media-register] Created user_uploads record:', uploadRecord?.id);
+      console.log('[ghoste-media-register] Created media_assets record:', uploadRecord?.id);
     }
 
     // Insert into ghoste_media_assets table (optional - don't block on failure)
