@@ -45,6 +45,14 @@ function useDisplayName() {
 
     const fetchDisplayName = async () => {
       try {
+        // Guard: Check if supabase is configured
+        if (!supabase) {
+          console.warn('[Overview] Supabase not configured, using fallback name');
+          const fallback = user.email?.split('@')[0] || 'there';
+          setDisplayName(fallback);
+          return;
+        }
+
         // Only fetch display_name to avoid column dependency issues
         const { data: profile, error } = await supabase
           .from('user_profiles')
@@ -151,6 +159,13 @@ export default function OverviewPage() {
   const loadOverviewData = async () => {
     if (!user) {
       setUiError('No user session found. Please sign in again.');
+      return;
+    }
+
+    // Guard: Check if supabase is configured
+    if (!supabase) {
+      console.warn('[Overview] Supabase not configured. Showing empty dashboard.');
+      setUiError('Database not configured. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Netlify env.');
       return;
     }
 

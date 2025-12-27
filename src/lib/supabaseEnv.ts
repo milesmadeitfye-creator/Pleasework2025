@@ -72,14 +72,28 @@ export const hasServiceRoleKey = SUPABASE_SERVICE_ROLE_KEY.length > 10;
 
 /**
  * Log configuration status safely
+ * CRITICAL: Logs different vars for browser vs server to avoid false warnings
  */
 export function logSupabaseEnv(prefix: string = '[Supabase Env]'): void {
-  const context = typeof window !== 'undefined' ? 'browser' : 'server';
-  console.log(
-    `${prefix} ${context} | configured=${hasSupabaseEnv} | ` +
-    `urlLen=${SUPABASE_URL.length} | anonLen=${SUPABASE_ANON_KEY.length} | ` +
-    `serviceLen=${SUPABASE_SERVICE_ROLE_KEY.length}`
-  );
+  const isBrowser = typeof window !== 'undefined';
+  const context = isBrowser ? 'browser' : 'server';
+
+  if (isBrowser) {
+    // Browser only cares about VITE_ vars
+    console.log(
+      `${prefix} ${context} | configured=${hasSupabaseEnv} | ` +
+      `VITE_SUPABASE_URL=${SUPABASE_URL.length}ch | ` +
+      `VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY.length}ch`
+    );
+  } else {
+    // Server cares about SUPABASE_ vars (with or without VITE_ prefix)
+    console.log(
+      `${prefix} ${context} | configured=${hasSupabaseEnv} | ` +
+      `urlLen=${SUPABASE_URL.length} | anonLen=${SUPABASE_ANON_KEY.length} | ` +
+      `serviceKeyLen=${SUPABASE_SERVICE_ROLE_KEY.length} | ` +
+      `hasServiceRole=${hasServiceRoleKey}`
+    );
+  }
 }
 
 // Log once on import
