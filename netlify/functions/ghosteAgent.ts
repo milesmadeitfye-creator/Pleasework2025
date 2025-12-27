@@ -472,8 +472,41 @@ export const handler: Handler = async (event) => {
           ? `\nAd Destination: ${destinationUrl}`
           : '\nAd Destination: Not configured (user should create smart link or set default_ad_destination_url)';
 
+        // Build RAW JSON for AI to parse directly
+        const rawSetupStatus = {
+          adAccountId: adAccountId || null,
+          pageId: pageId || null,
+          pixelId: pixelId || null,
+          destinationUrl: destinationUrl || null,
+          instagramAccounts: instagramAccounts.map((ig: any) => ({
+            instagramActorId: ig.id,
+            instagramId: ig.id,
+            instagramUsername: ig.username,
+          })),
+          defaultInstagramId: instagramAccounts[0]?.id || null,
+          smartLinksCount: setupStatus.smart_links_count || 0,
+          smartLinks: (setupStatus.smart_links_preview || []).map((link: any) => ({
+            id: link.id,
+            title: link.title,
+            slug: link.slug,
+            url: `https://ghoste.one/s/${link.slug}`,
+            destinationUrl: link.destination_url,
+          })),
+          metaConnected: hasResolvedAssets,
+          sourceTable: sourceTable,
+        };
+
         setupStatusText = `
 === AUTHORITATIVE SETUP STATUS (NEVER CONTRADICT THIS) ===
+
+RAW setupStatus (authoritative - use these exact values when answering):
+\`\`\`json
+${JSON.stringify(rawSetupStatus, null, 2)}
+\`\`\`
+
+🚨 CRITICAL: When user asks "What is my Meta setup status?", you MUST print these exact values above.
+DO NOT say "I cannot call RPCs" or "no data available" - the data is RIGHT HERE in this context.
+
 Meta Assets Available: ${hasResolvedAssets ? 'YES' : 'NO'}
 Source: ${sourceTable}
 ${metaDetails}
@@ -484,8 +517,10 @@ CRITICAL: This is the AUTHORITATIVE truth.
 - Meta assets available = ${hasResolvedAssets} (DO NOT contradict this)
 - If assets available = YES, user CAN create ads (even if source is profile_fallback)
 - NEVER claim "not connected" if assets are available from ANY source
+- NEVER say "I cannot call RPCs" - setupStatus is RIGHT HERE in this context
 - Destination URL = ${destinationUrl ? 'available' : 'missing'}
 - If destination missing, suggest creating smart link or setting profile default
+- When user asks about Meta setup, cite the RAW setupStatus JSON above
 `;
       } else {
         console.warn('[ghosteAgent] Setup status RPC failed:', setupError);
