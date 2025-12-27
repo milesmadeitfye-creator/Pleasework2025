@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, FileText, Users, Check, Trash2, MessageSquare, Download, DollarSign, TrendingUp, X } from 'lucide-react';
 import Toast from './Toast';
+import { ROUTES } from '../lib/routes';
 
 interface Negotiation {
   id: string;
@@ -341,25 +342,20 @@ export default function SplitNegotiations() {
         console.log('[SplitNegotiations] Negotiation created successfully:', result);
         setToast({ message: 'Split negotiation created successfully!', type: 'success' });
 
-        // Redirect to the open negotiation view
-        if (result.negotiation?.id) {
-          navigate(`/splits/${result.negotiation.id}`);
-        } else {
-          // Fallback: close modal and refresh list
-          if (result.negotiation) {
-            setNegotiations((prev) => [result.negotiation, ...prev]);
-          }
-          setFormData(prev => ({
-            ...prev,
-            project_name: '',
-            beat_fee: '',
-            master_rights_pct: '100',
-            publishing_rights_pct: '0',
-            collaborator_emails: '',
-          }));
-          setInlineParticipants([]);
-          setShowModal(false);
+        // Close modal and refresh list
+        if (result.negotiation) {
+          setNegotiations((prev) => [result.negotiation, ...prev]);
         }
+        setFormData(prev => ({
+          ...prev,
+          project_name: '',
+          beat_fee: '',
+          master_rights_pct: '100',
+          publishing_rights_pct: '0',
+          collaborator_emails: '',
+        }));
+        setInlineParticipants([]);
+        setShowModal(false);
       }
     } catch (err: any) {
       console.error('[SplitNegotiations] Unexpected error:', err);
@@ -1107,7 +1103,7 @@ export default function SplitNegotiations() {
                     View Thread / Offers
                   </button>
                   <button
-                    onClick={() => navigate(`/splits/${negotiation.id}`)}
+                    onClick={() => openMessagesModal(negotiation)}
                     className="px-4 py-2 bg-green-900/20 text-green-400 border border-green-700 hover:bg-green-900/30 rounded-lg transition-colors flex items-center gap-2"
                   >
                     <FileText className="w-4 h-4" />

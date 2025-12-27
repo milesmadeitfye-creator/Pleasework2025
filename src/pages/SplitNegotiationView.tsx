@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase.client';
 import { ArrowLeft, Check, X, FileText, Plus, Edit2, Trash2, Download } from 'lucide-react';
+import { ROUTES } from '../lib/routes';
 
 interface Negotiation {
   id: string;
@@ -314,7 +315,7 @@ export default function SplitNegotiationView() {
         setCompleting(false);
       } else {
         alert('Negotiation completed successfully!');
-        navigate('/split-negotiations');
+        navigate(ROUTES.studioSplits);
       }
     } catch (err) {
       console.error('Finalize error:', err);
@@ -342,7 +343,7 @@ export default function SplitNegotiationView() {
           <h2 className="text-2xl font-bold mb-2">Negotiation Not Found</h2>
           <p className="text-gray-400 mb-6">{error || 'The negotiation you are looking for does not exist.'}</p>
           <button
-            onClick={() => navigate('/split-negotiations')}
+            onClick={() => navigate(ROUTES.studioSplits)}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -359,7 +360,7 @@ export default function SplitNegotiationView() {
         {/* Header */}
         <div className="mb-6">
           <button
-            onClick={() => navigate('/split-negotiations')}
+            onClick={() => navigate(ROUTES.studioSplits)}
             className="text-gray-400 hover:text-white transition-colors inline-flex items-center gap-2 mb-4"
           >
             <ArrowLeft className="w-4 h-4" />

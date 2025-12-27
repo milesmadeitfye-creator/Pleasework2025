@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase.client';
 import { FileText, Download, ArrowLeft } from 'lucide-react';
+import { ROUTES } from '../lib/routes';
 
 interface Negotiation {
   id: string;
@@ -124,7 +125,7 @@ export default function ContractReview() {
           <h2 className="text-2xl font-bold mb-2">Contract Not Found</h2>
           <p className="text-gray-400 mb-6">{error || 'The split sheet you are looking for does not exist.'}</p>
           <button
-            onClick={() => navigate('/split-negotiations')}
+            onClick={() => navigate(ROUTES.studioSplits)}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -141,7 +142,7 @@ export default function ContractReview() {
         {/* Header */}
         <div className="mb-6">
           <button
-            onClick={() => navigate('/split-negotiations')}
+            onClick={() => navigate(ROUTES.studioSplits)}
             className="text-gray-400 hover:text-white transition-colors inline-flex items-center gap-2 mb-4"
           >
             <ArrowLeft className="w-4 h-4" />
