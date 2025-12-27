@@ -32,6 +32,24 @@ const BUILD_STAMP = `DEPLOY_${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
 const supabase = getSupabaseAdminClient();
 
+/**
+ * Single source of truth for extracting Meta setup fields from setupStatus
+ * Handles both flat and nested structures returned by RPC/normalization
+ */
+function pickSetupFields(setupStatus: any) {
+  const ss = setupStatus || {};
+  const flat = ss.flat || ss;               // important: sometimes setupStatus is already flat
+  const resolved = ss.resolved || {};
+  return {
+    adAccountId: resolved.ad_account_id ?? flat.adAccountId ?? null,
+    pageId: resolved.page_id ?? flat.pageId ?? null,
+    pixelId: resolved.pixel_id ?? flat.pixelId ?? null,
+    destinationUrl: resolved.destination_url ?? flat.destinationUrl ?? null,
+    instagramActorId: resolved.instagram_actor_id ?? flat.instagramActorId ?? null,
+    instagramUsername: resolved.instagram_username ?? flat.instagramUsername ?? null
+  };
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY!
 });
@@ -424,6 +442,14 @@ export const handler: Handler = async (event) => {
         // DEBUG MODE: Return setup status immediately without calling OpenAI
         if (debug) {
           console.log('[ghosteAgent] Debug mode enabled - returning setupStatus without OpenAI call');
+
+          // Use canonical field picker to show what will be used for output
+          const pickedFields = pickSetupFields(setupStatus);
+          const connected = Boolean(pickedFields.adAccountId && pickedFields.pageId && pickedFields.pixelId);
+
+          console.log('[ghosteAgent] Picked fields from setupStatus:', pickedFields);
+          console.log('[ghosteAgent] Connected status:', connected);
+
           return {
             statusCode: 200,
             headers: getCorsHeaders(),
@@ -433,6 +459,11 @@ export const handler: Handler = async (event) => {
               setupStatus: setupStatus,
               debug: true,
               message: 'Debug mode - setup status fetched successfully',
+              // Show what fields were picked for printing
+              pickedFields: {
+                ...pickedFields,
+                connected
+              },
               // Include key fields for quick verification
               verification: {
                 has_meta: setupStatus.meta?.has_meta,
@@ -781,24 +812,24 @@ CRITICAL: This is the AUTHORITATIVE truth.
       'When user asks about Meta setup, these are the EXACT values to report:',
       '',
       ...((() => {
-        const ss = setupStatus ?? {};
-        // Use resolved fields first, then fall back to flat fields
-        const adAccountId = ss.resolved?.ad_account_id ?? ss.adAccountId ?? null;
-        const pageId = ss.resolved?.page_id ?? ss.pageId ?? null;
-        const pixelId = ss.resolved?.pixel_id ?? ss.pixelId ?? null;
-        const destinationUrl = ss.resolved?.destination_url ?? ss.destinationUrl ?? null;
-        const instagramActorId = ss.resolved?.instagram_actor_id ?? ss.instagramActorId ?? null;
-        const instagramUsername = ss.resolved?.instagram_username ?? ss.instagramUsername ?? null;
-        const connected = Boolean(adAccountId && pageId && pixelId);
+        // Use canonical field picker to extract fields
+        const fields = pickSetupFields(setupStatus);
+        const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
+
+        console.log('[ghosteAgent] System prompt - picked fields:', fields);
+        console.log('[ghosteAgent] System prompt - connected:', connected);
 
         const lines: string[] = [];
-        lines.push(`adAccountId: ${adAccountId || 'null'}`);
-        lines.push(`pageId: ${pageId || 'null'}`);
-        lines.push(`pixelId: ${pixelId || 'null'}`);
-        lines.push(`destinationUrl: ${destinationUrl || 'null'}`);
-        lines.push(`instagramActorId: ${instagramActorId || 'null'}`);
-        lines.push(`instagramUsername: ${instagramUsername || 'null'}`);
+        lines.push(`adAccountId: ${fields.adAccountId || 'null'}`);
+        lines.push(`pageId: ${fields.pageId || 'null'}`);
+        lines.push(`pixelId: ${fields.pixelId || 'null'}`);
+        lines.push(`destinationUrl: ${fields.destinationUrl || 'null'}`);
+        lines.push(`instagramActorId: ${fields.instagramActorId || 'null'}`);
+        lines.push(`instagramUsername: ${fields.instagramUsername || 'null'}`);
         lines.push(`connected: ${connected}`);
+        lines.push('');
+        lines.push('MetaSetup JSON (use this when answering):');
+        lines.push(JSON.stringify({ connected, ...fields }, null, 2));
         lines.push('');
         lines.push('🚨 CRITICAL: When user asks "What is my Meta setup status?" or similar,');
         lines.push('you MUST reply with these EXACT values above. DO NOT say "null" if values are present.');
@@ -2068,29 +2099,25 @@ CRITICAL: This is the AUTHORITATIVE truth.
           console.log('[ghosteAgent] 📊 Handling get_meta_setup_status');
 
           try {
-            // Use the same setupStatus that was fetched and normalized earlier
-            const ss = setupStatus ?? {};
-            // Use resolved fields first, then fall back to flat fields
-            const adAccountId = ss.resolved?.ad_account_id ?? ss.adAccountId ?? null;
-            const pageId = ss.resolved?.page_id ?? ss.pageId ?? null;
-            const pixelId = ss.resolved?.pixel_id ?? ss.pixelId ?? null;
-            const destinationUrl = ss.resolved?.destination_url ?? ss.destinationUrl ?? null;
-            const instagramActorId = ss.resolved?.instagram_actor_id ?? ss.instagramActorId ?? null;
-            const instagramUsername = ss.resolved?.instagram_username ?? ss.instagramUsername ?? null;
-            const connected = Boolean(adAccountId && pageId && pixelId);
+            // Use canonical field picker to extract fields
+            const fields = pickSetupFields(setupStatus);
+            const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
+
+            console.log('[ghosteAgent] Tool handler - picked fields:', fields);
+            console.log('[ghosteAgent] Tool handler - connected:', connected);
 
             const response = {
               ok: true,
               connected,
-              adAccountId,
-              pageId,
-              pixelId,
-              destinationUrl,
-              instagramActorId,
-              instagramUsername,
-              source: ss.meta?.source_table || 'unknown',
+              adAccountId: fields.adAccountId,
+              pageId: fields.pageId,
+              pixelId: fields.pixelId,
+              destinationUrl: fields.destinationUrl,
+              instagramActorId: fields.instagramActorId,
+              instagramUsername: fields.instagramUsername,
+              source: (setupStatus as any)?.meta?.source_table || 'unknown',
               message: connected
-                ? `Meta is connected via ${ss.meta?.source_table || 'unknown'} source`
+                ? `Meta is connected via ${(setupStatus as any)?.meta?.source_table || 'unknown'} source`
                 : 'Meta is not connected - user needs to connect in Profile settings'
             };
 
