@@ -3,7 +3,7 @@
  * Generates a structured release plan without committing to calendar/campaigns
  */
 
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export interface ReleaseAction {
   phase: string;

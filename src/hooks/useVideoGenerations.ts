@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 
 export type VideoGeneration = {

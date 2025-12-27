@@ -1,6 +1,6 @@
 // Shared media upload helper for Ghoste Studio and other features
 // Uploads files to Supabase Storage and returns public URL
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export interface UploadMediaOptions {
   file: File;

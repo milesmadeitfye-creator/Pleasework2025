@@ -1,22 +1,18 @@
-import { createClient } from '@supabase/supabase-js';
+/**
+ * Client-only Supabase export.
+ * This file MUST NOT be imported by Netlify Functions.
+ *
+ * DEPRECATION NOTICE:
+ * Use explicit imports instead:
+ * - Frontend: import from '@/lib/supabase.client'
+ * - Functions: import from './_lib/supabase.server'
+ */
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
+if (typeof window === 'undefined') {
   throw new Error(
-    '[Supabase Client] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. ' +
-    'Check Netlify env vars and Vite build config. ' +
-    'This will cause "Meta connected but not connected" bugs.'
+    '[CLIENT] src/lib/supabase.ts was imported in a server context. ' +
+    'Use netlify/functions/_lib/supabase.server.ts instead.'
   );
 }
 
-console.log('[Supabase Client] Connected to:', supabaseUrl);
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-});
+export { supabase } from './supabase.client';

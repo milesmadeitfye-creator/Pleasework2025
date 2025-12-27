@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Link2, Plus, Calendar, Target, ExternalLink, Copy, Trash2 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 

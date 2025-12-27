@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/lib/supabase.client";
 
 export type MetaCredentials = {
   user_id: string;

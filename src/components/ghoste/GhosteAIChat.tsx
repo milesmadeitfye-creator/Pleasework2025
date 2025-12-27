@@ -19,7 +19,7 @@ import {
   Bug,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { ghosteChat } from '../../lib/ghosteAI/edgeClient';
 import type { GhosteConversation, GhosteMessage } from '../../types/conversation';
 import { GhosteMediaUploader } from '../manager/GhosteMediaUploader';

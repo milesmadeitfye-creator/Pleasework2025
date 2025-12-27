@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from './Toast';
 import { uploadFileWithProgress } from '../lib/fileUpload';
 import { ProActionButton } from './ProGate';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 type LinkType = 'smart' | 'oneclick' | 'email-capture' | 'presave';
 

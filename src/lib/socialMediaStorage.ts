@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 const SOCIAL_MEDIA_BUCKET = 'social_posts';
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle } from 'lucide-react';
 import { safeToFixed, safeNumber } from '../utils/numbers';

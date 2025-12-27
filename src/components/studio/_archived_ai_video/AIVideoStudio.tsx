@@ -14,7 +14,7 @@ import {
   Download,
   Zap,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 
 type AIVideo = {

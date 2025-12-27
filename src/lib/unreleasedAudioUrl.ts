@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 import { UNRELEASED_BUCKET } from '../config/storage';
 
 export interface UnreleasedTrack {

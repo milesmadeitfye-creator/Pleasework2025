@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Music2, CheckCircle2, X } from 'lucide-react';
 import { useLocation, useSearchParams, useNavigate } from 'react-router-dom';
 import AnimatedBackground from './AnimatedBackground';

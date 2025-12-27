@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, AlertCircle, TrendingUp, MessageCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { actionCoachingRules, type ActionCoaching } from '../../lib/tourContent';

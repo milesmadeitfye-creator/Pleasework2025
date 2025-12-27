@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { RefreshCw, TrendingUp, Users, Search, Music } from 'lucide-react';
 import { AnalyticsKpiCard } from '../components/analytics/AnalyticsKpiCard';

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { getMailchimpConnectionForUser } from '../lib/integrations/mailchimp';
 import { MailchimpListSelector } from '../components/MailchimpListSelector';
 import { ProGate } from '../components/ProGate';

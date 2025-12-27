@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Sparkles, TrendingUp, Calendar, Link2, Target, Music, Users, RefreshCw } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 interface Suggestion {
   id: string;

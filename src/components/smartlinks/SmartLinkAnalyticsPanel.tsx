@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../../lib/supabase";
+import { supabase } from "@/lib/supabase.client";
 
 type RollupRow = {
   id: string;

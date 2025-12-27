@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 /**
  * Gets Google OAuth tokens from the current Supabase session

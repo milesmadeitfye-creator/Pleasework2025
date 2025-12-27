@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Bug, X, Copy, CheckCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 interface AIDebugPanelProps {
   isOpen: boolean;

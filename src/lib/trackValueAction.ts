@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export type ValueAction =
   | 'smart_link_created'

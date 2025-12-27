@@ -4,7 +4,7 @@
  * Each action wrapped in try/catch for resilience
  */
 
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export interface CommitResult {
   action_id: string;

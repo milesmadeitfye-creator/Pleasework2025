@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import { StripeProduct } from '../stripe-config';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 interface ProductCardProps {
   product: StripeProduct;

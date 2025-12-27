@@ -18,7 +18,7 @@ import {
 } from "../lib/diagnostics";
 import { getWebSocketStatus } from "../lib/ws";
 import { getEnvFlags } from "../lib/safeEnv";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/lib/supabase.client";
 
 type FilterType = "all" | "errors" | "warnings" | "network" | "supabase" | "ws";
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, TrendingUp, DollarSign, Eye, MousePointer, X, Sparkles, Loader2, Edit, Copy, Save, RotateCw } from 'lucide-react';
 import { useToast } from './Toast';

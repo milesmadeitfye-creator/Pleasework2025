@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Calendar, CheckCircle, AlertCircle, Clock, Trash2, Upload, X, Image as ImageIcon, Video, TestTube, Edit } from 'lucide-react';
 import { uploadSocialMediaFile, getSocialMediaFileUrl } from '../lib/socialMediaStorage';

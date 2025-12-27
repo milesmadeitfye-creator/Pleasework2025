@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Check, Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export default function CheckoutSuccess() {
   const [searchParams] = useSearchParams();

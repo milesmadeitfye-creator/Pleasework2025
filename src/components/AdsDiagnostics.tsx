@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertCircle, CheckCircle, XCircle, RefreshCw, Activity } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { formatUSD } from '../utils/formatCredits';
 

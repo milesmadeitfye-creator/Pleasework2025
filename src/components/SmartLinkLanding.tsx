@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Music, ExternalLink } from 'lucide-react';
 import { getMetaCookies } from '../lib/metaCookies';
 import { trackSmartLinkEvent } from '../lib/smartlinkSession';

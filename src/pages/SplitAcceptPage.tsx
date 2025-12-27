@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { FileText, Check, AlertCircle, Loader } from 'lucide-react';
 
 interface Participant {

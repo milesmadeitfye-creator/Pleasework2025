@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { FileText, Download, ArrowLeft } from 'lucide-react';
 
 interface Negotiation {

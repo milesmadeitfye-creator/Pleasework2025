@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase } from '@/lib/supabase.client'
 import { Eye, EyeOff, Mail, Lock, Facebook } from 'lucide-react'
 import { trackCompleteRegistration } from '../lib/ownerMetaPixel'
 import { getConfirmRedirectUrl } from '../lib/authRedirect'

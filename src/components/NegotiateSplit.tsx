@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Check, X, ArrowRight, FileText, Download } from 'lucide-react';
 
 interface Participant {

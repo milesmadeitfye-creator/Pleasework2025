@@ -5,7 +5,7 @@
  * Uses isolated HTTP endpoint, no WebSockets.
  */
 
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export interface MetaPingResult {
   ok: boolean;

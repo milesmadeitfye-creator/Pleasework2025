@@ -5,7 +5,7 @@
  * Displays fan contacts, Mailchimp connection status, and sync/import actions
  */
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, Mail, MessageSquare, Users, Send, Trash2, Settings, RefreshCw, Check, AlertCircle, Download, Sparkles, TrendingUp } from 'lucide-react';
 import { getMailchimpConnectionForUser, MailchimpConnection } from '../lib/integrations/mailchimp';

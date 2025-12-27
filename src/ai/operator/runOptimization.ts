@@ -3,7 +3,7 @@
  * Uses rule-based logic (no LLM) to suggest improvements
  */
 
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { getManagerContext, type ManagerContext } from '../context/getManagerContext';
 
 export interface ProposedAction {

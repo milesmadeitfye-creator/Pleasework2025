@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Mail, Check, AlertCircle } from 'lucide-react';
 import { trackLead } from '../lib/ownerMetaPixel';
 

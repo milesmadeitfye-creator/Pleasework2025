@@ -6,7 +6,7 @@
  * DO NOT use meta.connected or tracking.smartLinksCount for connection decisions
  */
 
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export interface SetupStatusInput {
   meta: {

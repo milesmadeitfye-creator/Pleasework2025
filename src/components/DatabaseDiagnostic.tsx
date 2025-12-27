@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { CheckCircle, XCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export default function DatabaseDiagnostic() {

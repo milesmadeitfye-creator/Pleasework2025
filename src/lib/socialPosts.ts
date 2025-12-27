@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export type SocialPostType = 'standard' | 'story' | 'short' | 'carousel';
 export type SocialPostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed';

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Upload, Music, Lock, Globe, Check, Trash2, Eye, Link2, ExternalLink, Play } from 'lucide-react';
 import { uploadFileWithProgress } from '../lib/fileUpload';

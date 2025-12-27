@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { User, Mail, Calendar, CreditCard, AlertTriangle, Check, X, Phone, Shield, Wrench } from 'lucide-react';
 import { useToast } from './Toast';
 import PhoneInput from './common/PhoneInput';

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Activity, AlertCircle, CheckCircle, Clock, Database, RefreshCw } from 'lucide-react';
 import { getManagerContext } from '../../ai/context/getManagerContext';
 import type { ManagerContext, SetupStatusInput } from '../../ai/context/getManagerContext';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 interface AdsDataStatusProps {
   userId: string;

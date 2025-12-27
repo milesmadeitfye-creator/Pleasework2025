@@ -5,7 +5,7 @@
  * where invalid refresh tokens cause cascading "Load failed" errors.
  */
 
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 /**
  * Handle fatal auth errors that require re-authentication

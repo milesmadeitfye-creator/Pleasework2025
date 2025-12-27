@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Calendar, MapPin, Clock, Ticket, Info, ExternalLink } from 'lucide-react';
 import type { ShowLinkConfig } from '../types/links';
 

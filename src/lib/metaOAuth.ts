@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 export const META_OAUTH_SCOPES = [
   'public_profile',

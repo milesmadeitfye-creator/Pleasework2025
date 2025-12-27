@@ -6,7 +6,7 @@ import { Calendar, Clock, CheckCircle, Plus, X, ExternalLink, RefreshCw, Sparkle
 import { fetchTasks, completeTask, Task } from '../lib/tasks';
 import { fetchUpcomingEvents, GhosteCalendarEvent } from '../lib/googleCalendar';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { getCategoryStyle } from '../lib/calendarCategories';
 import { listCalendarEvents, CalendarEvent } from '../lib/calendarApi';
 

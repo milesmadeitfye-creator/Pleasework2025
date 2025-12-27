@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Navigate, useSearchParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Music, Calendar, ExternalLink } from 'lucide-react';
 import ShowLinkLanding from '../pages/ShowLinkLanding';
 import BioLinkLanding from '../pages/BioLinkLanding';

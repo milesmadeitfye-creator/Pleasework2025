@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Calendar, Music, ExternalLink, Mail } from 'lucide-react';
 import type { PreSaveLinkConfig } from '../types/links';
 

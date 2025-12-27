@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 import { isDevWalletOverride } from './devWalletOverride';
 
 export type BudgetType = 'MANAGER' | 'TOOLS';

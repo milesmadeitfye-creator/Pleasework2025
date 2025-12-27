@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, CheckCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocation } from 'react-router-dom';
 import { contextualGuides, type ContextualGuide as ContextualGuideType } from '../../lib/tourContent';

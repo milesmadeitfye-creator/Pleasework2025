@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Calendar, Clock, ArrowRight, ExternalLink } from 'lucide-react';
 import { fetchTasks } from '../../lib/tasks';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useConnectionStatus } from '../../hooks/useConnectionStatus';
 
 type ScheduleItem = {

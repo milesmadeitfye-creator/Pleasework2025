@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Check, Zap, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import * as ownerMetaPixel from '../lib/ownerMetaPixel';
 import { PLANS, type PlanId } from '../lib/plans';
 

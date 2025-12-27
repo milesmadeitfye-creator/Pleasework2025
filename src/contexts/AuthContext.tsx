@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, AuthError } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { trackCompleteRegistration } from '../lib/ownerMetaPixel';
 import { getConfirmRedirectUrl } from '../lib/authRedirect';
 import { buildDefaultOnboardingSchedule } from '../lib/scheduler/onboarding';

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { uploadMedia } from '../../lib/uploadMedia';
 

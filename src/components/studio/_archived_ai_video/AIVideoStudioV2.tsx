@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Video, Loader2, Play, Clock, CheckCircle, XCircle, Sparkles, RefreshCw, Film, AlertCircle } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { useVideoGenerations } from '../../hooks/useVideoGenerations';
 import { PromptMaker } from './PromptMaker';

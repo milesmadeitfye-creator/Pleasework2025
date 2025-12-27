@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, ExternalLink, Copy, BarChart3, Trash2, Edit2, Link2 } from 'lucide-react';
 import { useToast } from './Toast';

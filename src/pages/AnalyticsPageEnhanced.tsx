@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/lib/supabase.client";
 import { RefreshCw, Search, TrendingUp, Users, Music, Play, Heart, Eye, Sparkles, MousePointerClick, ExternalLink, Bug } from "lucide-react";
 import { fetchSongstatsAnalytics } from "../services/analytics/songstatsClient";
 import { buildGhosteAnalyticsView } from "../services/analytics/songstatsAdapter";

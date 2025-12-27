@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { Music, Lock, Play, Pause, Eye } from 'lucide-react';
 import { getUnreleasedAudioUrl } from '../lib/supabase/getUnreleasedAudioUrl';
 

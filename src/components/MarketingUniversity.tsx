@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { GraduationCap, Play, CheckCircle, Clock, BookOpen, Award, TrendingUp, Target, Mail, BarChart3 } from 'lucide-react';
 

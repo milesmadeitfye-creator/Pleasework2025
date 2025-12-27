@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { CheckCircle, XCircle, Trash2, Users, Building, TrendingUp, Instagram, Facebook, RefreshCw, Music, Calendar, Sparkles, AlertCircle, X as CloseIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';

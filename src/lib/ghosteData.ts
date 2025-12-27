@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabase } from "@/lib/supabase.client";
 
 export async function loadBio(userId: string) {
   const { data, error } = await supabase

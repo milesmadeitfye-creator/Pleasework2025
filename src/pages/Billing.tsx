@@ -3,7 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { CheckCircle, X, CreditCard, Check, Loader2, ExternalLink } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { trackMetaEvent } from '../lib/metaTrack';
-import { supabase } from '../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 
 type BillingStatus = 'loading' | 'free' | 'pro';
 

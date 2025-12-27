@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { FEATURE_COSTS } from '../../lib/wallet';
 import { Wallet, TrendingUp, Zap, Sparkles, Crown, ArrowLeftRight, X } from 'lucide-react';
 import { useUserProfile } from '../../hooks/useUserProfile';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../hooks/useAuth';
 import { isDevWalletOverride } from '../../lib/devWalletOverride';
 import { formatCredits as formatCreditsUtil } from '../../utils/formatCredits';

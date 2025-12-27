@@ -1,5 +1,5 @@
 import type { PlanId } from './plans';
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase.client';
 
 /**
  * Start Stripe checkout for a subscription plan
