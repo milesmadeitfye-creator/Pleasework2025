@@ -72,6 +72,9 @@ const TokensSuccessPage = lazyWithRecovery(() => import('./pages/TokensSuccessPa
 // Billing pages
 const SubscriptionsPage = lazyWithRecovery(() => import('./pages/SubscriptionsPage'));
 
+// Settings page
+const Settings = lazyWithRecovery(() => import('./pages/Settings'));
+
 // 404 page
 const AppNotFound = lazyWithRecovery(() => import('./components/AppNotFound'));
 
@@ -286,8 +289,17 @@ function App() {
             element={<Navigate to="/studio/automation-logs" replace />}
           />
 
-          {/* Settings redirect to profile */}
-          <Route path="/settings" element={<Navigate to="/profile/overview" replace />} />
+          {/* Protected Settings */}
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <Settings />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
 
           {/* Protected Studio Routes */}
           <Route
