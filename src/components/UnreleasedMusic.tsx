@@ -1,12 +1,15 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
-import { Upload, Music, Lock, Globe, Check, Trash2, Eye, Link2, ExternalLink, Play } from 'lucide-react';
+import { Upload, Music, Lock, Globe, Check, Trash2, X } from 'lucide-react';
 import { uploadFileWithProgress } from '../lib/fileUpload';
 import { ProActionButton } from './ProGate';
 import { useToast } from './Toast';
 import { UNRELEASED_AUDIO_BUCKET } from '../config/storage';
 import { getUnreleasedAudioUrl } from '../lib/supabase/getUnreleasedAudioUrl';
+import { TrackCard } from './unreleased/TrackCard';
+import { TrackDetailsPanel } from './unreleased/TrackDetailsPanel';
+import { StudioToolbar } from './unreleased/StudioToolbar';
 
 interface UnreleasedTrack {
   id: string;
@@ -31,6 +34,14 @@ export default function UnreleasedMusic() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'meta_ready' | 'draft'>('all');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'name'>('newest');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    return (localStorage.getItem('unreleased_view_mode') as 'grid' | 'list') || 'grid';
+  });
 
   const [formData, setFormData] = useState({
     title: '',
@@ -53,6 +64,10 @@ export default function UnreleasedMusic() {
     }
   }, [user]);
 
+  useEffect(() => {
+    localStorage.setItem('unreleased_view_mode', viewMode);
+  }, [viewMode]);
+
   const fetchTracks = async () => {
     setLoading(true);
     const { data } = await supabase
@@ -72,6 +87,39 @@ export default function UnreleasedMusic() {
     }
     setLoading(false);
   };
+
+  const filteredAndSortedTracks = useMemo(() => {
+    let result = [...tracks];
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      result = result.filter(
+        (track) =>
+          track.title.toLowerCase().includes(term) ||
+          track.artist_name.toLowerCase().includes(term)
+      );
+    }
+
+    if (activeFilter === 'meta_ready') {
+      result = result.filter((track) => track.audioUrl && track.cover_art_url && track.share_link);
+    } else if (activeFilter === 'draft') {
+      result = result.filter((track) => !track.audioUrl || !track.cover_art_url);
+    }
+
+    if (sortBy === 'newest') {
+      result.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    } else if (sortBy === 'oldest') {
+      result.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } else if (sortBy === 'name') {
+      result.sort((a, b) => a.title.localeCompare(b.title));
+    }
+
+    return result;
+  }, [tracks, searchTerm, activeFilter, sortBy]);
+
+  const selectedTrack = useMemo(() => {
+    return tracks.find((t) => t.id === selectedTrackId) || null;
+  }, [tracks, selectedTrackId]);
 
   const generateSlug = (title: string) => {
     const baseSlug = title
@@ -100,7 +148,6 @@ export default function UnreleasedMusic() {
       const ext = audioFile.name.split('.').pop() || 'mp3';
       const audioPath = `${user.id}/unreleased/${Date.now()}_${audioFile.name}`;
 
-      // Upload audio with progress
       const audioStoragePath = await uploadFileWithProgress({
         bucket: UNRELEASED_AUDIO_BUCKET,
         file: audioFile,
@@ -108,7 +155,6 @@ export default function UnreleasedMusic() {
         onProgress: setAudioUploadProgress,
       });
 
-      // Upload cover art if provided
       let coverArtStoragePath: string | null = null;
       if (coverArtFile) {
         const coverExt = coverArtFile.name.split('.').pop() || 'jpg';
@@ -125,16 +171,14 @@ export default function UnreleasedMusic() {
       console.log('[UnreleasedMusic] Audio storage path:', audioStoragePath, 'bucket:', UNRELEASED_AUDIO_BUCKET);
       console.log('[UnreleasedMusic] Cover storage path:', coverArtStoragePath, 'bucket:', UNRELEASED_AUDIO_BUCKET);
 
-      // Insert into database with storage PATHS (not URLs)
-      // The URLs will be generated on-demand using getPublicUrl()
       const { data, error } = await supabase
         .from('unreleased_music')
         .insert([{
           user_id: user.id,
           title: formData.title.trim(),
           artist_name: formData.artist_name.trim(),
-          file_url: audioStoragePath, // Store path, not URL
-          cover_art_url: coverArtStoragePath || '', // Store path, not URL
+          file_url: audioStoragePath,
+          cover_art_url: coverArtStoragePath || '',
           description: formData.description.trim(),
           is_public: formData.is_public,
           password: formData.is_public ? null : formData.password.trim() || null,
@@ -191,6 +235,10 @@ export default function UnreleasedMusic() {
 
     if (!error) {
       setTracks(tracks.filter(t => t.id !== id));
+      if (selectedTrackId === id) {
+        setSelectedTrackId(null);
+      }
+      showToast('Track deleted', 'success');
     }
   };
 
@@ -198,6 +246,7 @@ export default function UnreleasedMusic() {
     const fullUrl = `https://ghoste.one/track/${shareLink}`;
     navigator.clipboard.writeText(fullUrl);
     setCopiedLink(shareLink);
+    showToast('Link copied to clipboard', 'success');
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
@@ -206,191 +255,152 @@ export default function UnreleasedMusic() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold mb-2">Unreleased Music</h2>
-          <p className="text-gray-400">Share your unreleased tracks privately or publicly</p>
-        </div>
-        <button
-          onClick={() => setShowUploadModal(true)}
-          className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors flex items-center gap-2"
-        >
-          <Upload className="w-5 h-5" />
-          Upload Track
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Loading tracks...</div>
-      ) : tracks.length === 0 ? (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-12 text-center">
-          <Music className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold mb-2">No tracks uploaded yet</h3>
-          <p className="text-gray-400 mb-6">Upload your first unreleased track to share with fans</p>
+    <>
+      <div className="space-y-6">
+        {/* Premium header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h2 className="text-2xl md:text-3xl font-bold text-white mb-2">
+              Unreleased Music
+            </h2>
+            <p className="text-white/60 text-sm md:text-base">
+              Store, preview, and prep your next drop.
+            </p>
+          </div>
           <button
             onClick={() => setShowUploadModal(true)}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors inline-flex items-center gap-2"
+            className="px-6 py-3 bg-[#1A6CFF] hover:bg-[#1557CC] text-white font-semibold rounded-xl transition-all hover:shadow-[0_0_24px_rgba(26,108,255,0.5)] flex items-center justify-center gap-2 whitespace-nowrap"
           >
             <Upload className="w-5 h-5" />
             Upload Track
           </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {tracks.map((track) => (
-            <div key={track.id} className="bg-gray-900 border border-gray-800 rounded-xl p-6 hover:border-gray-700 transition-all">
-              <div className="flex items-start gap-4">
-                <div className="w-20 h-20 bg-gray-800 rounded-lg flex items-center justify-center flex-shrink-0">
-                  {track.cover_art_url ? (
-                    <img src={track.cover_art_url} alt={track.title} className="w-full h-full object-cover rounded-lg" />
-                  ) : (
-                    <Music className="w-8 h-8 text-gray-600" />
-                  )}
-                </div>
 
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="text-lg font-semibold mb-1">{track.title}</h3>
-                      <p className="text-sm text-gray-400">{track.artist_name}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {track.is_public ? (
-                        <span className="px-3 py-1 bg-green-500/20 text-green-400 text-xs font-medium rounded-full flex items-center gap-1">
-                          <Globe className="w-3 h-3" />
-                          Public
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 bg-yellow-500/20 text-yellow-400 text-xs font-medium rounded-full flex items-center gap-1">
-                          <Lock className="w-3 h-3" />
-                          Private
-                        </span>
-                      )}
-                    </div>
-                  </div>
+        {/* Toolbar */}
+        <StudioToolbar
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          viewMode={viewMode}
+          onViewChange={setViewMode}
+        />
 
-                  {track.description && (
-                    <p className="text-gray-400 text-sm mb-3">{track.description}</p>
-                  )}
-
-                  {!track.audioUrl ? (
-                    <div className="mb-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
-                      <p className="text-red-400 text-sm">Audio unavailable. Check storage path.</p>
-                      <p className="text-red-300 text-xs mt-1">file_url: {track.file_url}</p>
-                    </div>
-                  ) : (
-                    <div className="mb-4">
-                      <audio
-                        controls
-                        className="w-full"
-                        preload="metadata"
-                        src={track.audioUrl}
-                        onError={(e) => {
-                          console.error('[UnreleasedMusic] Audio error for track:', track.title);
-                          console.error('[UnreleasedMusic] Audio URL:', track.audioUrl);
-                          console.error('[UnreleasedMusic] Track id:', track.id, 'file_url:', track.file_url);
-                        }}
-                        onLoadedMetadata={() => {
-                          console.log('[UnreleasedMusic] Audio loaded successfully:', track.title, track.audioUrl);
-                        }}
-                      >
-                        Your browser does not support the audio element.
-                      </audio>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-                    <div className="flex items-center gap-1">
-                      <Eye className="w-4 h-4" />
-                      {track.plays} plays
-                    </div>
-                    <div>
-                      Uploaded {new Date(track.created_at).toLocaleDateString()}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => copyShareLink(track.share_link)}
-                      className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                    >
-                      {copiedLink === track.share_link ? (
-                        <>
-                          <Check className="w-4 h-4" />
-                          Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Link2 className="w-4 h-4" />
-                          Copy Share Link
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => openTrackLink(track.share_link)}
-                      className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-2"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      Open
-                    </button>
-                    <button
-                      onClick={() => handleDelete(track.id)}
-                      className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 text-sm font-medium rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+        {/* Main content */}
+        {loading ? (
+          <LoadingSkeleton />
+        ) : tracks.length === 0 ? (
+          <EmptyState onUploadClick={() => setShowUploadModal(true)} />
+        ) : filteredAndSortedTracks.length === 0 ? (
+          <NoResultsState onClearFilters={() => { setSearchTerm(''); setActiveFilter('all'); }} />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Track grid */}
+            <div className="lg:col-span-7 xl:col-span-8">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
+                {filteredAndSortedTracks.map((track) => (
+                  <TrackCard
+                    key={track.id}
+                    track={track}
+                    isSelected={selectedTrackId === track.id}
+                    onClick={() => setSelectedTrackId(track.id)}
+                    onCopyLink={() => copyShareLink(track.share_link)}
+                    onOpenLink={() => openTrackLink(track.share_link)}
+                    onDelete={() => handleDelete(track.id)}
+                  />
+                ))}
               </div>
             </div>
-          ))}
-        </div>
-      )}
 
+            {/* Details panel */}
+            <div className="lg:col-span-5 xl:col-span-4">
+              {selectedTrack ? (
+                <div className="sticky top-6 bg-gradient-to-br from-white/[0.05] to-white/[0.02] backdrop-blur-sm border border-white/10 rounded-2xl overflow-hidden shadow-xl">
+                  <TrackDetailsPanel
+                    track={selectedTrack}
+                    onCopyLink={() => copyShareLink(selectedTrack.share_link)}
+                    onOpenLink={() => openTrackLink(selectedTrack.share_link)}
+                    copiedLink={copiedLink === selectedTrack.share_link}
+                  />
+                </div>
+              ) : (
+                <div className="sticky top-6 bg-gradient-to-br from-white/[0.02] to-transparent backdrop-blur-sm border border-white/10 rounded-2xl p-12 text-center">
+                  <Music className="w-16 h-16 text-white/10 mx-auto mb-4" />
+                  <p className="text-white/40 text-sm">
+                    Select a track to view details
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Upload Modal */}
       {showUploadModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-2xl font-bold mb-6">Upload Unreleased Track</h3>
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-[#0F1419] to-[#0A0F29] border border-white/10 rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-bold text-white">Upload Track</h3>
+              <button
+                onClick={() => {
+                  setShowUploadModal(false);
+                  resetForm();
+                }}
+                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
+              >
+                <X className="w-5 h-5 text-white/60" />
+              </button>
+            </div>
 
             <form onSubmit={handleUpload} className="space-y-6">
               <div>
-                <label className="block text-sm font-medium mb-2">Track Title *</label>
+                <label className="block text-sm font-semibold text-white/80 mb-2">
+                  Track Title *
+                </label>
                 <input
                   type="text"
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-[#1A6CFF] focus:ring-2 focus:ring-[#1A6CFF]/20"
                   placeholder="My Unreleased Song"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Artist Name *</label>
+                <label className="block text-sm font-semibold text-white/80 mb-2">
+                  Artist Name *
+                </label>
                 <input
                   type="text"
                   value={formData.artist_name}
                   onChange={(e) => setFormData({ ...formData, artist_name: e.target.value })}
-                  className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-[#1A6CFF] focus:ring-2 focus:ring-[#1A6CFF]/20"
                   placeholder="Your Artist Name"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Description</label>
+                <label className="block text-sm font-semibold text-white/80 mb-2">
+                  Description
+                </label>
                 <textarea
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-[#1A6CFF] focus:ring-2 focus:ring-[#1A6CFF]/20 resize-none"
                   placeholder="Tell your fans about this track..."
                   rows={3}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Audio File *</label>
+                <label className="block text-sm font-semibold text-white/80 mb-2">
+                  Audio File *
+                </label>
                 <input
                   ref={audioInputRef}
                   type="file"
@@ -401,24 +411,24 @@ export default function UnreleasedMusic() {
                 <button
                   type="button"
                   onClick={() => audioInputRef.current?.click()}
-                  className="w-full px-4 py-8 bg-black border-2 border-dashed border-gray-700 rounded-lg hover:border-blue-500 transition-colors flex flex-col items-center gap-2"
+                  className="w-full px-4 py-8 bg-black/40 border-2 border-dashed border-white/20 hover:border-[#1A6CFF] rounded-xl transition-all flex flex-col items-center gap-2"
                   disabled={uploading}
                 >
-                  <Music className="w-8 h-8 text-gray-400" />
-                  <span className="text-gray-400">
+                  <Music className="w-8 h-8 text-white/40" />
+                  <span className="text-white/60 text-sm">
                     {audioFile ? audioFile.name : 'Click to upload audio file'}
                   </span>
-                  <span className="text-xs text-gray-500">MP3, WAV, or other audio formats</span>
+                  <span className="text-xs text-white/40">MP3, WAV, or other audio formats</span>
                 </button>
                 {uploading && audioUploadProgress > 0 && (
-                  <div className="mt-3 w-full">
-                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-white/60 mb-2">
                       <span>Uploading audio…</span>
                       <span>{audioUploadProgress}%</span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-gray-800 overflow-hidden">
+                    <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
                       <div
-                        className="h-2 bg-gradient-to-r from-blue-500 to-purple-500 transition-all"
+                        className="h-2 bg-gradient-to-r from-[#1A6CFF] to-[#00D4FF] transition-all"
                         style={{ width: `${audioUploadProgress}%` }}
                       />
                     </div>
@@ -427,7 +437,9 @@ export default function UnreleasedMusic() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Cover Art (Optional)</label>
+                <label className="block text-sm font-semibold text-white/80 mb-2">
+                  Cover Art (Optional)
+                </label>
                 <input
                   ref={coverArtInputRef}
                   type="file"
@@ -438,23 +450,23 @@ export default function UnreleasedMusic() {
                 <button
                   type="button"
                   onClick={() => coverArtInputRef.current?.click()}
-                  className="w-full px-4 py-6 bg-black border-2 border-dashed border-gray-700 rounded-lg hover:border-blue-500 transition-colors flex flex-col items-center gap-2"
+                  className="w-full px-4 py-6 bg-black/40 border-2 border-dashed border-white/20 hover:border-[#1A6CFF] rounded-xl transition-all flex flex-col items-center gap-2"
                   disabled={uploading}
                 >
-                  <Upload className="w-6 h-6 text-gray-400" />
-                  <span className="text-gray-400 text-sm">
+                  <Upload className="w-6 h-6 text-white/40" />
+                  <span className="text-white/60 text-sm">
                     {coverArtFile ? coverArtFile.name : 'Click to upload cover art'}
                   </span>
                 </button>
                 {uploading && coverArtFile && coverArtUploadProgress > 0 && (
-                  <div className="mt-3 w-full">
-                    <div className="flex justify-between text-xs text-gray-400 mb-1">
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-white/60 mb-2">
                       <span>Uploading cover art…</span>
                       <span>{coverArtUploadProgress}%</span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-gray-800 overflow-hidden">
+                    <div className="h-2 w-full rounded-full bg-white/10 overflow-hidden">
                       <div
-                        className="h-2 bg-gradient-to-r from-purple-500 to-pink-500 transition-all"
+                        className="h-2 bg-gradient-to-r from-[#1A6CFF] to-[#00D4FF] transition-all"
                         style={{ width: `${coverArtUploadProgress}%` }}
                       />
                     </div>
@@ -462,52 +474,56 @@ export default function UnreleasedMusic() {
                 )}
               </div>
 
-              <div className="border-t border-gray-800 pt-6">
-                <label className="block text-sm font-medium mb-4">Privacy Settings</label>
+              <div className="border-t border-white/10 pt-6 space-y-4">
+                <label className="block text-sm font-semibold text-white/80 mb-4">
+                  Privacy Settings
+                </label>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-3 p-4 bg-black border border-gray-700 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                  <label className="flex items-start gap-3 p-4 bg-black/40 border border-white/10 rounded-xl cursor-pointer hover:border-[#1A6CFF] transition-all">
                     <input
                       type="radio"
                       name="privacy"
                       checked={formData.is_public}
                       onChange={() => setFormData({ ...formData, is_public: true, password: '' })}
-                      className="w-4 h-4"
+                      className="mt-0.5 w-4 h-4 accent-[#1A6CFF]"
                     />
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 font-medium">
-                        <Globe className="w-4 h-4 text-green-400" />
+                      <div className="flex items-center gap-2 font-semibold text-white mb-1">
+                        <Globe className="w-4 h-4 text-emerald-400" />
                         Public
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">Anyone with the link can listen</p>
+                      <p className="text-xs text-white/50">Anyone with the link can listen</p>
                     </div>
                   </label>
 
-                  <label className="flex items-center gap-3 p-4 bg-black border border-gray-700 rounded-lg cursor-pointer hover:border-blue-500 transition-colors">
+                  <label className="flex items-start gap-3 p-4 bg-black/40 border border-white/10 rounded-xl cursor-pointer hover:border-[#1A6CFF] transition-all">
                     <input
                       type="radio"
                       name="privacy"
                       checked={!formData.is_public}
                       onChange={() => setFormData({ ...formData, is_public: false })}
-                      className="w-4 h-4"
+                      className="mt-0.5 w-4 h-4 accent-[#1A6CFF]"
                     />
                     <div className="flex-1">
-                      <div className="flex items-center gap-2 font-medium">
-                        <Lock className="w-4 h-4 text-yellow-400" />
+                      <div className="flex items-center gap-2 font-semibold text-white mb-1">
+                        <Lock className="w-4 h-4 text-amber-400" />
                         Private (Password Protected)
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">Requires password to access</p>
+                      <p className="text-xs text-white/50">Requires password to access</p>
                     </div>
                   </label>
                 </div>
 
                 {!formData.is_public && (
-                  <div className="mt-4">
-                    <label className="block text-sm font-medium mb-2">Password *</label>
+                  <div>
+                    <label className="block text-sm font-semibold text-white/80 mb-2">
+                      Password *
+                    </label>
                     <input
                       type="text"
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      className="w-full px-4 py-3 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-4 py-3 bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-[#1A6CFF] focus:ring-2 focus:ring-[#1A6CFF]/20"
                       placeholder="Enter password"
                       required={!formData.is_public}
                     />
@@ -523,7 +539,7 @@ export default function UnreleasedMusic() {
                     resetForm();
                   }}
                   disabled={uploading}
-                  className="flex-1 px-6 py-3 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50"
+                  className="flex-1 px-6 py-3 bg-white/5 hover:bg-white/10 text-white font-semibold rounded-xl transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -537,7 +553,7 @@ export default function UnreleasedMusic() {
                   }}
                   feature="unreleased music"
                   disabled={uploading || !audioFile}
-                  className="flex-1 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  className="flex-1 px-6 py-3 bg-[#1A6CFF] hover:bg-[#1557CC] text-white font-semibold rounded-xl transition-all hover:shadow-[0_0_20px_rgba(26,108,255,0.4)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                 >
                   {uploading ? 'Uploading...' : 'Upload Track'}
                 </ProActionButton>
@@ -546,6 +562,83 @@ export default function UnreleasedMusic() {
           </div>
         </div>
       )}
+    </>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="lg:col-span-7 xl:col-span-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
+          {[...Array(10)].map((_, i) => (
+            <div
+              key={i}
+              className="bg-white/5 rounded-2xl p-4 animate-pulse"
+            >
+              <div className="aspect-square bg-white/10 rounded-xl mb-3" />
+              <div className="h-4 bg-white/10 rounded mb-2" />
+              <div className="h-3 bg-white/10 rounded w-2/3" />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="lg:col-span-5 xl:col-span-4">
+        <div className="sticky top-6 bg-white/5 rounded-2xl p-6 animate-pulse">
+          <div className="aspect-square bg-white/10 rounded-2xl mb-4" />
+          <div className="h-6 bg-white/10 rounded mb-2" />
+          <div className="h-4 bg-white/10 rounded w-2/3" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ onUploadClick }: { onUploadClick: () => void }) {
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <div className="text-center max-w-md">
+        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#1A6CFF]/20 to-[#1A6CFF]/5 flex items-center justify-center mx-auto mb-6">
+          <Music className="w-12 h-12 text-[#1A6CFF]" />
+        </div>
+        <h3 className="text-2xl font-bold text-white mb-3">
+          Drop your next release in here.
+        </h3>
+        <p className="text-white/60 mb-8 leading-relaxed">
+          Upload unreleased tracks, demos, and works-in-progress. Share them privately or publicly with a secure ghoste.one link.
+        </p>
+        <button
+          onClick={onUploadClick}
+          className="px-8 py-4 bg-[#1A6CFF] hover:bg-[#1557CC] text-white font-semibold rounded-xl transition-all hover:shadow-[0_0_24px_rgba(26,108,255,0.5)] inline-flex items-center gap-2"
+        >
+          <Upload className="w-5 h-5" />
+          Upload Your First Track
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function NoResultsState({ onClearFilters }: { onClearFilters: () => void }) {
+  return (
+    <div className="flex items-center justify-center min-h-[300px]">
+      <div className="text-center max-w-md">
+        <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
+          <Music className="w-8 h-8 text-white/20" />
+        </div>
+        <h3 className="text-xl font-semibold text-white mb-2">
+          No tracks found
+        </h3>
+        <p className="text-white/50 mb-6">
+          Try adjusting your search or filters
+        </p>
+        <button
+          onClick={onClearFilters}
+          className="px-6 py-2.5 bg-white/5 hover:bg-white/10 text-white text-sm font-medium rounded-xl transition-colors"
+        >
+          Clear Filters
+        </button>
+      </div>
     </div>
   );
 }
