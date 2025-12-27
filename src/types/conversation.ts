@@ -1,5 +1,15 @@
 export type GhosteMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+export interface GhosteMessageAttachment {
+  id: string;
+  kind: 'video' | 'image' | 'audio' | 'file';
+  filename: string;
+  mime: string;
+  size: number;
+  url: string;
+  duration?: number;
+}
+
 export interface GhosteMessage {
   id: string;
   conversation_id?: string;
@@ -8,12 +18,7 @@ export interface GhosteMessage {
   content: string;
   meta?: Record<string, unknown>;
   created_at: string;
-  attachments?: Array<{
-    url: string;
-    fileName: string;
-    type: string;
-    size?: number;
-  }>;
+  attachments?: GhosteMessageAttachment[];
 }
 
 export interface GhosteConversation {

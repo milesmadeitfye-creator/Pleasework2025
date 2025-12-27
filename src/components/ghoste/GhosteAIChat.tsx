@@ -123,10 +123,14 @@ export const GhosteAIChat: React.FC = () => {
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Array<{
+    id: string;
     url: string;
     fileName: string;
-    type: string;
-    size?: number;
+    kind: 'video' | 'image' | 'audio' | 'file';
+    mime: string;
+    size: number;
+    status: 'uploading' | 'ready' | 'error';
+    preview_url?: string;
   }>>([]);
   const [insufficientModal, setInsufficientModal] = useState<{
     open: boolean;
@@ -176,7 +180,7 @@ export const GhosteAIChat: React.FC = () => {
   const loadMessagesForConversation = useCallback(async (conversationId: string): Promise<GhosteMessage[]> => {
     const { data: msgs, error: msgsError } = await supabase
       .from('ai_messages')
-      .select('id, conversation_id, user_id, role, content, meta, created_at')
+      .select('id, conversation_id, user_id, role, content, meta, attachments, created_at')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true });
 
@@ -188,6 +192,7 @@ export const GhosteAIChat: React.FC = () => {
     return (msgs || []).map(m => ({
       ...m,
       role: m.role as GhosteMessage['role'],
+      attachments: m.attachments || [],
     }));
   }, []);
 
@@ -404,14 +409,26 @@ export const GhosteAIChat: React.FC = () => {
 
     console.log('[GhosteAIChat] Sending message to conversation:', currentConversation.id);
 
+    // Filter only ready attachments
+    const readyAttachments = pendingAttachments.filter(a => a.status === 'ready');
+
     setIsSending(true);
     setInput('');
-    const attachments = [...pendingAttachments];
     setPendingAttachments([]);
     setError(null);
 
     const tempUserMessageId = `temp-user-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
+
+    // Clean attachment data (no storage paths)
+    const cleanAttachments = readyAttachments.map(a => ({
+      id: a.id,
+      kind: a.kind,
+      filename: a.fileName,
+      mime: a.mime,
+      size: a.size,
+      url: a.url,
+    }));
 
     const userMessage: GhosteMessage = {
       id: tempUserMessageId,
@@ -421,7 +438,7 @@ export const GhosteAIChat: React.FC = () => {
       content: text || '',
       created_at: now,
       meta: { tempId: tempUserMessageId },
-      attachments: attachments as any,
+      attachments: cleanAttachments,
     };
 
     setMessages((prev) => dedupeMessagesById([...prev, userMessage]));
@@ -434,7 +451,7 @@ export const GhosteAIChat: React.FC = () => {
           user_id: user.id,
           role: 'user',
           content: text || '',
-          meta: attachments.length > 0 ? { attachments } : {},
+          attachments: cleanAttachments,
         })
         .select('id')
         .single();
@@ -808,6 +825,7 @@ export const GhosteAIChat: React.FC = () => {
                                   : 'bg-white/10 text-white rounded-bl-sm'
                               }`}
                             >
+                              {/* Message content */}
                               {isUser ? (
                                 <div className="text-[15px] leading-6 whitespace-pre-wrap break-words">
                                   {m.content}
@@ -867,6 +885,58 @@ export const GhosteAIChat: React.FC = () => {
                                   >
                                     {m.content}
                                   </ReactMarkdown>
+                                </div>
+                              )}
+
+                              {/* Attachments display */}
+                              {m.attachments && m.attachments.length > 0 && (
+                                <div className="mt-2 space-y-2">
+                                  {m.attachments.map((attachment) => (
+                                    <div
+                                      key={attachment.id}
+                                      className={`flex items-center gap-2 p-2 rounded-lg ${
+                                        isUser
+                                          ? 'bg-white/10'
+                                          : 'bg-black/20'
+                                      }`}
+                                    >
+                                      {/* Thumbnail or icon */}
+                                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-900 border border-slate-700 overflow-hidden flex-shrink-0">
+                                        {attachment.kind === 'image' ? (
+                                          <img
+                                            src={attachment.url}
+                                            alt={attachment.filename}
+                                            className="h-full w-full object-cover"
+                                          />
+                                        ) : attachment.kind === 'video' ? (
+                                          <span className="text-sm">🎬</span>
+                                        ) : attachment.kind === 'audio' ? (
+                                          <span className="text-sm">🎵</span>
+                                        ) : (
+                                          <span className="text-sm">📁</span>
+                                        )}
+                                      </div>
+
+                                      {/* Filename and link */}
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-xs font-medium truncate">
+                                          {attachment.filename}
+                                        </div>
+                                        <a
+                                          href={attachment.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className={`text-[10px] underline ${
+                                            isUser
+                                              ? 'text-white/70 hover:text-white'
+                                              : 'text-blue-400 hover:text-blue-300'
+                                          }`}
+                                        >
+                                          View attachment
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                             </div>
@@ -957,18 +1027,94 @@ export const GhosteAIChat: React.FC = () => {
                   />
                   <button
                     type="submit"
-                    disabled={isSending || !input.trim()}
+                    disabled={isSending || (!input.trim() && pendingAttachments.filter(a => a.status === 'ready').length === 0) || pendingAttachments.some(a => a.status === 'uploading')}
                     className="inline-flex items-center justify-center rounded-full px-6 py-3 text-sm font-medium bg-blue-500 hover:bg-blue-400 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
-                    Send
+                    {pendingAttachments.some(a => a.status === 'uploading') ? 'Uploading…' : 'Send'}
                   </button>
                 </form>
+
+                {/* Pending Attachments Chips */}
+                {pendingAttachments.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {pendingAttachments.map((attachment) => (
+                      <div
+                        key={attachment.id}
+                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs"
+                      >
+                        {/* Thumbnail or icon */}
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 border border-slate-700 overflow-hidden flex-shrink-0">
+                          {attachment.kind === 'image' && attachment.url ? (
+                            <img
+                              src={attachment.url}
+                              alt={attachment.fileName}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : attachment.kind === 'video' ? (
+                            <span className="text-sm">🎬</span>
+                          ) : attachment.kind === 'audio' ? (
+                            <span className="text-sm">🎵</span>
+                          ) : (
+                            <span className="text-sm">📁</span>
+                          )}
+                        </div>
+
+                        {/* Filename and status */}
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-white/90 font-medium truncate max-w-[180px]">
+                            {attachment.fileName}
+                          </span>
+                          {attachment.status === 'uploading' && (
+                            <span className="text-white/40 text-[10px]">Uploading…</span>
+                          )}
+                          {attachment.status === 'ready' && (
+                            <span className="text-emerald-400 text-[10px]">Ready</span>
+                          )}
+                          {attachment.status === 'error' && (
+                            <span className="text-red-400 text-[10px]">Failed</span>
+                          )}
+                        </div>
+
+                        {/* Remove button */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPendingAttachments(prev => prev.filter(a => a.id !== attachment.id));
+                          }}
+                          className="ml-1 text-white/40 hover:text-white/70 transition-colors"
+                          disabled={attachment.status === 'uploading'}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {/* Upload media for Ghoste AI */}
                 <GhosteMediaUploader
                   bucket="uploads"
                   onUploaded={async (info) => {
-                    // Register this media with the backend for AI tools
+                    const attachmentId = crypto.randomUUID();
+
+                    // Detect kind from MIME type
+                    let kind: 'video' | 'image' | 'audio' | 'file' = 'file';
+                    if (info.type.startsWith('video/')) kind = 'video';
+                    else if (info.type.startsWith('image/')) kind = 'image';
+                    else if (info.type.startsWith('audio/')) kind = 'audio';
+
+                    // Add to pending attachments immediately (status=ready)
+                    setPendingAttachments((prev) => [...prev, {
+                      id: attachmentId,
+                      url: info.url,
+                      fileName: info.fileName,
+                      kind,
+                      mime: info.type,
+                      size: info.size || 0,
+                      status: 'ready',
+                    }]);
+
+                    // Register in background (non-blocking)
                     try {
                       const token = await supabase.auth.getSession().then(s => s.data.session?.access_token);
                       if (!token) {
@@ -981,7 +1127,7 @@ export const GhosteAIChat: React.FC = () => {
                         .from('user_uploads')
                         .insert({
                           user_id: user.id,
-                          kind: info.type.startsWith('video/') ? 'video' : info.type.startsWith('audio/') ? 'audio' : 'image',
+                          kind,
                           filename: info.fileName,
                           mime_type: info.type,
                           public_url: info.url,
@@ -1008,15 +1154,8 @@ export const GhosteAIChat: React.FC = () => {
                       console.log('[GhosteAIChat] Media registered for Ghoste AI');
                     } catch (err) {
                       console.error('[GhosteAIChat] Failed to register media:', err);
+                      // Non-fatal - attachment already added to pendingAttachments
                     }
-
-                    // Add to pending attachments (no auto-message)
-                    setPendingAttachments((prev) => [...prev, {
-                      url: info.url,
-                      fileName: info.fileName,
-                      type: info.type,
-                      size: info.size,
-                    }]);
                   }}
                 />
               </div>
