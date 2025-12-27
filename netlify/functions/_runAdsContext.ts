@@ -39,30 +39,124 @@ export interface RunAdsContext {
 }
 
 /**
+ * Resolve Meta assets from ANY available source
+ * CRITICAL: This eliminates "platform vs artist" contradictions
+ *
+ * Checks (in order):
+ * 1. meta_credentials (primary for ads)
+ * 2. user_meta_connections (fallback for DM/posting features)
+ * 3. meta_ad_accounts + meta_pages tables (asset tables)
+ *
+ * Returns first valid source found.
+ */
+async function resolveMetaAssets(userId: string) {
+  const supabase = getSupabaseAdmin();
+
+  // 1. Try meta_credentials first (primary for ads)
+  const { data: metaCreds } = await supabase
+    .from('meta_credentials')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (metaCreds && metaCreds.access_token) {
+    console.log('[resolveMetaAssets] Found in meta_credentials');
+    return {
+      source: 'meta_credentials',
+      access_token: metaCreds.access_token,
+      ad_account_id: metaCreds.ad_account_id,
+      ad_account_name: metaCreds.ad_account_name,
+      page_id: metaCreds.page_id || metaCreds.facebook_page_id,
+      page_name: metaCreds.page_name || metaCreds.facebook_page_name,
+      pixel_id: metaCreds.pixel_id,
+      pixel_name: metaCreds.pixel_name,
+      instagram_id: metaCreds.instagram_actor_id || metaCreds.instagram_id,
+      instagram_username: metaCreds.instagram_username,
+    };
+  }
+
+  // 2. Fallback: Try user_meta_connections (for DM/posting)
+  const { data: userConn } = await supabase
+    .from('user_meta_connections')
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (userConn && userConn.access_token) {
+    console.log('[resolveMetaAssets] Found in user_meta_connections, auto-binding for ads');
+
+    // Get ad account from meta_ad_accounts table
+    const { data: adAccounts } = await supabase
+      .from('meta_ad_accounts')
+      .select('*')
+      .eq('user_id', userId)
+      .limit(1);
+
+    // Get page from meta_pages table
+    const { data: pages } = await supabase
+      .from('meta_pages')
+      .select('*')
+      .eq('user_id', userId)
+      .limit(1);
+
+    const adAccount = adAccounts?.[0];
+    const page = pages?.[0];
+
+    // Auto-bind: Write to meta_credentials for future use
+    if (adAccount && page) {
+      await supabase
+        .from('meta_credentials')
+        .upsert({
+          user_id: userId,
+          access_token: userConn.access_token,
+          ad_account_id: adAccount.ad_account_id || adAccount.account_id,
+          ad_account_name: adAccount.name,
+          page_id: page.meta_page_id,
+          page_name: page.name,
+          instagram_id: userConn.meta_instagram_id,
+        }, { onConflict: 'user_id' });
+
+      console.log('[resolveMetaAssets] Auto-bound platform assets to ads profile');
+    }
+
+    return {
+      source: 'user_meta_connections',
+      access_token: userConn.access_token,
+      ad_account_id: adAccount?.ad_account_id || adAccount?.account_id || null,
+      ad_account_name: adAccount?.name || null,
+      page_id: page?.meta_page_id || userConn.meta_page_id || null,
+      page_name: page?.name || null,
+      pixel_id: null,
+      pixel_name: null,
+      instagram_id: userConn.meta_instagram_id || null,
+      instagram_username: null,
+    };
+  }
+
+  // 3. No Meta found
+  console.log('[resolveMetaAssets] No Meta connection found');
+  return null;
+}
+
+/**
  * Get run ads context for user
  *
  * This is the SINGLE SOURCE OF TRUTH for "can user run ads?"
  * No caching, no stale data - fresh DB queries every time.
+ *
+ * CRITICAL: Checks ALL Meta sources and auto-binds if needed.
  */
 export async function getRunAdsContext(userId: string): Promise<RunAdsContext> {
   const supabase = getSupabaseAdmin();
 
   console.log('[getRunAdsContext] Fetching for user:', userId);
 
-  // 1. Check Meta connection (same as truth check)
-  const { data: metaCreds, error: metaError } = await supabase
-    .from('meta_credentials')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
+  // 1. Resolve Meta from ANY available source
+  const metaAssets = await resolveMetaAssets(userId);
 
-  if (metaError) {
-    console.error('[getRunAdsContext] Meta query error:', metaError);
-  }
-
-  const hasMeta = !!(metaCreds && metaCreds.access_token);
-  const hasAdAccount = !!(metaCreds && metaCreds.ad_account_id);
-  const hasPage = !!(metaCreds && metaCreds.page_id);
+  const hasMeta = !!metaAssets;
+  const hasAdAccount = !!(metaAssets && metaAssets.ad_account_id);
+  const hasPage = !!(metaAssets && metaAssets.page_id);
 
   // 2. Get smart links (with destination URLs resolved)
   const { data: smartLinksData, error: linksError } = await supabase
@@ -115,14 +209,14 @@ export async function getRunAdsContext(userId: string): Promise<RunAdsContext> {
   const context: RunAdsContext = {
     hasMeta,
     meta: {
-      ad_account_id: metaCreds?.ad_account_id || null,
-      ad_account_name: metaCreds?.ad_account_name || null,
-      page_id: metaCreds?.page_id || null,
-      page_name: metaCreds?.page_name || null,
-      pixel_id: metaCreds?.pixel_id || null,
-      pixel_name: metaCreds?.pixel_name || null,
-      instagram_id: metaCreds?.instagram_actor_id || null,
-      instagram_username: metaCreds?.instagram_username || null,
+      ad_account_id: metaAssets?.ad_account_id || null,
+      ad_account_name: metaAssets?.ad_account_name || null,
+      page_id: metaAssets?.page_id || null,
+      page_name: metaAssets?.page_name || null,
+      pixel_id: metaAssets?.pixel_id || null,
+      pixel_name: metaAssets?.pixel_name || null,
+      instagram_id: metaAssets?.instagram_id || null,
+      instagram_username: metaAssets?.instagram_username || null,
     },
     smartLinksCount,
     smartLinks,
