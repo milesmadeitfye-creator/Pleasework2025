@@ -124,6 +124,7 @@ export const GhosteAIChat: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<Array<{
     id: string;
+    media_asset_id: string;
     url: string;
     fileName: string;
     kind: 'video' | 'image' | 'audio' | 'file';
@@ -420,9 +421,10 @@ export const GhosteAIChat: React.FC = () => {
     const tempUserMessageId = `temp-user-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
 
-    // Clean attachment data (no storage paths)
+    // Clean attachment data (with media_asset_id)
     const cleanAttachments = readyAttachments.map(a => ({
       id: a.id,
+      media_asset_id: a.media_asset_id,
       kind: a.kind,
       filename: a.fileName,
       mime: a.mime,
@@ -1103,9 +1105,10 @@ export const GhosteAIChat: React.FC = () => {
                     else if (info.type.startsWith('image/')) kind = 'image';
                     else if (info.type.startsWith('audio/')) kind = 'audio';
 
-                    // Add to pending attachments immediately (status=ready)
+                    // Add to pending attachments with media_asset_id
                     setPendingAttachments((prev) => [...prev, {
                       id: attachmentId,
+                      media_asset_id: info.media_asset_id,
                       url: info.url,
                       fileName: info.fileName,
                       kind,
@@ -1114,15 +1117,10 @@ export const GhosteAIChat: React.FC = () => {
                       status: 'ready',
                     }]);
 
-                    // Register in background (non-blocking)
-                    try {
-                      const token = await supabase.auth.getSession().then(s => s.data.session?.access_token);
-                      if (!token) {
-                        console.error('[GhosteAIChat] No auth token for media registration');
-                        return;
-                      }
+                    console.log('[GhosteAIChat] Media asset ready:', info.media_asset_id);
 
-                      // Store in user_uploads table
+                    // Optional: Store in user_uploads for legacy compatibility
+                    try {
                       await supabase
                         .from('user_uploads')
                         .insert({
@@ -1134,27 +1132,12 @@ export const GhosteAIChat: React.FC = () => {
                           storage_bucket: 'uploads',
                           storage_path: info.path,
                           size_bytes: info.size || 0,
-                        });
-
-                      await fetch('/.netlify/functions/ghoste-media-register', {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                          'Authorization': `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({
-                          url: info.url,
-                          path: info.path,
-                          type: info.type,
-                          fileName: info.fileName,
-                          size: info.size,
-                        }),
-                      });
-
-                      console.log('[GhosteAIChat] Media registered for Ghoste AI');
+                        })
+                        .select('id')
+                        .maybeSingle();
                     } catch (err) {
-                      console.error('[GhosteAIChat] Failed to register media:', err);
-                      // Non-fatal - attachment already added to pendingAttachments
+                      console.warn('[GhosteAIChat] Legacy user_uploads insert failed:', err);
+                      // Non-fatal - media_assets is the source of truth
                     }
                   }}
                 />

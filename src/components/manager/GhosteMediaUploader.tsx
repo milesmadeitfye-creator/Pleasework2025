@@ -9,6 +9,7 @@ type GhosteMediaUploaderProps = {
   helperText?: string;
   bucket?: string;
   onUploaded?: (payload: {
+    media_asset_id: string;
     url: string;
     path: string;
     type: GhosteMediaType;
@@ -27,6 +28,7 @@ export const GhosteMediaUploader: React.FC<GhosteMediaUploaderProps> = ({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileInfo, setFileInfo] = useState<{
+    media_asset_id: string;
     url: string;
     path: string;
     type: GhosteMediaType;
@@ -63,56 +65,112 @@ export const GhosteMediaUploader: React.FC<GhosteMediaUploaderProps> = ({
           throw new Error('File size must be less than 50MB');
         }
 
+        const fileType = detectType(file);
+
+        // Step 1: Create media_assets row (status='uploading')
+        const { data: mediaAsset, error: createError } = await supabase
+          .from('media_assets')
+          .insert({
+            owner_user_id: user.id,
+            kind: fileType,
+            filename: file.name,
+            mime: file.type,
+            size: file.size,
+            storage_bucket: bucket,
+            storage_key: '', // Will update after upload
+            status: 'uploading',
+          })
+          .select('id')
+          .single();
+
+        if (createError || !mediaAsset) {
+          console.error('[GhosteMediaUploader] Failed to create media_assets row:', createError);
+          setError('Failed to initialize upload. Please try again.');
+          return;
+        }
+
+        const mediaAssetId = mediaAsset.id;
+        console.log('[GhosteMediaUploader] Created media_asset:', mediaAssetId);
+
+        // Step 2: Upload file using media_asset_id in path
         const ext = file.name.split('.').pop();
-        const path = `${user.id}/${crypto.randomUUID()}.${ext ?? 'bin'}`;
+        const storageKey = `${user.id}/${mediaAssetId}.${ext ?? 'bin'}`;
 
-        const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from(bucket)
+          .upload(storageKey, file, {
+            cacheControl: '3600',
+            upsert: false,
+          });
 
-        if (error || !data) {
-          console.error('[GhosteMediaUploader] upload error', error);
+        if (uploadError || !uploadData) {
+          console.error('[GhosteMediaUploader] Upload error:', uploadError);
+
+          // Mark media_asset as failed
+          await supabase
+            .from('media_assets')
+            .update({ status: 'failed' })
+            .eq('id', mediaAssetId);
+
           setError('Upload failed. Please try again.');
           return;
         }
 
-        const { data: publicUrl } = supabase.storage.from(bucket).getPublicUrl(data.path);
+        // Step 3: Get public URL
+        const { data: publicUrlData } = supabase.storage
+          .from(bucket)
+          .getPublicUrl(uploadData.path);
 
-        const url = publicUrl.publicUrl;
-        const type = detectType(file);
+        const publicUrl = publicUrlData.publicUrl;
+
+        // Step 4: Update media_asset (status='ready')
+        const { error: updateError } = await supabase
+          .from('media_assets')
+          .update({
+            storage_key: uploadData.path,
+            public_url: publicUrl,
+            status: 'ready',
+          })
+          .eq('id', mediaAssetId);
+
+        if (updateError) {
+          console.error('[GhosteMediaUploader] Failed to update media_asset:', updateError);
+          // Non-fatal - file is uploaded, just status not updated
+        }
+
+        console.log('[GhosteMediaUploader] Upload complete:', mediaAssetId);
 
         const info = {
-          url,
-          path: data.path,
-          type,
+          media_asset_id: mediaAssetId,
+          url: publicUrl,
+          path: uploadData.path,
+          type: fileType,
           fileName: file.name,
           size: file.size,
         };
 
-        // Register media asset in database so Ghoste AI can use it
+        // Background: Register for legacy ghoste-media-register (non-blocking)
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (session) {
-            await fetch('/.netlify/functions/ghoste-media-register', {
+            fetch('/.netlify/functions/ghoste-media-register', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${session.access_token}`,
               },
               body: JSON.stringify({
-                url: info.url,
-                path: info.path,
-                type: info.type,
-                fileName: info.fileName,
-                size: info.size,
+                media_asset_id: mediaAssetId,
+                url: publicUrl,
+                path: uploadData.path,
+                type: fileType,
+                fileName: file.name,
+                size: file.size,
               }),
-            });
-            console.log('[GhosteMediaUploader] Media registered for AI use');
+            }).catch(e => console.warn('[GhosteMediaUploader] Background register failed:', e));
           }
-        } catch (regErr) {
-          console.error('[GhosteMediaUploader] Failed to register media:', regErr);
-          // Non-fatal - file is still uploaded, just not registered
+        } catch {
+          // Ignore
         }
 
         setFileInfo(info);

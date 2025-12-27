@@ -2,6 +2,7 @@ export type GhosteMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
 export interface GhosteMessageAttachment {
   id: string;
+  media_asset_id: string; // Reference to media_assets table
   kind: 'video' | 'image' | 'audio' | 'file';
   filename: string;
   mime: string;
