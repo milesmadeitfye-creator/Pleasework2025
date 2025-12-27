@@ -63,7 +63,35 @@ export const AIDebugPanel: React.FC<AIDebugPanelProps> = ({ isOpen, onClose }) =
 
   if (!isOpen) return null;
 
-  const metaConnected = debugData?.setupStatus?.meta?.has_meta;
+  // Extract setup from either data.setupStatus or data directly (camelCase keys only)
+  const setup = (debugData && typeof debugData === 'object' && 'setupStatus' in debugData)
+    ? debugData.setupStatus
+    : debugData;
+
+  // Definitive connected predicate using camelCase keys from setupStatus
+  const isMetaConnected =
+    !!setup?.adAccountId ||
+    (!!setup?.pageId && !!setup?.pixelId);
+
+  const isInstagramConnected =
+    !!setup?.instagramActorId || !!setup?.instagramId;
+
+  // Determine connection reason
+  const getConnectionReason = () => {
+    if (isMetaConnected) {
+      const reasons: string[] = [];
+      if (setup?.adAccountId) reasons.push('adAccountId');
+      if (setup?.pageId) reasons.push('pageId');
+      if (setup?.pixelId) reasons.push('pixelId');
+      return `Connected because ${reasons.join(', ')} present`;
+    } else {
+      const missing: string[] = [];
+      if (!setup?.adAccountId) missing.push('adAccountId');
+      if (!setup?.pageId) missing.push('pageId');
+      if (!setup?.pixelId) missing.push('pixelId');
+      return `Not connected - missing: ${missing.join(', ')}`;
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -116,11 +144,11 @@ export const AIDebugPanel: React.FC<AIDebugPanelProps> = ({ isOpen, onClose }) =
           {debugData && (
             <div className="space-y-4">
               {/* Meta Status Badge */}
-              {debugData.setupStatus && (
+              {setup && (
                 <div className="bg-slate-800 rounded-lg p-4 border border-slate-700">
                   <p className="text-sm text-slate-400 mb-2">Meta Connection</p>
                   <div className="flex items-center gap-2">
-                    {metaConnected ? (
+                    {isMetaConnected ? (
                       <>
                         <CheckCircle className="w-5 h-5 text-green-400" />
                         <span className="text-green-400 font-semibold">Connected</span>
@@ -132,11 +160,34 @@ export const AIDebugPanel: React.FC<AIDebugPanelProps> = ({ isOpen, onClose }) =
                       </>
                     )}
                   </div>
-                  {metaConnected && debugData.setupStatus.meta && (
-                    <div className="mt-2 text-xs text-slate-400 font-mono">
-                      <p>Ad Account: {debugData.setupStatus.meta.ad_account_id || 'N/A'}</p>
-                      <p>Page: {debugData.setupStatus.meta.page_id || 'N/A'}</p>
-                      <p>Pixel: {debugData.setupStatus.meta.pixel_id || 'N/A'}</p>
+
+                  {/* Reason */}
+                  <div className="mt-2 text-xs text-slate-400">
+                    {getConnectionReason()}
+                  </div>
+
+                  {/* Show IDs when connected */}
+                  {isMetaConnected && (
+                    <div className="mt-3 text-xs text-slate-300 font-mono space-y-1">
+                      {setup.adAccountId && <p>Ad Account: {setup.adAccountId}</p>}
+                      {setup.pageId && <p>Page: {setup.pageId}</p>}
+                      {setup.pixelId && <p>Pixel: {setup.pixelId}</p>}
+                      {setup.destinationUrl && <p>Destination: {setup.destinationUrl}</p>}
+                    </div>
+                  )}
+
+                  {/* Instagram info */}
+                  {isInstagramConnected && (
+                    <div className="mt-3 pt-3 border-t border-slate-700">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CheckCircle className="w-4 h-4 text-green-400" />
+                        <span className="text-xs text-green-400 font-semibold">Instagram Connected</span>
+                      </div>
+                      <div className="text-xs text-slate-300 font-mono space-y-1">
+                        {setup.instagramActorId && <p>Actor ID: {setup.instagramActorId}</p>}
+                        {setup.instagramId && <p>Instagram ID: {setup.instagramId}</p>}
+                        {setup.instagramUsername && <p>Username: @{setup.instagramUsername}</p>}
+                      </div>
                     </div>
                   )}
                 </div>
