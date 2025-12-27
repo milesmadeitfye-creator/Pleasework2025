@@ -562,3 +562,52 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* ============================================================
+   Ghoste Premium Page Background
+   ============================================================ */
+.ghoste-page-bg {
+  min-height: 100vh;
+  background:
+    radial-gradient(900px 500px at 20% 10%, rgba(26, 108, 255, 0.08), transparent 60%),
+    radial-gradient(700px 420px at 80% 30%, rgba(59, 130, 246, 0.06), transparent 55%),
+    linear-gradient(180deg, #07111E 0%, #000000 100%);
+  position: relative;
+}
+
+.ghoste-page-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.02), transparent 50%);
+  opacity: 0.6;
+}
+
+/* Premium card surfaces */
+.ghoste-card {
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+}
+
+.ghoste-card-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ghoste-card-hover:hover {
+  border-color: rgba(26, 108, 255, 0.3);
+  box-shadow: 0 0 24px rgba(26, 108, 255, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Image tile hover effect */
+.image-tile-hover {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.image-tile-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 32px rgba(26, 108, 255, 0.2);
+}
