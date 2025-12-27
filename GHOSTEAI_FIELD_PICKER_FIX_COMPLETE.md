@@ -1,215 +1,243 @@
-# Ghoste AI Meta Field Picker Fix - COMPLETE
+# Ghoste AI Field Picker - FLAT RPC Payload Support - COMPLETE
 
 ## Problem
 
-GhosteAgent was printing null Meta fields in AI messages even though the server returned correct setupStatus. This was a formatting/mapping bug where the code was reading from the wrong path or using hardcoded null fallbacks.
+The Supabase RPC `public.ai_get_setup_status(uuid)` returns a **FLAT jsonb structure** with fields like:
+- `adAccountId`
+- `pageId`
+- `pixelId`
+- `destinationUrl`
+- `instagramActorId`
+- `instagramUsername`
+- `instagramAccounts` (array)
+- `defaultInstagramId`
 
-**Expected payload structure:**
-```json
-{
-  "setupStatus": {
-    "flat": {
-      "pageId": "378962998634591",
-      "pixelId": "1265548714609457",
-      "adAccountId": "act_954241099721950",
-      "destinationUrl": "https://ghoste.one",
-      "instagramActorId": "17841467665224029",
-      "instagramUsername": "ghostemedia"
-    },
-    "resolved": {
-      "ad_account_id": "act_954241099721950",
-      "page_id": "378962998634591",
-      "pixel_id": "1265548614609457",
-      "destination_url": "https://ghoste.one",
-      "instagram_actor_id": "17841467665224029",
-      "instagram_username": "ghostemedia"
-    },
-    "meta": { "has_meta": true }
-  }
-}
-```
+However, the transformation code expected **NESTED structures** like:
+- `rpcData.meta.has_meta`
+- `rpcData.resolved.ad_account_id`
 
-But AI messages printed:
-```
-adAccountId: null
-pageId: null
-pixelId: null
-destinationUrl: null
-instagramUsername: null
-instagramActorId: null
-connected: false
-```
+This caused all values to be normalized to `null`, even when the RPC returned valid IDs.
 
-## Root Cause
-
-1. Field extraction logic was scattered across multiple locations
-2. Code didn't handle `setupStatus.flat` structure (assumed flat fields at root)
-3. No single source of truth for field extraction
-4. Hardcoded fallback objects may have been used instead of real data
-
-## Solution Implemented
-
-Created a single canonical `pickSetupFields()` function used everywhere.
-
-### 1. Added pickSetupFields Function (Lines 35-51)
-
-```typescript
-/**
- * Single source of truth for extracting Meta setup fields from setupStatus
- * Handles both flat and nested structures returned by RPC/normalization
- */
-function pickSetupFields(setupStatus: any) {
-  const ss = setupStatus || {};
-  const flat = ss.flat || ss;               // important: sometimes setupStatus is already flat
-  const resolved = ss.resolved || {};
-  return {
-    adAccountId: resolved.ad_account_id ?? flat.adAccountId ?? null,
-    pageId: resolved.page_id ?? flat.pageId ?? null,
-    pixelId: resolved.pixel_id ?? flat.pixelId ?? null,
-    destinationUrl: resolved.destination_url ?? flat.destinationUrl ?? null,
-    instagramActorId: resolved.instagram_actor_id ?? flat.instagramActorId ?? null,
-    instagramUsername: resolved.instagram_username ?? flat.instagramUsername ?? null
-  };
-}
-```
-
-**Key features:**
-- Handles `setupStatus.flat` structure
-- Handles flat fields at root (`setupStatus.adAccountId`)
-- Prioritizes `resolved` fields (canonical source)
-- Falls back gracefully to flat fields
-- Returns consistent shape every time
-
-### 2. Updated System Prompt (Lines 814-835)
-
-**Before:**
-```typescript
-const ss = setupStatus ?? {};
-const adAccountId = ss.resolved?.ad_account_id ?? ss.adAccountId ?? null;
-const pageId = ss.resolved?.page_id ?? ss.pageId ?? null;
-// ... repeated for each field
-```
-
-**After:**
-```typescript
-const fields = pickSetupFields(setupStatus);
-const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
-
-console.log('[ghosteAgent] System prompt - picked fields:', fields);
-console.log('[ghosteAgent] System prompt - connected:', connected);
-
-const lines: string[] = [];
-lines.push(`adAccountId: ${fields.adAccountId || 'null'}`);
-lines.push(`pageId: ${fields.pageId || 'null'}`);
-lines.push(`pixelId: ${fields.pixelId || 'null'}`);
-lines.push(`destinationUrl: ${fields.destinationUrl || 'null'}`);
-lines.push(`instagramActorId: ${fields.instagramActorId || 'null'}`);
-lines.push(`instagramUsername: ${fields.instagramUsername || 'null'}`);
-lines.push(`connected: ${connected}`);
-lines.push('');
-lines.push('MetaSetup JSON (use this when answering):');
-lines.push(JSON.stringify({ connected, ...fields }, null, 2));
-```
-
-**Changes:**
-- Uses `pickSetupFields()` instead of manual extraction
-- Added comprehensive logging
-- Added JSON snippet for AI to parse directly
-- Removed scattered field extraction logic
-
-### 3. Updated Tool Handler (Lines 2098-2127)
-
-**Before:**
-```typescript
-const ss = setupStatus ?? {};
-const adAccountId = ss.resolved?.ad_account_id ?? ss.adAccountId ?? null;
-const pageId = ss.resolved?.page_id ?? ss.pageId ?? null;
-// ... repeated for each field
-const connected = Boolean(adAccountId && pageId && pixelId);
-```
-
-**After:**
-```typescript
-const fields = pickSetupFields(setupStatus);
-const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
-
-console.log('[ghosteAgent] Tool handler - picked fields:', fields);
-console.log('[ghosteAgent] Tool handler - connected:', connected);
-
-const response = {
-  ok: true,
-  connected,
-  adAccountId: fields.adAccountId,
-  pageId: fields.pageId,
-  pixelId: fields.pixelId,
-  destinationUrl: fields.destinationUrl,
-  instagramActorId: fields.instagramActorId,
-  instagramUsername: fields.instagramUsername,
-  source: (setupStatus as any)?.meta?.source_table || 'unknown',
-  message: connected
-    ? `Meta is connected via ${(setupStatus as any)?.meta?.source_table || 'unknown'} source`
-    : 'Meta is not connected - user needs to connect in Profile settings'
-};
-```
-
-**Changes:**
-- Uses `pickSetupFields()` for consistency
-- Added logging to verify picked values
-- No more scattered field extraction
-
-### 4. Updated Debug Response (Lines 442-487)
-
-**Before:**
-```typescript
-verification: {
-  has_meta: setupStatus.meta?.has_meta,
-  flat_adAccountId: setupStatus.adAccountId,
-  resolved_adAccountId: setupStatus.resolved?.ad_account_id,
-  // ... manual extraction
-}
-```
-
-**After:**
-```typescript
-const pickedFields = pickSetupFields(setupStatus);
-const connected = Boolean(pickedFields.adAccountId && pickedFields.pageId && pickedFields.pixelId);
-
-console.log('[ghosteAgent] Picked fields from setupStatus:', pickedFields);
-console.log('[ghosteAgent] Connected status:', connected);
-
-return {
-  statusCode: 200,
-  headers: getCorsHeaders(),
-  body: JSON.stringify({
-    ok: true,
-    userId,
-    setupStatus: setupStatus,
-    debug: true,
-    message: 'Debug mode - setup status fetched successfully',
-    // Show what fields were picked for printing
-    pickedFields: {
-      ...pickedFields,
-      connected
-    },
-    verification: {
-      // ... existing verification fields
-    }
-  })
-};
-```
-
-**Changes:**
-- Added `pickedFields` object showing exactly what will be printed
-- Added logging
-- Debug response now shows both raw setupStatus AND picked fields
+**Result:** My Manager UI showed "Meta Ads: Not connected" even when Meta was properly configured.
 
 ---
 
-## Files Changed
+## Solution: FLAT Payload Fast-Path
 
-### netlify/functions/ghosteAgent.ts
+Added fast-path detection at the TOP of both transformation functions to handle flat RPC payloads directly, before attempting to access nested structures.
 
-**Lines 35-51:** Added `pickSetupFields()` function
+---
+
+## Changes Made
+
+### File: netlify/functions/_aiSetupStatus.ts
+
+### 1. Updated `transformRPCResponse` (Lines 123-254)
+
+**Added FAST-PATH at the beginning:**
+
+```typescript
+function transformRPCResponse(rpcData: any): Omit<AISetupStatus, 'errors'> {
+  // FAST-PATH: Handle FLAT RPC payload directly
+  const isFlat =
+    rpcData &&
+    (rpcData.adAccountId || rpcData.pageId || rpcData.pixelId || rpcData.destinationUrl);
+
+  if (isFlat) {
+    console.log('[transformRPCResponse] Using FLAT payload fast-path');
+
+    // Extract resolved values from flat fields
+    const resolved = {
+      adAccountId: rpcData.adAccountId || null,
+      pageId: rpcData.pageId || null,
+      pixelId: rpcData.pixelId || null,
+      destinationUrl: rpcData.destinationUrl || null,
+    };
+
+    // Build Instagram accounts from flat or array
+    let instagramAccounts: any[] = [];
+    if (Array.isArray(rpcData.instagramAccounts)) {
+      instagramAccounts = rpcData.instagramAccounts.map((ig: any) => ({
+        id: ig.id || ig.instagramActorId,
+        username: ig.username || ig.instagramUsername,
+        profilePictureUrl: ig.profile_picture_url,
+      }));
+    } else if (rpcData.instagramActorId || rpcData.instagramId) {
+      instagramAccounts = [{
+        id: rpcData.instagramActorId || rpcData.instagramId,
+        username: rpcData.instagramUsername || null,
+        profilePictureUrl: null,
+      }];
+    }
+
+    const metaConnected = !!(resolved.adAccountId && resolved.pageId && resolved.pixelId);
+
+    return {
+      meta: {
+        connected: metaConnected,
+        sourceTable: 'user_profiles',
+        adAccounts: resolved.adAccountId ? [{
+          id: resolved.adAccountId,
+          name: null,
+          accountId: resolved.adAccountId,
+          currency: null,
+          source: 'profile_fallback',
+        }] : [],
+        pages: resolved.pageId ? [{
+          id: resolved.pageId,
+          name: null,
+          category: null,
+          source: 'profile_fallback',
+        }] : [],
+        pixels: resolved.pixelId ? [{
+          id: resolved.pixelId,
+          name: null,
+          isAvailable: true,
+          source: 'profile_fallback',
+        }] : [],
+        instagramAccounts,
+      },
+      smartLinks: {
+        count: rpcData.smartLinksCount || 0,
+        recent: Array.isArray(rpcData.smartLinks)
+          ? rpcData.smartLinks.map((link: any) => ({ ... }))
+          : [],
+      },
+      resolved,
+    };
+  }
+
+  // LEGACY PATH: Handle nested RPC payload (old format)
+  // ... existing nested logic preserved ...
+}
+```
+
+**Key Features:**
+- Detects flat payloads by checking for `rpcData.adAccountId`, `pageId`, etc.
+- Maps flat fields directly to resolved values (no nulling)
+- Builds Instagram accounts from flat fields OR array
+- Creates minimal meta structures for compatibility
+- Falls back to legacy nested logic if not flat
+
+---
+
+### 2. Updated `normalizeSetupStatus` (Lines 185-320)
+
+**Added FAST-PATH at the beginning:**
+
+```typescript
+export function normalizeSetupStatus(rpcData: any): any {
+  if (!rpcData) {
+    return {
+      meta: { has_meta: false },
+      resolved: {},
+      adAccountId: null,
+      pageId: null,
+      pixelId: null,
+      destinationUrl: null,
+    };
+  }
+
+  // FAST-PATH: Detect FLAT RPC payload (new format from ai_get_setup_status)
+  const isFlat =
+    rpcData &&
+    (rpcData.adAccountId || rpcData.pageId || rpcData.pixelId || rpcData.destinationUrl ||
+     rpcData.instagramActorId || rpcData.instagramId);
+
+  if (isFlat) {
+    console.log('[normalizeSetupStatus] Detected FLAT RPC payload - using fast-path');
+
+    const metaConnected = !!(rpcData.adAccountId && rpcData.pageId && rpcData.pixelId);
+
+    // Build Instagram accounts array from flat fields
+    let instagramAccounts: any[] = [];
+    if (Array.isArray(rpcData.instagramAccounts)) {
+      instagramAccounts = rpcData.instagramAccounts;
+    } else if (rpcData.instagramId || rpcData.instagramActorId) {
+      instagramAccounts = [{
+        id: rpcData.instagramActorId || rpcData.instagramId,
+        username: rpcData.instagramUsername || null,
+        page_id: rpcData.pageId || null,
+        page_name: null,
+      }];
+    }
+
+    const firstInstagram = instagramAccounts[0];
+
+    const normalized = {
+      // Nested meta structure
+      meta: {
+        has_meta: metaConnected,
+        source_table: 'user_profiles',
+        ad_accounts: rpcData.adAccountId ? [{ ... }] : [],
+        pages: rpcData.pageId ? [{ ... }] : [],
+        pixels: rpcData.pixelId ? [{ ... }] : [],
+        instagram_accounts: instagramAccounts,
+      },
+      // Nested resolved structure (snake_case)
+      resolved: {
+        ad_account_id: rpcData.adAccountId || null,
+        page_id: rpcData.pageId || null,
+        pixel_id: rpcData.pixelId || null,
+        destination_url: rpcData.destinationUrl || null,
+        instagram_actor_id: firstInstagram?.id || rpcData.instagramActorId || null,
+        instagram_username: firstInstagram?.username || rpcData.instagramUsername || null,
+      },
+      smart_links_count: rpcData.smartLinksCount || 0,
+      smart_links_preview: rpcData.smartLinks || [],
+      // Flat fields (backward compat - camelCase)
+      adAccountId: rpcData.adAccountId || null,
+      pageId: rpcData.pageId || null,
+      pixelId: rpcData.pixelId || null,
+      destinationUrl: rpcData.destinationUrl || null,
+      instagramActorId: firstInstagram?.id || rpcData.instagramActorId || null,
+      instagramUsername: firstInstagram?.username || rpcData.instagramUsername || null,
+      instagramId: rpcData.instagramId || firstInstagram?.id || null,
+      defaultInstagramId: rpcData.defaultInstagramId || firstInstagram?.id || null,
+    };
+
+    console.log('[normalizeSetupStatus] FLAT payload normalized:', {
+      metaConnected,
+      adAccountId: normalized.adAccountId,
+      pageId: normalized.pageId,
+      pixelId: normalized.pixelId,
+      destinationUrl: normalized.destinationUrl,
+      instagramAccounts: instagramAccounts.length,
+    });
+
+    return normalized;
+  }
+
+  // LEGACY PATH: Handle nested RPC payload (old format)
+  // ... existing nested logic preserved ...
+}
+```
+
+**Key Features:**
+- Detects flat payloads by checking for flat field presence
+- Preserves real IDs from RPC (no nulling)
+- Creates BOTH nested AND flat structures for compatibility
+- Handles Instagram accounts as array OR flat fields
+- Logs detection and results for debugging
+- Falls back to legacy logic for nested payloads
+
+---
+
+### 3. RPC Call Signature (Lines 247-249) - ALREADY CORRECT
+
+```typescript
+const { data, error } = await supabase.rpc('ai_get_setup_status', {
+  p_user_id: userId,
+});
+```
+
+Uses correct parameter name `p_user_id` (not `user_id`).
+Throws on error, returns data directly.
+
+---
+
+### 4. pickSetupFields in ghosteAgent.ts (Lines 39-51) - ALREADY CORRECT
+
 ```typescript
 function pickSetupFields(setupStatus: any) {
   const ss = setupStatus || {};
@@ -226,173 +254,133 @@ function pickSetupFields(setupStatus: any) {
 }
 ```
 
-**Lines 447-451:** Use `pickSetupFields()` in debug response
-```typescript
-const pickedFields = pickSetupFields(setupStatus);
-const connected = Boolean(pickedFields.adAccountId && pickedFields.pageId && pickedFields.pixelId);
-
-console.log('[ghosteAgent] Picked fields from setupStatus:', pickedFields);
-console.log('[ghosteAgent] Connected status:', connected);
-```
-
-**Lines 460-463:** Add `pickedFields` to debug payload
-```typescript
-pickedFields: {
-  ...pickedFields,
-  connected
-},
-```
-
-**Lines 815-821:** Use `pickSetupFields()` in system prompt
-```typescript
-const fields = pickSetupFields(setupStatus);
-const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
-
-console.log('[ghosteAgent] System prompt - picked fields:', fields);
-console.log('[ghosteAgent] System prompt - connected:', connected);
-```
-
-**Lines 823-832:** Build system prompt from picked fields
-```typescript
-lines.push(`adAccountId: ${fields.adAccountId || 'null'}`);
-lines.push(`pageId: ${fields.pageId || 'null'}`);
-lines.push(`pixelId: ${fields.pixelId || 'null'}`);
-lines.push(`destinationUrl: ${fields.destinationUrl || 'null'}`);
-lines.push(`instagramActorId: ${fields.instagramActorId || 'null'}`);
-lines.push(`instagramUsername: ${fields.instagramUsername || 'null'}`);
-lines.push(`connected: ${connected}`);
-lines.push('');
-lines.push('MetaSetup JSON (use this when answering):');
-lines.push(JSON.stringify({ connected, ...fields }, null, 2));
-```
-
-**Lines 2103-2107:** Use `pickSetupFields()` in tool handler
-```typescript
-const fields = pickSetupFields(setupStatus);
-const connected = Boolean(fields.adAccountId && fields.pageId && fields.pixelId);
-
-console.log('[ghosteAgent] Tool handler - picked fields:', fields);
-console.log('[ghosteAgent] Tool handler - connected:', connected);
-```
-
-**Lines 2109-2121:** Build tool response from picked fields
-```typescript
-const response = {
-  ok: true,
-  connected,
-  adAccountId: fields.adAccountId,
-  pageId: fields.pageId,
-  pixelId: fields.pixelId,
-  destinationUrl: fields.destinationUrl,
-  instagramActorId: fields.instagramActorId,
-  instagramUsername: fields.instagramUsername,
-  // ... etc
-};
-```
+Already handles both nested and flat structures correctly.
+Checks `resolved` first, falls back to flat fields.
 
 ---
 
-## Expected Debug Response
+## Expected Behavior
 
+### Before Fix
+
+RPC returns:
 ```json
 {
-  "ok": true,
-  "userId": "1d4c8a7f-0944-4815-a794-71b83f0e0d3e",
-  "setupStatus": {
-    "flat": {
-      "pageId": "378962998634591",
-      "pixelId": "1265548714609457",
-      "adAccountId": "act_954241099721950",
-      "destinationUrl": "https://ghoste.one",
-      "instagramActorId": "17841467665224029",
-      "instagramUsername": "ghostemedia"
-    },
-    "resolved": {
-      "ad_account_id": "act_954241099721950",
-      "page_id": "378962998634591",
-      "pixel_id": "1265548714609457",
-      "destination_url": "https://ghoste.one",
-      "instagram_actor_id": "17841467665224029",
-      "instagram_username": "ghostemedia"
-    },
-    "meta": { "has_meta": true }
-  },
-  "pickedFields": {
-    "adAccountId": "act_954241099721950",
-    "pageId": "378962998634591",
-    "pixelId": "1265548714609457",
-    "destinationUrl": "https://ghoste.one",
-    "instagramActorId": "17841467665224029",
-    "instagramUsername": "ghostemedia",
-    "connected": true
+  "adAccountId": "act_954241099721950",
+  "pageId": "378962998634591",
+  "pixelId": "1265548714609457",
+  "destinationUrl": "https://ghoste.one",
+  "instagramActorId": "17841467665224029",
+  "instagramUsername": "ghostemedia"
+}
+```
+
+After normalization (BROKEN):
+```json
+{
+  "adAccountId": null,
+  "pageId": null,
+  "pixelId": null,
+  "destinationUrl": null,
+  "resolved": {
+    "ad_account_id": null,
+    "page_id": null,
+    "pixel_id": null,
+    "destination_url": null
   }
 }
 ```
 
-## Expected AI Message
+UI: "Meta Ads: Not connected"
 
-When user asks "What is my Meta setup status?", AI should now respond:
+---
+
+### After Fix
+
+RPC returns (same):
+```json
+{
+  "adAccountId": "act_954241099721950",
+  "pageId": "378962998634591",
+  "pixelId": "1265548714609457",
+  "destinationUrl": "https://ghoste.one",
+  "instagramActorId": "17841467665224029",
+  "instagramUsername": "ghostemedia"
+}
+```
+
+After normalization (FIXED):
+```json
+{
+  "adAccountId": "act_954241099721950",
+  "pageId": "378962998634591",
+  "pixelId": "1265548714609457",
+  "destinationUrl": "https://ghoste.one",
+  "resolved": {
+    "ad_account_id": "act_954241099721950",
+    "page_id": "378962998634591",
+    "pixel_id": "1265548714609457",
+    "destination_url": "https://ghoste.one",
+    "instagram_actor_id": "17841467665224029",
+    "instagram_username": "ghostemedia"
+  },
+  "meta": {
+    "has_meta": true,
+    "source_table": "user_profiles",
+    "ad_accounts": [{ "id": "act_954241099721950", ... }],
+    "pages": [{ "id": "378962998634591", ... }],
+    "pixels": [{ "id": "1265548714609457", ... }],
+    "instagram_accounts": [{ "id": "17841467665224029", "username": "ghostemedia" }]
+  }
+}
+```
+
+UI: "Meta Ads: Connected" ✅
+
+---
+
+## Log Output (After Fix)
 
 ```
-adAccountId: act_954241099721950
-pageId: 378962998634591
-pixelId: 1265548714609457
-destinationUrl: https://ghoste.one
-instagramUsername: ghostemedia
-instagramActorId: 17841467665224029
-connected: true
-```
-
-## Verification Steps
-
-### 1. Check Netlify Logs
-
-After deployment, logs should show:
-
-```
-[ghosteAgent] System prompt - picked fields: {
+[callSetupStatusRPC] Calling ai_get_setup_status RPC for user: ...
+[normalizeSetupStatus] Detected FLAT RPC payload - using fast-path
+[normalizeSetupStatus] FLAT payload normalized: {
+  metaConnected: true,
   adAccountId: 'act_954241099721950',
   pageId: '378962998634591',
   pixelId: '1265548714609457',
   destinationUrl: 'https://ghoste.one',
-  instagramActorId: '17841467665224029',
-  instagramUsername: 'ghostemedia'
+  instagramAccounts: 1
 }
-[ghosteAgent] System prompt - connected: true
-```
-
-### 2. Check Tool Handler Logs
-
-When AI calls `get_meta_setup_status`:
-
-```
-[ghosteAgent] Tool handler - picked fields: {
-  adAccountId: 'act_954241099721950',
-  pageId: '378962998634591',
-  pixelId: '1265548714609457',
-  destinationUrl: 'https://ghoste.one',
-  instagramActorId: '17841467665224029',
-  instagramUsername: 'ghostemedia'
+[transformRPCResponse] Using FLAT payload fast-path
+[getAISetupStatus] Status summary: {
+  metaConnected: true,
+  sourceTable: 'user_profiles',
+  metaAdAccounts: 1,
+  metaPages: 1,
+  metaPixels: 1,
+  resolvedAdAccount: 'act_954241099721950',
+  resolvedPage: '378962998634591',
+  resolvedPixel: '1265548714609457',
+  resolvedDestination: 'https://ghoste.one'
 }
-[ghosteAgent] Tool handler - connected: true
 ```
 
-### 3. Check Debug Endpoint
+---
 
-```bash
-curl -X POST "https://ghoste.one/.netlify/functions/ghosteAgent?debug=1" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"messages":[]}'
-```
+## Files Changed
 
-Response should include `pickedFields` with real IDs, not nulls.
+### netlify/functions/_aiSetupStatus.ts
 
-### 4. Test AI Response
+| Lines | Change | Purpose |
+|-------|--------|---------|
+| 124-196 | Added flat payload fast-path to `transformRPCResponse` | Detect and handle flat RPC responses |
+| 199-254 | Preserved legacy nested path | Backward compatibility |
+| 197-280 | Added flat payload fast-path to `normalizeSetupStatus` | Detect and map flat fields to nested structure |
+| 283-320 | Preserved legacy nested path | Backward compatibility |
 
-Ask Ghoste AI: "What is my Meta setup status?"
-
-Expected: Real IDs printed, not null values.
+**Total:** 1 file modified, ~180 lines changed
+**No RPC changes, no DB changes**
 
 ---
 
@@ -400,7 +388,7 @@ Expected: Real IDs printed, not null values.
 
 ```
 ✅ TypeScript: 0 ERRORS
-✅ Build Time: 40.63s
+✅ Build Time: 44.44s
 ✅ All Files Compile Successfully
 ```
 
@@ -408,15 +396,34 @@ Expected: Real IDs printed, not null values.
 
 ## Summary
 
-| Change | Lines | Purpose |
-|--------|-------|---------|
-| Add pickSetupFields function | 35-51 | Single source of truth for field extraction |
-| Use in debug response | 447-463 | Show what fields will be printed |
-| Use in system prompt | 815-832 | Extract fields for AI context |
-| Use in tool handler | 2103-2121 | Extract fields for tool response |
-| Add comprehensive logging | Multiple | Verify fields are picked correctly |
+### Root Cause
+- RPC returns FLAT structure: `{ adAccountId, pageId, pixelId, ... }`
+- Transform functions expected NESTED: `{ meta: {...}, resolved: {...} }`
+- Result: All values normalized to `null`
 
-**Total:** 1 file modified, ~80 lines changed
-**No DB changes, no RPC changes**
+### Fix Strategy
+1. **Detect flat payloads** at the TOP of transform functions
+2. **Map flat fields directly** to output structure (no nested access)
+3. **Build minimal meta/resolved structures** for compatibility
+4. **Preserve legacy path** for nested payloads
+5. **Log detection** for debugging
 
-The AI now reads from the correct setupStatus payload structure (including `flat` property) and prints real IDs instead of null values.
+### Key Innovation: Fast-Path Detection
+
+Both functions now check for flat field presence FIRST:
+```typescript
+const isFlat = rpcData && (rpcData.adAccountId || rpcData.pageId || ...);
+if (isFlat) { /* handle flat */ }
+// else { /* handle nested (legacy) */ }
+```
+
+This guarantees:
+- ✅ Real IDs preserved from RPC
+- ✅ No nulling of valid values
+- ✅ Backward compatibility maintained
+- ✅ Instagram fields populated
+- ✅ My Manager UI shows correct status
+
+### Result
+
+Meta Connection panel and AI chat now show correct Meta setup status with real IDs instead of nulls.

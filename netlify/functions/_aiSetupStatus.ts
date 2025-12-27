@@ -121,6 +121,84 @@ function getSupabaseAdmin(): SupabaseClient | null {
  * CRITICAL: Returns BOTH flat fields (backward compat) AND nested meta/resolved
  */
 function transformRPCResponse(rpcData: any): Omit<AISetupStatus, 'errors'> {
+  // FAST-PATH: Handle FLAT RPC payload directly
+  const isFlat =
+    rpcData &&
+    (rpcData.adAccountId || rpcData.pageId || rpcData.pixelId || rpcData.destinationUrl);
+
+  if (isFlat) {
+    console.log('[transformRPCResponse] Using FLAT payload fast-path');
+
+    // Extract resolved values from flat fields
+    const resolved = {
+      adAccountId: rpcData.adAccountId || null,
+      pageId: rpcData.pageId || null,
+      pixelId: rpcData.pixelId || null,
+      destinationUrl: rpcData.destinationUrl || null,
+    };
+
+    // Build Instagram accounts from flat or array
+    let instagramAccounts: any[] = [];
+    if (Array.isArray(rpcData.instagramAccounts)) {
+      instagramAccounts = rpcData.instagramAccounts.map((ig: any) => ({
+        id: ig.id || ig.instagramActorId,
+        username: ig.username || ig.instagramUsername,
+        profilePictureUrl: ig.profile_picture_url,
+      }));
+    } else if (rpcData.instagramActorId || rpcData.instagramId) {
+      instagramAccounts = [{
+        id: rpcData.instagramActorId || rpcData.instagramId,
+        username: rpcData.instagramUsername || null,
+        profilePictureUrl: null,
+      }];
+    }
+
+    const metaConnected = !!(resolved.adAccountId && resolved.pageId && resolved.pixelId);
+
+    return {
+      meta: {
+        connected: metaConnected,
+        sourceTable: 'user_profiles',
+        adAccounts: resolved.adAccountId ? [{
+          id: resolved.adAccountId,
+          name: null,
+          accountId: resolved.adAccountId,
+          currency: null,
+          source: 'profile_fallback',
+        }] : [],
+        pages: resolved.pageId ? [{
+          id: resolved.pageId,
+          name: null,
+          category: null,
+          source: 'profile_fallback',
+        }] : [],
+        pixels: resolved.pixelId ? [{
+          id: resolved.pixelId,
+          name: null,
+          isAvailable: true,
+          source: 'profile_fallback',
+        }] : [],
+        instagramAccounts,
+      },
+      smartLinks: {
+        count: rpcData.smartLinksCount || 0,
+        recent: Array.isArray(rpcData.smartLinks)
+          ? rpcData.smartLinks.map((link: any) => ({
+              id: link.id,
+              title: link.title || link.trackTitle,
+              slug: link.slug,
+              destinationUrl: link.destinationUrl || link.destination_url,
+              createdAt: link.createdAt || link.created_at,
+            }))
+          : [],
+      },
+      resolved,
+    };
+  }
+
+  // LEGACY PATH: Handle nested RPC payload
+  console.log('[transformRPCResponse] Using legacy nested payload path');
+
   const resolved = {
     adAccountId: rpcData.resolved?.ad_account_id || null,
     pageId: rpcData.resolved?.page_id || null,
@@ -193,6 +271,95 @@ export function normalizeSetupStatus(rpcData: any): any {
       destinationUrl: null,
     };
   }
+
+  // FAST-PATH: Detect FLAT RPC payload (new format from ai_get_setup_status)
+  // The RPC returns flat fields like: adAccountId, pageId, pixelId, etc.
+  const isFlat =
+    rpcData &&
+    (rpcData.adAccountId || rpcData.pageId || rpcData.pixelId || rpcData.destinationUrl ||
+     rpcData.instagramActorId || rpcData.instagramId);
+
+  if (isFlat) {
+    console.log('[normalizeSetupStatus] Detected FLAT RPC payload - using fast-path');
+
+    const metaConnected = !!(rpcData.adAccountId && rpcData.pageId && rpcData.pixelId);
+
+    // Build Instagram accounts array from flat fields
+    let instagramAccounts: any[] = [];
+    if (Array.isArray(rpcData.instagramAccounts)) {
+      instagramAccounts = rpcData.instagramAccounts;
+    } else if (rpcData.instagramId || rpcData.instagramActorId) {
+      instagramAccounts = [{
+        id: rpcData.instagramActorId || rpcData.instagramId,
+        username: rpcData.instagramUsername || null,
+        page_id: rpcData.pageId || null,
+        page_name: null,
+      }];
+    }
+
+    const firstInstagram = instagramAccounts[0];
+
+    const normalized = {
+      // Nested meta structure
+      meta: {
+        has_meta: metaConnected,
+        source_table: 'user_profiles',
+        ad_accounts: rpcData.adAccountId ? [{
+          id: rpcData.adAccountId,
+          account_id: rpcData.adAccountId,
+          name: null,
+          account_status: null,
+          source: 'profile_fallback',
+        }] : [],
+        pages: rpcData.pageId ? [{
+          id: rpcData.pageId,
+          name: null,
+          source: 'profile_fallback',
+        }] : [],
+        pixels: rpcData.pixelId ? [{
+          id: rpcData.pixelId,
+          name: null,
+          ad_account_id: rpcData.adAccountId || null,
+          source: 'profile_fallback',
+        }] : [],
+        instagram_accounts: instagramAccounts,
+      },
+      // Nested resolved structure (snake_case for server compatibility)
+      resolved: {
+        ad_account_id: rpcData.adAccountId || null,
+        page_id: rpcData.pageId || null,
+        pixel_id: rpcData.pixelId || null,
+        destination_url: rpcData.destinationUrl || null,
+        instagram_actor_id: firstInstagram?.id || rpcData.instagramActorId || null,
+        instagram_username: firstInstagram?.username || rpcData.instagramUsername || null,
+      },
+      smart_links_count: rpcData.smartLinksCount || 0,
+      smart_links_preview: rpcData.smartLinks || [],
+      // Flat fields (backward compat - camelCase)
+      adAccountId: rpcData.adAccountId || null,
+      pageId: rpcData.pageId || null,
+      pixelId: rpcData.pixelId || null,
+      destinationUrl: rpcData.destinationUrl || null,
+      instagramActorId: firstInstagram?.id || rpcData.instagramActorId || null,
+      instagramUsername: firstInstagram?.username || rpcData.instagramUsername || null,
+      instagramId: rpcData.instagramId || firstInstagram?.id || null,
+      defaultInstagramId: rpcData.defaultInstagramId || firstInstagram?.id || null,
+    };
+
+    console.log('[normalizeSetupStatus] FLAT payload normalized:', {
+      metaConnected,
+      adAccountId: normalized.adAccountId,
+      pageId: normalized.pageId,
+      pixelId: normalized.pixelId,
+      destinationUrl: normalized.destinationUrl,
+      instagramAccounts: instagramAccounts.length,
+    });
+
+    return normalized;
+  }
+
+  // LEGACY PATH: Handle nested RPC payload (old format)
+  console.log('[normalizeSetupStatus] Using legacy nested payload path');
 
   const resolved = rpcData.resolved || {};
   const meta = rpcData.meta || {};
