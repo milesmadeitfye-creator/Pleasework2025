@@ -87,6 +87,25 @@ function useDisplayName() {
   return displayName;
 }
 
+/**
+ * Safe query wrapper - prevents undefined.data crashes
+ * Pattern: Always check error and data before accessing
+ */
+async function safeQuery<T>(promise: Promise<{ data: T | null; error: any }>) {
+  try {
+    const { data, error } = await promise;
+    if (error) {
+      return { ok: false as const, data: null, error };
+    }
+    if (data === null || data === undefined) {
+      return { ok: false as const, data: null, error: new Error('No data returned') };
+    }
+    return { ok: true as const, data, error: null };
+  } catch (e) {
+    return { ok: false as const, data: null, error: e };
+  }
+}
+
 const LOAD_TIMEOUT_MS = 5000;
 
 export default function OverviewPage() {

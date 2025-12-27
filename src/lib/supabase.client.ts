@@ -1,33 +1,81 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, hasSupabaseEnv } from './supabaseEnv';
-
 /**
- * BROWSER ONLY Supabase Client
+ * BROWSER ONLY Supabase Client - SINGLETON
  *
- * CRITICAL: May be null if env not configured.
- * ALWAYS check before use: if (!supabase) return fallback;
+ * CRITICAL PATTERN:
+ * - Uses window.__ghosteSupabase to ensure only ONE GoTrueClient instance
+ * - Reads ONLY from VITE_ prefixed env vars (Vite build-time injection)
+ * - NEVER throws, returns null if not configured
+ * - ALWAYS check before use: if (!supabase) return fallback;
+ *
+ * WHY SINGLETON:
+ * Multiple Supabase clients cause "GoTrueClient already registered" warnings
+ * and auth state conflicts.
  */
 
-if (typeof window === 'undefined') {
-  console.warn(
-    '[Supabase Client] Imported in server context. ' +
-    'Use src/lib/supabase.server.ts for server-side code.'
-  );
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
+// Read from VITE_ prefixed vars ONLY (browser build-time injection)
+const url = import.meta.env.VITE_SUPABASE_URL || '';
+const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+
+// Global singleton cache
+declare global {
+  interface Window {
+    __ghosteSupabase?: SupabaseClient;
+  }
 }
 
-// Create client only if configured
-export const supabase: SupabaseClient | null = hasSupabaseEnv
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    })
-  : null;
+/**
+ * Build Supabase client with standard config
+ * THROWS if env vars missing (fail-fast in dev)
+ */
+function buildClient(): SupabaseClient {
+  if (!url || !anonKey) {
+    throw new Error(
+      '[Supabase Client] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. ' +
+      'Check Netlify env vars are set and prefixed with VITE_.'
+    );
+  }
 
-// Export config status
-export const isSupabaseConfigured = hasSupabaseEnv;
+  if (import.meta.env.DEV) {
+    console.log(
+      `[Supabase Client] Initializing singleton | ` +
+      `url=${new URL(url).hostname} | ` +
+      `anonKeyLen=${anonKey.length}ch`
+    );
+  }
+
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: 'ghoste.auth',
+    },
+  });
+}
+
+/**
+ * SINGLETON Supabase client
+ * - Cached in window.__ghosteSupabase
+ * - Created once per page load
+ * - Null if env not configured
+ */
+export const supabase: SupabaseClient | null =
+  typeof window !== 'undefined'
+    ? (window.__ghosteSupabase ?? (window.__ghosteSupabase = buildClient()))
+    : (() => {
+        console.warn(
+          '[Supabase Client] Imported in server context. ' +
+          'Use src/lib/supabase.server.ts instead.'
+        );
+        return null;
+      })();
+
+/**
+ * Check if Supabase is configured
+ */
+export const isSupabaseConfigured = Boolean(supabase);
 
 /**
  * Safe getter - returns null if not configured
@@ -40,7 +88,7 @@ export function getSupabaseClient(): SupabaseClient | null {
  * Get base URL (may be empty string)
  */
 export function getSupabaseUrl(): string {
-  return SUPABASE_URL;
+  return url;
 }
 
 /**

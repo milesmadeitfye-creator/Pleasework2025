@@ -323,14 +323,17 @@ async function fetchGhosteContext(userId: string) {
       ghoste.drafts = campaigns.filter(c => c.status === 'draft').length;
     }
 
-    // Fetch autopilot rules
-    const { data: rules } = await supabaseServer
+    // Fetch autopilot rules (may not exist for user yet)
+    const { data: rules, error: rulesError } = await supabaseServer
       .from('ads_autopilot_rules')
-      .select('id')
+      .select('id, enabled')
       .eq('user_id', userId)
       .eq('enabled', true);
 
-    if (rules) {
+    if (rulesError) {
+      console.warn('[fetchGhosteContext] Autopilot rules error:', rulesError.message);
+      // Don't push error - table exists but user may have no rules yet
+    } else if (rules) {
       ghoste.rules = rules.length;
     }
   } catch (error: any) {
@@ -369,13 +372,18 @@ async function fetchTrackingClicks(userId: string) {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    // Fetch 7-day clicks
-    const { data: events7d } = await supabaseServer
+    // Fetch 7-day clicks (select only columns we need)
+    const { data: events7d, error: events7dError } = await supabaseServer
       .from('smartlink_events')
-      .select('event_type, platform, link_id')
+      .select('created_at, platform, link_id, event_type')
       .eq('user_id', userId)
       .eq('event_type', 'click')
       .gte('created_at', sevenDaysAgo.toISOString());
+
+    if (events7dError) {
+      console.warn('[fetchTrackingClicks] 7-day fetch error:', events7dError.message);
+      tracking.errors.push(`7-day clicks error: ${events7dError.message}`);
+    }
 
     if (events7d) {
       tracking.clicks7d = events7d.length;
