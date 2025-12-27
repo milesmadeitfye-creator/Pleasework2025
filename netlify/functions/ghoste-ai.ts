@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getManagerContext, type ManagerContext } from '../../src/ai/context/getManagerContext';
 import { getAISetupStatus, formatSetupStatusForAI, type AISetupStatus } from './_aiSetupStatus';
+import { runAdsFromChat } from './_runAdsPipeline';
 
 // Types
 type Role = 'system' | 'user' | 'assistant';
@@ -274,19 +275,39 @@ Your job is to:
 - NEVER pretend something is created or live if the system did not actually do it
 
 ====================================================
-VOICE & VIBE (TEXT MESSAGE MODE)
+VOICE & VIBE (SAY LESS MANAGER MODE)
 ====================================================
 
-- Talk like a real manager texting the artist, not a corporate bot.
-- Short, punchy messages. 1–3 sentences at a time.
-- Match the user's slang and energy (e.g., "bet", "say less", "run it", "lock it in", "we live", etc.).
-- Keep it respectful and clear. No wild or offensive language.
-- Break info into small chunks instead of long paragraphs.
+CRITICAL: You are a MANAGER, not a chatbot. Talk like you're texting the artist.
 
-Examples:
-- "Bet, I got you. Lemme line this up real quick."
-- "Here's the play so there's no confusion."
-- "This looks hard. If you're cool with it, say 'let's rock' and I'll run it."
+RESPONSE STYLE:
+- Short acknowledgements ONLY (1-2 sentences max)
+- NO long explanations
+- NO lists of IDs, account numbers, pixel IDs
+- NO multi-paragraph responses
+- NO contradictions (if Meta connected, NEVER say "not connected")
+
+SUCCESS RESPONSES:
+- "Say less. I'm on it."
+- "Bet, running this now."
+- "Draft ready — approve?"
+- "I'm on it. I'll tap you if I need anything."
+
+BLOCKER RESPONSES (one blocker + one action ONLY):
+- "I need the song link."
+- "Upload at least 1 video or image."
+- "Meta isn't connected — connect it and say 'run ads' again."
+
+FORBIDDEN:
+- ❌ "Your Meta ad account ID is act_123456789"
+- ❌ "You have 3 smart links: link1, link2, link3"
+- ❌ "Here's what I found: [long list]"
+- ❌ Contradicting setup status (saying "not connected" when it IS connected)
+
+ALLOWED (Analyst Mode ONLY, not Manager Mode):
+- Detailed breakdowns when user asks "show me everything"
+- Performance metrics when user asks "how's it doing"
+- Lists when user explicitly requests them
 
 ====================================================
 TOOLS & DATA (DO NOT HALLUCINATE)
@@ -611,6 +632,70 @@ export const handler: Handler = async (event) => {
     const userMessages = messages.filter(m => m.role === 'user');
     if (userMessages.length > 0) {
       await storeMessages(supabase, finalConversationId, user_id, userMessages);
+    }
+
+    // COMMAND ROUTER: Check for deterministic intents
+    // "run ads" -> runAdsFromChat pipeline (no LLM)
+    const latestUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0];
+    if (latestUserMessage) {
+      const text = latestUserMessage.content.toLowerCase();
+
+      // Run ads intent patterns
+      const runAdsPatterns = [
+        /\brun\s+ads\b/i,
+        /\brun\s+some\s+ads\b/i,
+        /\bstart\s+ads\b/i,
+        /\blaunch\s+ads\b/i,
+        /\bboost\s+(this|it)\b/i,
+        /\bpromote\s+(this|it|my\s+song)\b/i,
+        /\bpush\s+(this|it)\b/i,
+      ];
+
+      const isRunAdsIntent = runAdsPatterns.some(pattern => pattern.test(text));
+
+      if (isRunAdsIntent) {
+        console.log('[ghoste-ai] Detected run ads intent, routing to pipeline');
+
+        // Extract attachments from meta if available
+        const attachments = (meta?.attachments || []).map((a: any) => ({
+          media_asset_id: a.media_asset_id,
+          kind: a.kind,
+        }));
+
+        try {
+          const result = await runAdsFromChat({
+            user_id,
+            conversation_id: finalConversationId,
+            text: latestUserMessage.content,
+            attachments,
+          });
+
+          // Store assistant response
+          await storeMessages(supabase, finalConversationId, user_id, [
+            { role: 'assistant', content: result.response },
+          ]);
+
+          return {
+            statusCode: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              conversation_id: finalConversationId,
+              reply: result.response,
+              actions: result.ok ? {
+                type: 'run_ads_pipeline',
+                draft_id: result.draft_id,
+                status: result.status,
+              } : undefined,
+            }),
+          };
+        } catch (err: any) {
+          console.error('[ghoste-ai] Run ads pipeline error:', err);
+          // Fall through to normal LLM response on error
+        }
+      }
     }
 
     // STEP 1: Fetch canonical setup status from RPC (SINGLE SOURCE OF TRUTH)
