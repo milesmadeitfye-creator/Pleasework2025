@@ -21,6 +21,9 @@ export function ProGate({ children, feature, action = 'use', showBadge = false, 
     navigate('/subscriptions');
   };
 
+  // Allow Ad Campaigns for all users (unlocked feature)
+  const isAdCampaignsFeature = feature.toLowerCase().includes('ad campaign') || feature.toLowerCase().includes('meta ad');
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -32,7 +35,8 @@ export function ProGate({ children, feature, action = 'use', showBadge = false, 
     );
   }
 
-  if (isPro) {
+  // Allow access if user is Pro OR if it's the Ad Campaigns feature
+  if (isPro || isAdCampaignsFeature) {
     return <>{children}</>;
   }
 

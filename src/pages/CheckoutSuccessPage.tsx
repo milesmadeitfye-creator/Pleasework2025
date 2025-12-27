@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Mail, LogIn, Loader2 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useUserProfile } from '../hooks/useUserProfile';
 
 export default function CheckoutSuccessPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { refetch: refetchProfile } = useUserProfile();
 
   const [loading, setLoading] = useState(true);
   const [verificationResult, setVerificationResult] = useState<{
@@ -22,9 +24,10 @@ export default function CheckoutSuccessPage() {
   const [linkSent, setLinkSent] = useState(false);
 
   useEffect(() => {
-    // If already logged in, redirect to dashboard
+    // If already logged in, refetch profile and redirect to dashboard
     if (user) {
-      console.log('[CheckoutSuccess] User already logged in, redirecting to dashboard');
+      console.log('[CheckoutSuccess] User already logged in, refetching profile and redirecting to dashboard');
+      refetchProfile();
       navigate('/dashboard/overview');
       return;
     }

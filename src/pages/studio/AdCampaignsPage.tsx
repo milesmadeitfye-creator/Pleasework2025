@@ -1,7 +1,7 @@
 import { PageShell } from '../../components/layout/PageShell';
 import { StudioTabs } from '../../components/studio/StudioTabs';
 import { EmailConfirmGate } from '../../components/EmailConfirmGate';
-import AdsManager from '../../components/AdsManagerEnhanced';
+import AdsManager from '../../components/AdsManager';
 
 export default function AdCampaignsPage() {
   return (

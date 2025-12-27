@@ -12,7 +12,7 @@ import {
   type PlacementPlatform,
   type PlacementGroup,
 } from '../lib/adPlacementConstants';
-import { ProGate } from './ProGate';
+// ProGate removed - Ad Campaigns now accessible to all tiers
 import { useSpendCredits } from '../features/wallet/useSpendCredits';
 import { CreditCostBadge } from '../features/wallet/CreditCostBadge';
 import { safeToFixed, safeNumber } from '../utils/numbers';
@@ -1047,26 +1047,23 @@ export default function AdsManagerEnhanced() {
   // Loading state
   if (loading) {
     return (
-      <ProGate feature="Meta Ad Campaigns" action="create and manage" fullPage>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <div className="text-center space-y-4">
-            <div className="relative w-16 h-16 mx-auto">
-              <div className="absolute inset-0 rounded-full border-4 border-gray-800"></div>
-              <div className="absolute inset-0 rounded-full border-4 border-t-blue-500 animate-spin"></div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-lg font-medium text-white">Loading campaigns</p>
-              <p className="text-sm text-gray-400">Getting your ads ready...</p>
-            </div>
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <div className="relative w-16 h-16 mx-auto">
+            <div className="absolute inset-0 rounded-full border-4 border-gray-800"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-t-blue-500 animate-spin"></div>
+          </div>
+          <div className="space-y-2">
+            <p className="text-lg font-medium text-white">Loading campaigns</p>
+            <p className="text-sm text-gray-400">Getting your ads ready...</p>
           </div>
         </div>
-      </ProGate>
+      </div>
     );
   }
 
   return (
-    <ProGate feature="Meta Ad Campaigns" action="create and manage" fullPage>
-      <div className="space-y-6">
+    <div className="space-y-6">
         <MetaConnectBanner context="ads" />
 
         {/* Premium Header */}
@@ -1556,9 +1553,6 @@ export default function AdsManagerEnhanced() {
           </div>
         )}
       </div>
-
-      {/* Keep the existing create campaign modal - rest of the file unchanged */}
-      {/* Note: The modal code continues below but is not changed */}
-    </ProGate>
+    </div>
   );
 }
