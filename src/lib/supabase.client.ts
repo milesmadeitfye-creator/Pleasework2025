@@ -1,78 +1,59 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { getPublicSupabaseUrl, getPublicSupabaseAnonKey, isPublicSupabaseConfigured, logEnvConfig } from './env';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, hasSupabaseEnv } from './supabaseEnv';
 
 /**
- * BROWSER ONLY - This file uses import.meta.env
- * If you see this error in a Netlify Function, use supabase.server.ts instead
+ * BROWSER ONLY Supabase Client
+ *
+ * CRITICAL: May be null if env not configured.
+ * ALWAYS check before use: if (!supabase) return fallback;
  */
+
 if (typeof window === 'undefined') {
-  console.error(
-    '[CLIENT] supabase.client.ts imported in server context. ' +
-    'Use src/lib/supabase.server.ts (for shared code) or ' +
-    'netlify/functions/_lib/supabase.server.ts (for functions) instead.'
+  console.warn(
+    '[Supabase Client] Imported in server context. ' +
+    'Use src/lib/supabase.server.ts for server-side code.'
   );
 }
 
-// Get env vars using central resolver
-const supabaseUrl = getPublicSupabaseUrl();
-const supabaseAnonKey = getPublicSupabaseAnonKey();
-
-// Log configuration status (lengths only, not values)
-logEnvConfig('[Supabase Client]');
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error(
-    '[Supabase Client] CRITICAL: Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. ' +
-    'Supabase features will NOT work. Check .env file or build environment variables.'
-  );
-}
-
-// Export config status for conditional feature enablement
-export const isSupabaseConfigured = isPublicSupabaseConfigured();
-
-// Create client only if vars exist - NEVER use placeholder URLs
-let supabaseInstance: SupabaseClient | null = null;
-
-if (supabaseUrl && supabaseAnonKey) {
-  supabaseInstance = createClient(
-    supabaseUrl,
-    supabaseAnonKey,
-    {
+// Create client only if configured
+export const supabase: SupabaseClient | null = hasSupabaseEnv
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
       },
-    }
-  );
-}
+    })
+  : null;
 
-// Export client (may be null if not configured)
-export const supabase: SupabaseClient | null = supabaseInstance;
+// Export config status
+export const isSupabaseConfigured = hasSupabaseEnv;
 
-// Safe getter that returns null if not configured
+/**
+ * Safe getter - returns null if not configured
+ */
 export function getSupabaseClient(): SupabaseClient | null {
-  if (!isSupabaseConfigured) {
-    console.error('[Supabase Client] Cannot get client - not configured');
-    return null;
-  }
-  return supabaseInstance;
-}
-
-// Get base URL for manual REST calls (never returns placeholder)
-export function getSupabaseUrl(): string | null {
-  return supabaseUrl;
+  return supabase;
 }
 
 /**
- * Require Supabase client - throws friendly error if not configured
- * Use this in components that MUST have Supabase to function
+ * Get base URL (may be empty string)
  */
-export function requireSupabaseClient(): SupabaseClient {
-  if (!supabaseInstance) {
-    throw new Error(
-      'Supabase is not configured. Please check your environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY).'
+export function getSupabaseUrl(): string {
+  return SUPABASE_URL;
+}
+
+/**
+ * Require Supabase - use only in components that MUST have DB
+ * Logs error instead of throwing to prevent crashes
+ */
+export function requireSupabaseClient(): SupabaseClient | null {
+  if (!supabase) {
+    console.error(
+      '[Supabase Client] Not configured. Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. ' +
+      'Features requiring database will be disabled.'
     );
+    return null;
   }
-  return supabaseInstance;
+  return supabase;
 }

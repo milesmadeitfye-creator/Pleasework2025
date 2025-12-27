@@ -24,6 +24,14 @@ export const AdsDataStatus: React.FC<AdsDataStatusProps> = ({ userId }) => {
     setRefreshing(isRefresh);
 
     try {
+      if (!supabase) {
+        console.warn('[AdsDataStatus] Supabase not ready');
+        setContext(null);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       // Call ai_get_setup_status RPC to get canonical Meta connection status
       const { data: setupData, error: setupError } = await supabase
         .rpc('ai_get_setup_status', { p_user_id: userId });

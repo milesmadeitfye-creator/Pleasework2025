@@ -1,22 +1,22 @@
 // netlify/functions/_supabaseAdmin.ts
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY, hasSupabaseEnv, hasServiceRoleKey } from "../../src/lib/supabaseEnv";
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const hasUrl = !!SUPABASE_URL;
-const hasKey = !!SUPABASE_SERVICE_ROLE_KEY;
-const isConfigured = hasUrl && hasKey;
+// Use service role if available, otherwise anon (for functions without admin privileges)
+const keyToUse = hasServiceRoleKey ? SUPABASE_SERVICE_ROLE_KEY : SUPABASE_ANON_KEY;
+const isConfigured = hasSupabaseEnv && !!keyToUse;
 
 console.log(
   '[Supabase Admin] configured=', isConfigured,
-  '| urlLen=', SUPABASE_URL?.length ?? 0,
-  '| keyLen=', SUPABASE_SERVICE_ROLE_KEY?.length ?? 0
+  '| urlLen=', SUPABASE_URL.length,
+  '| serviceKeyLen=', SUPABASE_SERVICE_ROLE_KEY.length,
+  '| anonKeyLen=', SUPABASE_ANON_KEY.length,
+  '| usingServiceRole=', hasServiceRoleKey
 );
 
 if (!isConfigured) {
   console.warn(
-    "[Supabase Admin] Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY. " +
+    "[Supabase Admin] Missing Supabase configuration. " +
     "Admin functions will be disabled. " +
     "Check Netlify Dashboard → Site Settings → Environment Variables"
   );
@@ -27,8 +27,8 @@ let adminInstance: SupabaseClient | null = null;
 
 if (isConfigured) {
   adminInstance = createClient(
-    SUPABASE_URL!,
-    SUPABASE_SERVICE_ROLE_KEY!,
+    SUPABASE_URL,
+    keyToUse,
     {
       auth: {
         autoRefreshToken: false,

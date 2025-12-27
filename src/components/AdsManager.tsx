@@ -65,6 +65,13 @@ export default function AdsManager() {
   const fetchMetaAssets = async () => {
     setLoadingMeta(true);
     try {
+      if (!supabase) {
+        console.warn('[AdsManager] Supabase not ready');
+        setMetaAssets({ connected: false });
+        setLoadingMeta(false);
+        return;
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         setMetaAssets({ connected: false });
@@ -107,14 +114,25 @@ export default function AdsManager() {
 
   const fetchCampaigns = async () => {
     setLoading(true);
+
+    if (!supabase) {
+      console.warn('[AdsManager] Supabase not ready, returning empty');
+      setCampaigns([]);
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('ad_campaigns')
       .select('*')
       .eq('user_id', user?.id)
       .order('created_at', { ascending: false });
 
-    if (!error && data) {
-      setCampaigns(data);
+    if (error) {
+      console.error('[AdsManager] Fetch error:', error);
+      setCampaigns([]);
+    } else {
+      setCampaigns(data ?? []);
     }
     setLoading(false);
   };

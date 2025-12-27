@@ -61,6 +61,14 @@ export default function SmartLinks() {
 
   const fetchLinks = async () => {
     setLoading(true);
+
+    if (!supabase) {
+      console.warn('[SmartLinks] Supabase not ready, returning empty');
+      setLinks([]);
+      setLoading(false);
+      return;
+    }
+
     const { data, error } = await supabase
       .from('smart_links')
       .select('*')
@@ -68,12 +76,10 @@ export default function SmartLinks() {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching links:', error);
-      if (error.message.includes('schema cache') || error.message.includes('not find the table')) {
-        showToast('Database table missing. Run CREATE_ALL_TABLES.sql in Supabase.', 'error');
-      }
-    } else if (data) {
-      setLinks(data);
+      console.error('[SmartLinks] Error fetching:', error);
+      setLinks([]);
+    } else {
+      setLinks(data ?? []);
     }
     setLoading(false);
   };

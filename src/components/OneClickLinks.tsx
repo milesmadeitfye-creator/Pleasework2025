@@ -36,15 +36,21 @@ export default function OneClickLinks() {
 
   const fetchLinks = async () => {
     setLoading(true);
+
+    if (!supabase) {
+      console.warn('[OneClickLinks] Supabase not ready, returning empty');
+      setLinks([]);
+      setLoading(false);
+      return;
+    }
+
     const { data } = await supabase
       .from('oneclick_links')
       .select('*')
       .eq('user_id', user?.id)
       .order('created_at', { ascending: false });
 
-    if (data) {
-      setLinks(data);
-    }
+    setLinks(data ?? []);
     setLoading(false);
   };
 
