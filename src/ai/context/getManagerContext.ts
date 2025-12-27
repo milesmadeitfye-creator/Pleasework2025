@@ -217,6 +217,13 @@ async function fetchMetaCampaigns(userId: string, isConnected: boolean) {
       return meta;
     }
 
+    // Guard: Check if supabaseServer is configured
+    if (!supabaseServer) {
+      console.warn('[fetchMetaCampaigns] Supabase not configured, skipping campaigns fetch');
+      meta.errors.push('Database not configured');
+      return meta;
+    }
+
     // Fetch campaigns ONLY (connection status already determined by RPC)
     const { data: campaigns, error: campaignsError } = await supabaseServer
       .from('meta_ad_campaigns')
@@ -289,6 +296,12 @@ async function fetchGhosteContext(userId: string) {
   };
 
   try {
+    // Guard: Check if supabaseServer is configured
+    if (!supabaseServer) {
+      console.warn('[fetchGhosteContext] Supabase not configured, returning empty');
+      return ghoste;
+    }
+
     // Fetch internal Ghoste campaigns
     const { data: campaigns } = await supabaseServer
       .from('ad_campaigns')
@@ -343,6 +356,12 @@ async function fetchTrackingClicks(userId: string) {
   };
 
   try {
+    // Guard: Check if supabaseServer is configured
+    if (!supabaseServer) {
+      console.warn('[fetchTrackingClicks] Supabase not configured, returning empty');
+      return tracking;
+    }
+
     // ONLY fetch click metrics, NOT smart links list/count
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);

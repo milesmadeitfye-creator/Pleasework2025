@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { getPublicSupabaseUrl, getPublicSupabaseAnonKey, isPublicSupabaseConfigured, logEnvConfig } from './env';
 
 /**
  * BROWSER ONLY - This file uses import.meta.env
@@ -12,17 +13,12 @@ if (typeof window === 'undefined') {
   );
 }
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Get env vars using central resolver
+const supabaseUrl = getPublicSupabaseUrl();
+const supabaseAnonKey = getPublicSupabaseAnonKey();
 
 // Log configuration status (lengths only, not values)
-const hasUrl = !!supabaseUrl;
-const hasKey = !!supabaseAnonKey;
-console.log(
-  '[Supabase Client] clientConfigured=', hasUrl && hasKey,
-  '| urlLen=', supabaseUrl?.length ?? 0,
-  '| anonLen=', supabaseAnonKey?.length ?? 0
-);
+logEnvConfig('[Supabase Client]');
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error(
@@ -32,7 +28,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Export config status for conditional feature enablement
-export const isSupabaseConfigured = hasUrl && hasKey;
+export const isSupabaseConfigured = isPublicSupabaseConfigured();
 
 // Create client only if vars exist - NEVER use placeholder URLs
 let supabaseInstance: SupabaseClient | null = null;
@@ -51,8 +47,8 @@ if (supabaseUrl && supabaseAnonKey) {
   );
 }
 
-// Export client (will be null if not configured)
-export const supabase: SupabaseClient = supabaseInstance as SupabaseClient;
+// Export client (may be null if not configured)
+export const supabase: SupabaseClient | null = supabaseInstance;
 
 // Safe getter that returns null if not configured
 export function getSupabaseClient(): SupabaseClient | null {
@@ -65,5 +61,18 @@ export function getSupabaseClient(): SupabaseClient | null {
 
 // Get base URL for manual REST calls (never returns placeholder)
 export function getSupabaseUrl(): string | null {
-  return supabaseUrl || null;
+  return supabaseUrl;
+}
+
+/**
+ * Require Supabase client - throws friendly error if not configured
+ * Use this in components that MUST have Supabase to function
+ */
+export function requireSupabaseClient(): SupabaseClient {
+  if (!supabaseInstance) {
+    throw new Error(
+      'Supabase is not configured. Please check your environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY).'
+    );
+  }
+  return supabaseInstance;
 }

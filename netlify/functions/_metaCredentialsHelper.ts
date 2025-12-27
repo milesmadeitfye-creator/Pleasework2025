@@ -5,7 +5,7 @@
  * Do NOT query meta_connections, user_meta_assets, or user_meta_connections directly.
  */
 
-import { supabase } from './_supabaseAdmin';
+import { getSupabaseAdmin } from './_supabaseAdmin';
 
 export interface MetaCredentials {
   accessToken: string;
@@ -24,6 +24,11 @@ export interface MetaCredentials {
  */
 export async function getMetaCredentials(userId: string): Promise<MetaCredentials> {
   console.log('[getMetaCredentials] Fetching for user:', userId);
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot fetch Meta credentials');
+  }
 
   const { data, error } = await supabase
     .from('meta_credentials')
