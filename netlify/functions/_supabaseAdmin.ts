@@ -25,6 +25,9 @@ export const supabaseAdmin = createClient(
   }
 );
 
+// Alias export for imports that expect { supabase }
+export const supabase = supabaseAdmin;
+
 // Legacy export for backward compatibility
 export function getSupabaseAdmin() {
   return supabaseAdmin;
