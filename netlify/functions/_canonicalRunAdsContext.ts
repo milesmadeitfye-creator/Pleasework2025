@@ -4,8 +4,9 @@
  * CRITICAL: This is the ONLY module that determines run-ads readiness.
  * All server-side context reads use SUPABASE_SERVICE_ROLE_KEY to bypass RLS.
  *
- * NO views, NO analytics tables, NO legacy tables.
- * Base tables only: smart_links, oneclick_links, user_meta_assets, user_meta_connections.
+ * Meta credentials: meta_credentials table ONLY (no meta_connections, user_meta_assets)
+ * Links: smart_links, oneclick_links base tables
+ * Media: media_assets table
  */
 
 import { getSupabaseAdmin } from './_supabaseAdmin';
@@ -225,164 +226,81 @@ async function countEmailCaptureLinks(userId: string): Promise<number> {
   return count || 0;
 }
 
-// ========== META: CANONICAL SOURCES ==========
+// ========== META: SINGLE SOURCE OF TRUTH ==========
 
 export interface MetaRunContext {
   hasMeta: boolean;
-  source: 'user_meta_assets' | 'user_meta_connections_fallback' | 'none';
+  accessToken: string | null;
   ad_account_id: string | null;
   ad_account_name: string | null;
   page_id: string | null;
   page_name: string | null;
   pixel_id: string | null;
-  pixel_name: string | null;
+  instagram_account_id: string | null;
 }
 
 /**
- * Get Meta run context from canonical sources ONLY
- * 1. user_meta_assets (chosen assets)
- * 2. user_meta_connections (fallback if assets empty)
- *
+ * Get Meta run context from meta_credentials (SINGLE SOURCE OF TRUTH)
  * Uses service role to bypass RLS
  */
 export async function getMetaRunContext(userId: string): Promise<MetaRunContext> {
   const supabase = getSupabaseAdmin();
 
-  console.log('[getMetaRunContext] Fetching for user:', userId);
+  console.log('[getMetaRunContext] Fetching from meta_credentials for user:', userId);
 
-  // 1. Try user_meta_assets first (canonical chosen assets)
-  const { data: assets, error: assetsError } = await supabase
-    .from('user_meta_assets')
-    .select('*')
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (!assetsError && assets) {
-    // Check if all three critical IDs exist (support column name variants)
-    const ad_account_id = assets.ad_account_id || assets.ad_account || null;
-    const page_id = assets.page_id || assets.page || null;
-    const pixel_id = assets.pixel_id || assets.pixel || null;
-
-    if (ad_account_id && page_id) {
-      console.log('[getMetaRunContext] Found in user_meta_assets:', { ad_account_id, page_id, pixel_id });
-      return {
-        hasMeta: true,
-        source: 'user_meta_assets',
-        ad_account_id,
-        ad_account_name: assets.ad_account_name || null,
-        page_id,
-        page_name: assets.page_name || null,
-        pixel_id,
-        pixel_name: assets.pixel_name || null,
-      };
-    }
-  }
-
-  // 2. Fallback: Try user_meta_connections (connection exists)
-  const { data: connection, error: connectionError } = await supabase
-    .from('user_meta_connections')
+  const { data: creds, error } = await supabase
+    .from('meta_credentials')
     .select('*')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
-  if (!connectionError && connection && connection.access_token) {
-    console.log('[getMetaRunContext] Found connection, will auto-populate assets');
-
-    // Auto-populate user_meta_assets (non-blocking)
-    autoPopulateMetaAssets(userId).catch(err => {
-      console.error('[getMetaRunContext] Auto-populate failed:', err);
-    });
-
+  if (error) {
+    console.error('[getMetaRunContext] Query error:', error);
     return {
-      hasMeta: true,
-      source: 'user_meta_connections_fallback',
+      hasMeta: false,
+      accessToken: null,
       ad_account_id: null,
       ad_account_name: null,
       page_id: null,
       page_name: null,
       pixel_id: null,
-      pixel_name: null,
+      instagram_account_id: null,
     };
   }
 
-  // 3. No Meta found
-  console.log('[getMetaRunContext] No Meta connection found');
+  if (!creds || !creds.access_token) {
+    console.log('[getMetaRunContext] No Meta credentials found');
+    return {
+      hasMeta: false,
+      accessToken: null,
+      ad_account_id: null,
+      ad_account_name: null,
+      page_id: null,
+      page_name: null,
+      pixel_id: null,
+      instagram_account_id: null,
+    };
+  }
+
+  console.log('[getMetaRunContext] Found credentials:', {
+    hasToken: !!creds.access_token,
+    adAccountId: creds.ad_account_id,
+    pageId: creds.page_id,
+    pixelId: creds.pixel_id,
+  });
+
   return {
-    hasMeta: false,
-    source: 'none',
-    ad_account_id: null,
-    ad_account_name: null,
-    page_id: null,
-    page_name: null,
-    pixel_id: null,
-    pixel_name: null,
+    hasMeta: true,
+    accessToken: creds.access_token,
+    ad_account_id: creds.ad_account_id,
+    ad_account_name: creds.ad_account_name,
+    page_id: creds.page_id,
+    page_name: creds.facebook_page_name || null,
+    pixel_id: creds.pixel_id,
+    instagram_account_id: creds.instagram_account_id,
   };
-}
-
-/**
- * Auto-populate user_meta_assets from available Meta tables
- * Runs async, does not block caller
- */
-async function autoPopulateMetaAssets(userId: string): Promise<void> {
-  const supabase = getSupabaseAdmin();
-
-  console.log('[autoPopulateMetaAssets] Starting for user:', userId);
-
-  // Get available assets from tables
-  const [adAccountsResult, pagesResult, pixelsResult] = await Promise.allSettled([
-    supabase
-      .from('meta_ad_accounts')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1),
-
-    supabase
-      .from('meta_pages')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1),
-
-    supabase
-      .from('meta_pixels')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(1),
-  ]);
-
-  const adAccount = adAccountsResult.status === 'fulfilled' ? adAccountsResult.value.data?.[0] : null;
-  const page = pagesResult.status === 'fulfilled' ? pagesResult.value.data?.[0] : null;
-  const pixel = pixelsResult.status === 'fulfilled' ? pixelsResult.value.data?.[0] : null;
-
-  if (!adAccount || !page) {
-    console.warn('[autoPopulateMetaAssets] Insufficient assets to populate:', { hasAdAccount: !!adAccount, hasPage: !!page });
-    return;
-  }
-
-  // Upsert into user_meta_assets
-  const { error: upsertError } = await supabase
-    .from('user_meta_assets')
-    .upsert({
-      user_id: userId,
-      ad_account_id: adAccount.ad_account_id || adAccount.account_id || adAccount.id,
-      ad_account_name: adAccount.name || adAccount.account_name,
-      page_id: page.meta_page_id || page.page_id || page.id,
-      page_name: page.name || page.page_name,
-      pixel_id: pixel?.pixel_id || pixel?.id || null,
-      pixel_name: pixel?.name || null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'user_id' });
-
-  if (upsertError) {
-    console.error('[autoPopulateMetaAssets] Upsert failed:', upsertError);
-    throw upsertError;
-  }
-
-  console.log('[autoPopulateMetaAssets] Successfully populated user_meta_assets');
 }
 
 // ========== UNIFIED RUN ADS CONTEXT ==========

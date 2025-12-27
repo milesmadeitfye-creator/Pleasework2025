@@ -4,6 +4,11 @@ import { supabaseServer } from '../../lib/supabase.server';
 export interface AdsContext {
   meta: {
     connected: boolean;
+    accessToken?: string; // Expose to AI (masked in output)
+    adAccountId?: string | null;
+    pageId?: string | null;
+    pixelId?: string | null;
+    instagramAccountId?: string | null;
     adAccounts: Array<{
       id: string;
       name: string;
@@ -184,11 +189,13 @@ async function fetchMetaData(userId: string) {
   };
 
   try {
-    // Check credentials
+    // Check credentials (SINGLE SOURCE OF TRUTH)
     const { data: creds, error: credsError } = await supabaseServer
       .from('meta_credentials')
-      .select('access_token, expires_at, updated_at')
+      .select('access_token, ad_account_id, page_id, pixel_id, instagram_account_id, expires_at, updated_at')
       .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (credsError) {
@@ -201,8 +208,13 @@ async function fetchMetaData(userId: string) {
       return meta;
     }
 
-    // Token exists - set connected to true
+    // Token exists - set connected to true and expose credentials
     meta.connected = true;
+    meta.accessToken = creds.access_token;
+    meta.adAccountId = creds.ad_account_id;
+    meta.pageId = creds.page_id;
+    meta.pixelId = creds.pixel_id;
+    meta.instagramAccountId = creds.instagram_account_id;
 
     // Check if token expired
     if (creds.expires_at) {
@@ -254,20 +266,22 @@ async function fetchMetaData(userId: string) {
       meta.lastSyncAt = campaigns[0]?.updated_at || campaigns[0]?.created_at;
     }
 
-    // Fetch assets/creatives
+    // Fetch assets/creatives from media_assets (uploaded files)
     const { data: assets } = await supabaseServer
-      .from('user_meta_assets')
-      .select('*')
+      .from('media_assets')
+      .select('id, asset_type, file_name, storage_path, created_at')
       .eq('user_id', userId)
+      .in('asset_type', ['image', 'video'])
+      .order('created_at', { ascending: false })
       .limit(20);
 
     if (assets && assets.length > 0) {
       meta.creatives = assets.map(a => ({
         id: a.id,
         type: a.asset_type || 'unknown',
-        title: a.name || a.title,
-        body: a.description,
-        imageUrl: a.url || a.image_url,
+        title: a.file_name,
+        body: null,
+        imageUrl: a.storage_path,
       }));
     }
 
