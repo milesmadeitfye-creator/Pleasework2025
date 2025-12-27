@@ -13,7 +13,7 @@
  * 6. Return short response
  */
 
-import { getRunAdsContext } from './_runAdsContext';
+import { getAIRunAdsContext } from './_aiCanonicalContext';
 import { getSupabaseAdmin } from './_supabaseAdmin';
 import { ensureMediaMetaReady, pickBestMediaAssetForAds } from './_metaMediaHelper';
 
@@ -192,19 +192,19 @@ async function ensureSmartLinkFromUrl(
 export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> {
   console.log('[runAdsFromChat] Starting:', input.user_id);
 
-  // 1. Get context (single source of truth)
-  const context = await getRunAdsContext(input.user_id);
+  // 1. Get canonical context (ai_media_assets + ai_meta_context)
+  const context = await getAIRunAdsContext(input.user_id);
 
   // 2. Check Meta connection (blocker)
-  if (!context.hasMeta) {
+  if (!context.metaConnected) {
     return {
       ok: false,
       status: 'blocked',
-      response: "Meta isn't connected — connect it and say 'run ads' again.",
+      response: "Meta isn't connected yet. Want me to open setup?",
       blocker: 'meta_not_connected',
       debug: {
         hasMeta: false,
-        smartLinksCount: context.smartLinksCount,
+        smartLinksCount: 0,
         uploadsCount: input.attachments.length,
         usedServiceRole: true,
       },

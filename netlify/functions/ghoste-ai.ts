@@ -4,7 +4,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getManagerContext, type ManagerContext } from '../../src/ai/context/getManagerContext';
 import { getAISetupStatus, formatSetupStatusForAI, type AISetupStatus } from './_aiSetupStatus';
 import { runAdsFromChat } from './_runAdsPipeline';
-import { getRunAdsContext, formatRunAdsContextForAI } from './_runAdsContext';
+import { getAIRunAdsContext, formatRunAdsContextForAI, formatMediaForAI, formatMetaForAI } from './_aiCanonicalContext';
 import { resolveAttachments, formatAttachmentsForAI } from './_ghosteAttachments';
 
 // Types
@@ -267,6 +267,13 @@ USE THIS DATA to answer questions like:
 
 7. ALWAYS USE REAL DATA
    - Campaign names: from "Active Campaigns" list
+
+8. RESPONSE LENGTH (CRITICAL)
+   ⚠️  MAX 3 LINES PER RESPONSE
+   - Be ultra-concise
+   - No essays, no explanations
+   - Example: "Bet. I got the video. I can launch ads with it. Daily budget: $10 / $20 / $50?"
+   - Get to the point immediately
    - Smart link slugs: from setup status
    - Metrics: from campaign insights
    - DO NOT fabricate any data
@@ -767,22 +774,22 @@ export const handler: Handler = async (event) => {
       // Continue without ads context - chat still works
     }
 
-    // STEP 3: Fetch RUN ADS CONTEXT (SINGLE SOURCE OF TRUTH FOR "RUN ADS")
-    // CRITICAL: This replaces duplicate detection logic
-    let runAdsContext = null;
+    // STEP 3: Fetch CANONICAL RUN ADS CONTEXT (ai_media_assets + ai_meta_context)
+    // CRITICAL: Single source of truth - no contradictions possible
+    let aiRunAdsContext = null;
     let runAdsContextFormatted = '';
     try {
-      runAdsContext = await getRunAdsContext(user_id);
-      runAdsContextFormatted = formatRunAdsContextForAI(runAdsContext);
-      console.log('[ghoste-ai] Run ads context loaded:', {
-        hasMeta: runAdsContext.hasMeta,
-        smartLinksCount: runAdsContext.smartLinksCount,
-        ready: runAdsContext.ready,
-        blocker: runAdsContext.blocker,
+      aiRunAdsContext = await getAIRunAdsContext(user_id);
+      runAdsContextFormatted = formatRunAdsContextForAI(aiRunAdsContext);
+      console.log('[ghoste-ai] AI canonical context loaded:', {
+        hasMedia: aiRunAdsContext.hasMedia,
+        metaConnected: aiRunAdsContext.metaConnected,
+        canRunAds: aiRunAdsContext.canRunAds,
+        blocker: aiRunAdsContext.blocker,
       });
     } catch (error) {
-      console.error('[ghoste-ai] Failed to load run ads context:', error);
-      // Continue without run ads context - chat still works
+      console.error('[ghoste-ai] Failed to load AI canonical context:', error);
+      // Continue without context - chat still works
     }
 
     // STEP 4: Resolve attachments from media_assets (CANONICAL SOURCE)
