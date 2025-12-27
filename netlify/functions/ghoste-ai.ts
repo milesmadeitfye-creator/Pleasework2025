@@ -4,6 +4,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { getManagerContext, type ManagerContext } from '../../src/ai/context/getManagerContext';
 import { getAISetupStatus, formatSetupStatusForAI, type AISetupStatus } from './_aiSetupStatus';
 import { runAdsFromChat } from './_runAdsPipeline';
+import { getRunAdsContext, formatRunAdsContextForAI } from './_runAdsContext';
 
 // Types
 type Role = 'system' | 'user' | 'assistant';
@@ -138,14 +139,22 @@ async function storeMessages(
     .eq('id', conversationId);
 }
 
-// Build system prompt with setup status, ads context and operator insights
+// Build system prompt with setup status, ads context, run ads context, and operator insights
 function buildSystemPrompt(
   task: string | undefined,
   meta?: Record<string, any>,
   setupStatus?: AISetupStatus | null,
   adsContext?: ManagerContext | null,
-  operatorInsights?: any[]
+  operatorInsights?: any[],
+  runAdsContext?: string
 ): string {
+  // Inject RUN ADS CONTEXT at the top (SINGLE SOURCE OF TRUTH)
+  // CRITICAL: This section OVERRIDES all other Meta/smart link detection
+  let runAdsSection = '';
+  if (runAdsContext) {
+    runAdsSection = `\n\n${runAdsContext}\n\n`;
+  }
+
   // Inject canonical setup status at the top (bypasses RLS, most reliable)
   let setupSection = '';
   if (setupStatus) {
@@ -274,6 +283,8 @@ Your job is to:
 - Use the connected tools and data correctly
 - NEVER pretend something is created or live if the system did not actually do it
 
+${runAdsSection}
+
 ====================================================
 VOICE & VIBE (SAY LESS MANAGER MODE)
 ====================================================
@@ -286,6 +297,8 @@ RESPONSE STYLE:
 - NO lists of IDs, account numbers, pixel IDs
 - NO multi-paragraph responses
 - NO contradictions (if Meta connected, NEVER say "not connected")
+- If RUN ADS STATUS section says "Meta CONNECTED", NEVER say it's not connected
+- If RUN ADS STATUS section says "X smart links", NEVER say there are none
 
 SUCCESS RESPONSES:
 - "Say less. I'm on it."
@@ -745,6 +758,24 @@ export const handler: Handler = async (event) => {
       // Continue without ads context - chat still works
     }
 
+    // STEP 3: Fetch RUN ADS CONTEXT (SINGLE SOURCE OF TRUTH FOR "RUN ADS")
+    // CRITICAL: This replaces duplicate detection logic
+    let runAdsContext = null;
+    let runAdsContextFormatted = '';
+    try {
+      runAdsContext = await getRunAdsContext(user_id);
+      runAdsContextFormatted = formatRunAdsContextForAI(runAdsContext);
+      console.log('[ghoste-ai] Run ads context loaded:', {
+        hasMeta: runAdsContext.hasMeta,
+        smartLinksCount: runAdsContext.smartLinksCount,
+        ready: runAdsContext.ready,
+        blocker: runAdsContext.blocker,
+      });
+    } catch (error) {
+      console.error('[ghoste-ai] Failed to load run ads context:', error);
+      // Continue without run ads context - chat still works
+    }
+
     // Fetch recent operator insights (fail-safe)
     let operatorInsights: any[] = [];
     try {
@@ -765,8 +796,8 @@ export const handler: Handler = async (event) => {
       // Continue without operator insights - chat still works
     }
 
-    // Build system prompt with setup status, ads context and operator insights
-    const systemMessage = buildSystemPrompt(task, meta, setupStatus, adsContext, operatorInsights);
+    // Build system prompt with setup status, ads context, run ads context, and operator insights
+    const systemMessage = buildSystemPrompt(task, meta, setupStatus, adsContext, operatorInsights, runAdsContextFormatted);
 
     // Build full messages array for OpenAI
     const fullMessages: Array<{ role: Role; content: string }> = [

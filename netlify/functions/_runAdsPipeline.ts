@@ -13,16 +13,9 @@
  * 6. Return short response
  */
 
-import { createClient } from '@supabase/supabase-js';
 import { getRunAdsContext } from './_runAdsContext';
+import { getSupabaseAdmin } from './_supabaseAdmin';
 import { ensureMediaMetaReady, pickBestMediaAssetForAds } from './_metaMediaHelper';
-
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-  auth: { persistSession: false }
-});
 
 interface RunAdsInput {
   user_id: string;
@@ -37,9 +30,15 @@ interface RunAdsInput {
 interface RunAdsResult {
   ok: boolean;
   draft_id?: string;
-  status?: 'draft_created' | 'meta_created_paused';
+  status?: 'draft_created' | 'meta_created_paused' | 'blocked';
   response: string; // Short response for user
   blocker?: string;
+  debug?: {
+    hasMeta: boolean;
+    smartLinksCount: number;
+    uploadsCount: number;
+    usedServiceRole: boolean;
+  };
 }
 
 /**
@@ -134,18 +133,19 @@ async function ensureSmartLinkFromUrl(
   url: string
 ): Promise<{ smart_link_id: string | null; destination_url: string }> {
   console.log('[ensureSmartLinkFromUrl]', url);
+  const supabase = getSupabaseAdmin();
 
   // Check if smart link already exists for this destination
   const { data: existing } = await supabase
     .from('smart_links')
     .select('id, slug')
-    .eq('owner_user_id', user_id)
+    .eq('user_id', user_id)
     .eq('destination_url', url)
     .maybeSingle();
 
   if (existing) {
     console.log('[ensureSmartLinkFromUrl] Found existing:', existing.id);
-    const smartLinkUrl = `https://ghoste.one/l/${existing.slug}`;
+    const smartLinkUrl = `https://ghoste.one/s/${existing.slug}`;
     return {
       smart_link_id: existing.id,
       destination_url: smartLinkUrl,
@@ -159,9 +159,8 @@ async function ensureSmartLinkFromUrl(
     const { data: newLink, error } = await supabase
       .from('smart_links')
       .insert({
-        owner_user_id: user_id,
+        user_id: user_id,
         slug,
-        destination_url: url,
         title: 'Run Ads Link',
       })
       .select('id')
@@ -169,7 +168,7 @@ async function ensureSmartLinkFromUrl(
 
     if (!error && newLink) {
       console.log('[ensureSmartLinkFromUrl] Created:', newLink.id);
-      const smartLinkUrl = `https://ghoste.one/l/${slug}`;
+      const smartLinkUrl = `https://ghoste.one/s/${slug}`;
       return {
         smart_link_id: newLink.id,
         destination_url: smartLinkUrl,
@@ -200,8 +199,15 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
   if (!context.hasMeta) {
     return {
       ok: false,
+      status: 'blocked',
       response: "Meta isn't connected — connect it and say 'run ads' again.",
       blocker: 'meta_not_connected',
+      debug: {
+        hasMeta: false,
+        smartLinksCount: context.smartLinksCount,
+        uploadsCount: input.attachments.length,
+        usedServiceRole: true,
+      },
     };
   }
 
@@ -220,17 +226,24 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
     const smartLink = await ensureSmartLinkFromUrl(input.user_id, destinationUrl);
     smartLinkId = smartLink.smart_link_id;
     destinationUrl = smartLink.destination_url;
-  } else if (context.latestSmartLinks.length > 0) {
+  } else if (context.smartLinks.length > 0) {
     // Use most recent smart link
-    const latest = context.latestSmartLinks[0];
+    const latest = context.smartLinks[0];
     smartLinkId = latest.id;
-    destinationUrl = `https://ghoste.one/l/${latest.slug}`;
+    destinationUrl = `https://ghoste.one/s/${latest.slug}`;
   } else {
     // Blocker: no destination
     return {
       ok: false,
-      response: "I need the song link.",
+      status: 'blocked',
+      response: "Drop the song link and I got you.",
       blocker: 'no_destination',
+      debug: {
+        hasMeta: true,
+        smartLinksCount: 0,
+        uploadsCount: input.attachments.length,
+        usedServiceRole: true,
+      },
     };
   }
 
@@ -263,6 +276,7 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
   }
 
   // 6. Create campaign draft
+  const supabase = getSupabaseAdmin();
   const { data: draft, error: draftError } = await supabase
     .from('campaign_drafts')
     .insert({
@@ -287,8 +301,15 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
     console.error('[runAdsFromChat] Failed to create draft:', draftError);
     return {
       ok: false,
+      status: 'blocked',
       response: "Something went wrong. Try again.",
       blocker: 'draft_creation_failed',
+      debug: {
+        hasMeta: context.hasMeta,
+        smartLinksCount: context.smartLinksCount,
+        uploadsCount: input.attachments.length,
+        usedServiceRole: true,
+      },
     };
   }
 
@@ -302,6 +323,12 @@ export async function runAdsFromChat(input: RunAdsInput): Promise<RunAdsResult> 
     ok: true,
     draft_id: draft.id,
     status: 'draft_created',
-    response: "Say less. I'm on it. Approve to launch?",
+    response: "Say less. I'm on it. Draft ready.",
+    debug: {
+      hasMeta: context.hasMeta,
+      smartLinksCount: context.smartLinksCount,
+      uploadsCount: input.attachments.length,
+      usedServiceRole: true,
+    },
   };
 }
