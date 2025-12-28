@@ -68,7 +68,7 @@ export async function startCheckoutWithSignup(planId: PlanId = 'growth') {
     if (!user) {
       // Store pending checkout and redirect to signup
       localStorage.setItem('pendingCheckoutPlan', planId);
-      window.location.href = '/auth?mode=signup&next=/pricing';
+      window.location.href = '/auth?mode=signup&next=/subscriptions';
       return;
     }
 

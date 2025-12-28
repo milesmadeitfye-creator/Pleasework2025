@@ -620,7 +620,7 @@ export default function MarketingLanding() {
               <h4 className="font-semibold mb-4">Product</h4>
               <ul className="space-y-2 text-sm text-ghoste-text-muted">
                 <li><a href="#" className="hover:text-ghoste-accent transition-colors">Features</a></li>
-                <li><a href="/pricing" className="hover:text-ghoste-accent transition-colors">Pricing</a></li>
+                <li><a href="/subscriptions" className="hover:text-ghoste-accent transition-colors">Pricing</a></li>
               </ul>
             </div>
             <div>

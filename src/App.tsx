@@ -138,6 +138,8 @@ function App() {
               </RouteErrorBoundary>
             }
           />
+          {/* Redirect /pricing to /subscriptions */}
+          <Route path="/pricing" element={<Navigate to="/subscriptions" replace />} />
 
           {/* Help Center - Public Access */}
           <Route path="/help" element={<HelpCenter />} />

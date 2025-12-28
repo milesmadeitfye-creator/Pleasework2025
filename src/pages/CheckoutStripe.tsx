@@ -53,7 +53,7 @@ export default function CheckoutStripe() {
       if (!data.paid) {
         setStatus('error');
         setMessage('Payment not completed. Please try again.');
-        setTimeout(() => navigate('/pricing'), 3000);
+        setTimeout(() => navigate('/subscriptions'), 3000);
         return;
       }
 

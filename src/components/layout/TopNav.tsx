@@ -66,7 +66,7 @@ export function TopNav() {
               </div>
             ) : (
               <Link
-                to="/pricing"
+                to="/subscriptions"
                 className="flex items-center gap-1 px-2 py-1 rounded-lg bg-ghoste-blue hover:bg-ghoste-blue/90 shadow-[0_0_15px_rgba(26,108,255,0.4)] transition-all text-xs text-white"
               >
                 <Crown className="w-3 h-3" />
@@ -139,7 +139,7 @@ export function TopNav() {
             </div>
           ) : (
             <Link
-              to="/pricing"
+              to="/subscriptions"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-ghoste-blue hover:bg-ghoste-blue/90 shadow-[0_0_20px_rgba(26,108,255,0.5)] transition-all text-xs text-white"
             >
               <Crown className="w-4 h-4" />
