@@ -8,6 +8,7 @@ import { useMetaCredentials } from '../hooks/useMetaCredentials';
 import { useSessionUser } from '../hooks/useSessionUser';
 import PhoneInput from './common/PhoneInput';
 import { MetaConnectWizard } from './meta/MetaConnectWizard';
+import { MetaDebugPanel } from './meta/MetaDebugPanel';
 
 // 🔒 ABSOLUTE FALLBACK: Prevent ReferenceError in production
 if (typeof window !== 'undefined') {
@@ -1203,6 +1204,16 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
               </div>
             </div>
           )}
+
+          {/* Meta Debug Panel - Collapsible, always available */}
+          <details className="mb-4 bg-slate-800/30 border border-slate-700 rounded-lg">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-300 hover:text-white hover:bg-slate-800/50 rounded-lg transition-colors select-none">
+              Meta Debug
+            </summary>
+            <div className="px-4 py-3 border-t border-slate-700">
+              <MetaDebugPanel />
+            </div>
+          </details>
 
           <div className="space-y-3">
             {!isMetaConnected ? (
