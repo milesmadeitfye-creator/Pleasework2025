@@ -45,31 +45,40 @@ export function useConnectionStatus(provider: string): ConnectionStatus {
       setLoading(true);
       setError(undefined);
 
-      // Special handling for Meta - use Netlify function instead of connected_accounts table
+      // Special handling for Meta - use safe RPC instead of Netlify function or direct table query
       if (provider === 'meta') {
         try {
-          const res = await fetch(`/.netlify/functions/meta-credentials?userId=${user.id}`);
-          const json = await res.json();
+          const { data: rpcData, error: rpcError } = await supabase.rpc('get_meta_connection_status');
 
-          if (!res.ok) {
-            console.warn(`[useConnectionStatus] Meta credentials request failed:`, json);
-            setError(json.error || 'Failed to check Meta connection');
+          if (rpcError) {
+            console.warn(`[useConnectionStatus] Meta RPC failed:`, rpcError);
+            setError(rpcError.message || 'Failed to check Meta connection');
             setStatus('disconnected');
             setLastConnectedAt(undefined);
             setData(undefined);
             return;
           }
 
-          if (json.connected && json.credentials) {
+          if (rpcData && rpcData.ok === false) {
+            console.warn(`[useConnectionStatus] Meta RPC returned error:`, rpcData.error);
+            setError(rpcData.error || 'Failed to check Meta connection');
+            setStatus('disconnected');
+            setLastConnectedAt(undefined);
+            setData(undefined);
+            return;
+          }
+
+          if (rpcData && rpcData.is_connected) {
             setStatus('connected');
-            setLastConnectedAt(json.credentials.updatedAt || json.credentials.createdAt);
+            setLastConnectedAt(rpcData.last_updated || undefined);
             setData({
-              meta_user_id: json.credentials.metaUserId,
-              meta_user_name: json.credentials.metaUserName,
-              ad_account_count: json.credentials.adAccounts?.length || 0,
-              facebook_page_count: json.credentials.pages?.length || 0,
-              instagram_account_count: json.credentials.instagramAccounts?.length || 0,
-              pixel_count: json.credentials.pixels?.length || 0,
+              ad_account_id: rpcData.ad_account_id,
+              ad_account_name: rpcData.ad_account_name,
+              page_id: rpcData.page_id,
+              page_name: rpcData.page_name,
+              instagram_account_count: rpcData.instagram_account_count || 0,
+              pixel_id: rpcData.pixel_id,
+              has_valid_token: rpcData.has_valid_token,
             });
           } else {
             setStatus('disconnected');
@@ -77,7 +86,7 @@ export function useConnectionStatus(provider: string): ConnectionStatus {
             setData(undefined);
           }
         } catch (fetchErr: any) {
-          console.error(`[useConnectionStatus] Error calling meta-credentials:`, fetchErr);
+          console.error(`[useConnectionStatus] Error calling Meta RPC:`, fetchErr);
           setError(fetchErr?.message || 'Network error');
           setStatus('disconnected');
         }

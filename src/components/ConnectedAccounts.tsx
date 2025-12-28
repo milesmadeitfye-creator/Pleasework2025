@@ -1080,24 +1080,30 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
           {isMetaConnected && metaConn.data && (
             <div className="mb-4 p-3 bg-ghoste-bg rounded-lg">
               <p className="text-sm text-gray-400">Connected account</p>
-              <p className="text-white font-medium">{metaConn.data.meta_user_name || metaConn.data.meta_user_id || 'Meta Account'}</p>
+              <p className="text-white font-medium">
+                {metaConn.data.ad_account_name || metaConn.data.page_name || 'Meta Account'}
+              </p>
               {metaConn.lastConnectedAt && (
                 <p className="text-xs text-gray-500 mt-1">
                   Connected {new Date(metaConn.lastConnectedAt).toLocaleDateString()}
                 </p>
               )}
-              {(metaConn.data.ad_account_count !== undefined ||
-                metaConn.data.facebook_page_count !== undefined ||
-                metaConn.data.instagram_account_count !== undefined) && (
-                <div className="text-xs text-gray-400 mt-1 space-y-0.5">
-                  {metaConn.data.ad_account_count !== undefined && (
-                    <p>{metaConn.data.ad_account_count} ad account{metaConn.data.ad_account_count !== 1 ? 's' : ''}</p>
+              {metaConn.data.ad_account_id && (
+                <div className="text-xs text-gray-400 mt-2 space-y-0.5">
+                  {metaConn.data.ad_account_id && (
+                    <p>Ad Account: {metaConn.data.ad_account_name || metaConn.data.ad_account_id}</p>
                   )}
-                  {metaConn.data.instagram_account_count !== undefined && metaConn.data.instagram_account_count > 0 && (
+                  {metaConn.data.page_id && (
+                    <p>Facebook Page: {metaConn.data.page_name || metaConn.data.page_id}</p>
+                  )}
+                  {metaConn.data.instagram_account_count > 0 && (
                     <p>{metaConn.data.instagram_account_count} Instagram account{metaConn.data.instagram_account_count !== 1 ? 's' : ''}</p>
                   )}
-                  {metaConn.data.facebook_page_count !== undefined && metaConn.data.facebook_page_count > 0 && (
-                    <p>{metaConn.data.facebook_page_count} Facebook page{metaConn.data.facebook_page_count !== 1 ? 's' : ''}</p>
+                  {metaConn.data.pixel_id && (
+                    <p>Pixel: {metaConn.data.pixel_id}</p>
+                  )}
+                  {metaConn.data.has_valid_token === false && (
+                    <p className="text-yellow-400 mt-1">⚠ Token expired - reconnect needed</p>
                   )}
                 </div>
               )}

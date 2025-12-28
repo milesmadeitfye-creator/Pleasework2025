@@ -33,30 +33,45 @@ export function useMetaCredentials(userId?: string) {
       setLoading(true);
       setError(null);
 
-      const { data, error } = await supabase
-        .from("meta_credentials")
-        .select(
-          "user_id, access_token, expires_at, ad_account_id, page_id, instagram_accounts, pixel_id, conversion_api_token, pixel_verified, created_at, updated_at"
-        )
-        .eq("user_id", userId)
-        .maybeSingle();
+      // Use safe RPC instead of direct table query to avoid 403 RLS errors
+      const { data, error } = await supabase.rpc('get_meta_connection_status');
 
       if (!mounted) return;
 
       if (error) {
-        console.warn("[useMetaCredentials] read failed", error);
+        console.warn("[useMetaCredentials] RPC failed", error);
         setError(error);
         setMeta(null);
-      } else {
-        setMeta((data as any) ?? null);
+      } else if (data && data.ok === false) {
+        console.warn("[useMetaCredentials] RPC returned error", data.error);
+        setError(new Error(data.error));
+        setMeta(null);
+      } else if (data && data.is_connected) {
+        // Transform RPC response to match expected MetaCredentials shape
+        const credentials: MetaCredentials = {
+          user_id: userId,
+          ad_account_id: data.ad_account_id || null,
+          page_id: data.page_id || null,
+          access_token: data.has_valid_token ? 'connected' : null, // Don't expose actual token
+          expires_at: null,
+          system_user_token: null,
+          pixel_id: data.pixel_id || null,
+          conversion_api_token: null,
+          pixel_verified: null,
+          instagram_accounts: data.instagram_account_count > 0 ? { count: data.instagram_account_count } : null,
+          created_at: null,
+          updated_at: data.last_updated || null,
+        };
 
-        // Log warning if token is expired (but still return data)
-        if (data && data.expires_at) {
-          const expiresAt = new Date(data.expires_at);
-          if (expiresAt < new Date()) {
-            console.warn('[useMetaCredentials] Access token expired - user should reconnect Meta');
-          }
+        setMeta(credentials);
+
+        // Log warning if token is not valid
+        if (!data.has_valid_token) {
+          console.warn('[useMetaCredentials] Access token expired - user should reconnect Meta');
         }
+      } else {
+        // Not connected
+        setMeta(null);
       }
 
       setLoading(false);
