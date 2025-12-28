@@ -159,7 +159,12 @@ export function MetaDebugPanel() {
           )}
 
           {/* RPC Info */}
-          {rpcInfo && (
+          {rpcInfo && (() => {
+            // Strict boolean check - handles both 'connected' and 'is_connected' field names
+            const isConnected = rpcInfo.data?.connected === true || rpcInfo.data?.is_connected === true;
+            const isTokenValid = rpcInfo.data?.has_valid_token === true;
+
+            return (
             <div className="bg-slate-800/50 rounded-lg p-3">
               <h4 className="font-semibold text-white mb-2">Meta Connection RPC</h4>
 
@@ -174,12 +179,12 @@ export function MetaDebugPanel() {
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <span className="text-gray-400">Connected:</span>
-                    <span className={rpcInfo.data.is_connected ? 'text-green-400' : 'text-yellow-400'}>
-                      {rpcInfo.data.is_connected ? 'Yes' : 'No'}
+                    <span className={isConnected ? 'text-green-400' : 'text-yellow-400'}>
+                      {isConnected ? 'Yes' : 'No'}
                     </span>
                   </div>
 
-                  {rpcInfo.data.is_connected && (
+                  {isConnected && (
                     <>
                       {rpcInfo.data.ad_account_id && (
                         <div className="flex items-center gap-2">
@@ -207,8 +212,8 @@ export function MetaDebugPanel() {
                       )}
                       <div className="flex items-center gap-2">
                         <span className="text-gray-400">Token valid:</span>
-                        <span className={rpcInfo.data.has_valid_token ? 'text-green-400' : 'text-yellow-400'}>
-                          {rpcInfo.data.has_valid_token ? 'Yes' : 'No / Expired'}
+                        <span className={isTokenValid ? 'text-green-400' : 'text-yellow-400'}>
+                          {isTokenValid ? 'Yes' : 'No / Expired'}
                         </span>
                       </div>
                     </>
@@ -227,7 +232,8 @@ export function MetaDebugPanel() {
                 <div className="text-gray-400">No data</div>
               )}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
