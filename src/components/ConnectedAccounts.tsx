@@ -396,7 +396,8 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
         setMetaStatus({ connected: false });
         setMetaAssets(null);
       } else {
-        const isConnected = Boolean(rpcData?.is_connected) === true;
+        // Strict boolean check - handles both 'connected' and 'is_connected' field names
+        const isConnected = rpcData?.connected === true || rpcData?.is_connected === true;
         setMetaRpcStatus({
           connected: isConnected,
           data: rpcData,
@@ -1094,6 +1095,20 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
             )}
           </div>
 
+          {metaRpcStatus.connected && metaRpcStatus.data?.has_valid_token === false && (
+            <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm text-yellow-300 font-medium">Token expired</p>
+                  <p className="text-xs text-yellow-400/80 mt-0.5">
+                    Reconnect to refresh permissions and restore full functionality.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {metaRpcStatus.connected && metaRpcStatus.data && (
             <div className="mb-4 p-3 bg-ghoste-bg rounded-lg">
               <p className="text-sm text-gray-400">Connected account</p>
@@ -1113,9 +1128,6 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
                   )}
                   {metaRpcStatus.data.pixel_id && (
                     <p>Pixel: {metaRpcStatus.data.pixel_id}</p>
-                  )}
-                  {metaRpcStatus.data.has_valid_token === false && (
-                    <p className="text-yellow-400 mt-1">⚠ Token expired - reconnect needed</p>
                   )}
                 </div>
               )}
