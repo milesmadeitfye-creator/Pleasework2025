@@ -93,6 +93,17 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // RPC-based Meta connection state (single source of truth)
+  const [metaRpcStatus, setMetaRpcStatus] = useState<{
+    connected: boolean;
+    data: any;
+    lastChecked: string | null;
+  }>({
+    connected: false,
+    data: null,
+    lastChecked: null,
+  });
+
   // Log Meta credentials errors for debugging
   useEffect(() => {
     if (metaError) {
@@ -367,44 +378,43 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
 
       if (!session) {
         setMetaStatus({ connected: false });
+        setMetaRpcStatus({ connected: false, data: null, lastChecked: null });
         setMailchimpStatus({ connected: false });
         setTiktokStatus({ connected: false });
         setLoading(false);
         return;
       }
 
-      // Fetch Meta status separately from new endpoint
-      const metaResponse = await fetch('/.netlify/functions/meta-status', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      // Fetch Meta status via RPC (single source of truth)
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_meta_connection_status');
 
-      if (metaResponse.ok) {
-        const metaData = await metaResponse.json();
-        if (metaData.status === 'connected' && metaData.counts) {
-          setMetaStatus({
-            connected: true,
-            details: {
-              meta: metaData.counts
-            }
-          });
-          // Set assets from counts
-          setMetaAssets({
-            connected: true,
-            adAccounts: Array(metaData.counts.adAccounts || 0).fill(null),
-            pages: Array(metaData.counts.pages || 0).fill(null),
-            instagramAccounts: Array(metaData.counts.instagramProfiles || 0).fill(null),
-          } as MetaAssets);
-        } else {
-          setMetaStatus({ connected: false });
-          setMetaAssets(null);
-        }
-      } else {
+      const now = new Date().toISOString();
+
+      if (rpcError) {
+        console.error('[ConnectedAccounts] Meta RPC error:', rpcError);
+        setMetaRpcStatus({ connected: false, data: null, lastChecked: now });
         setMetaStatus({ connected: false });
         setMetaAssets(null);
+      } else {
+        const isConnected = Boolean(rpcData?.is_connected) === true;
+        setMetaRpcStatus({
+          connected: isConnected,
+          data: rpcData,
+          lastChecked: now,
+        });
+        setMetaStatus({ connected: isConnected });
+
+        // Set assets if available
+        if (isConnected && rpcData) {
+          setMetaAssets({
+            connected: true,
+            adAccounts: rpcData.ad_account_id ? [{ id: rpcData.ad_account_id, name: rpcData.ad_account_name || '', account_status: 1 }] : [],
+            pages: rpcData.page_id ? [{ id: rpcData.page_id, name: rpcData.page_name || '' }] : [],
+            instagramAccounts: rpcData.instagram_account_count > 0 ? Array(rpcData.instagram_account_count).fill({}) : [],
+          } as MetaAssets);
+        } else {
+          setMetaAssets(null);
+        }
       }
 
       // Fetch other integrations
@@ -428,6 +438,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
     } catch (err) {
       console.error('Error in fetchIntegrationsStatus:', err);
       setMetaStatus({ connected: false });
+      setMetaRpcStatus({ connected: false, data: null, lastChecked: new Date().toISOString() });
       setMailchimpStatus({ connected: false });
       setTiktokStatus({ connected: false });
       setMetaAssets(null);
@@ -1006,7 +1017,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
       </div>
 
       {/* Banner logic based on Meta connection state */}
-      {!isMetaConnected && !error && !successMessage && (
+      {!metaRpcStatus.connected && !loading && !error && !successMessage && (
         <div className="mb-6 bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
@@ -1015,7 +1026,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
         </div>
       )}
 
-      {isMetaConnected && !isMetaConfigured && !error && !successMessage && (
+      {metaRpcStatus.connected && !metaRpcStatus.data?.ad_account_id && !error && !successMessage && (
         <div className="mb-6 bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
@@ -1041,7 +1052,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
       )}
 
       {/* Show success banner when config is complete */}
-      {(successMessage || (isMetaConnected && isMetaConfigured)) && !error && (
+      {(successMessage || (metaRpcStatus.connected && metaRpcStatus.data?.ad_account_id)) && !error && (
         <div className="mb-6 bg-green-500/10 border border-green-500/20 rounded-lg p-4 flex items-start gap-3">
           <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
@@ -1069,41 +1080,41 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
               <div>
                 <h3 className="text-lg font-semibold text-white">Meta / Facebook & Instagram</h3>
                 <p className="text-sm text-gray-400">
-                  {metaLoading ? 'Checking...' : isMetaConnected ? 'Connected' : 'Not connected'}
+                  {loading ? 'Checking...' : metaRpcStatus.connected ? 'Connected' : 'Not connected'}
                 </p>
+                {metaRpcStatus.lastChecked && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Last checked: {new Date(metaRpcStatus.lastChecked).toLocaleTimeString()}
+                  </p>
+                )}
               </div>
             </div>
-            {isMetaConnected && isMetaConfigured && (
+            {metaRpcStatus.connected && metaRpcStatus.data?.has_valid_token !== false && (
               <CheckCircle className="w-6 h-6 text-green-400" />
             )}
           </div>
 
-          {isMetaConnected && metaConn.data && (
+          {metaRpcStatus.connected && metaRpcStatus.data && (
             <div className="mb-4 p-3 bg-ghoste-bg rounded-lg">
               <p className="text-sm text-gray-400">Connected account</p>
               <p className="text-white font-medium">
-                {metaConn.data.ad_account_name || metaConn.data.page_name || 'Meta Account'}
+                {metaRpcStatus.data.ad_account_name || metaRpcStatus.data.page_name || 'Meta Account'}
               </p>
-              {metaConn.lastConnectedAt && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Connected {new Date(metaConn.lastConnectedAt).toLocaleDateString()}
-                </p>
-              )}
-              {metaConn.data.ad_account_id && (
+              {metaRpcStatus.data.ad_account_id && (
                 <div className="text-xs text-gray-400 mt-2 space-y-0.5">
-                  {metaConn.data.ad_account_id && (
-                    <p>Ad Account: {metaConn.data.ad_account_name || metaConn.data.ad_account_id}</p>
+                  {metaRpcStatus.data.ad_account_id && (
+                    <p>Ad Account: {metaRpcStatus.data.ad_account_name || metaRpcStatus.data.ad_account_id}</p>
                   )}
-                  {metaConn.data.page_id && (
-                    <p>Facebook Page: {metaConn.data.page_name || metaConn.data.page_id}</p>
+                  {metaRpcStatus.data.page_id && (
+                    <p>Facebook Page: {metaRpcStatus.data.page_name || metaRpcStatus.data.page_id}</p>
                   )}
-                  {metaConn.data.instagram_account_count > 0 && (
-                    <p>{metaConn.data.instagram_account_count} Instagram account{metaConn.data.instagram_account_count !== 1 ? 's' : ''}</p>
+                  {metaRpcStatus.data.instagram_account_count > 0 && (
+                    <p>{metaRpcStatus.data.instagram_account_count} Instagram account{metaRpcStatus.data.instagram_account_count !== 1 ? 's' : ''}</p>
                   )}
-                  {metaConn.data.pixel_id && (
-                    <p>Pixel: {metaConn.data.pixel_id}</p>
+                  {metaRpcStatus.data.pixel_id && (
+                    <p>Pixel: {metaRpcStatus.data.pixel_id}</p>
                   )}
-                  {metaConn.data.has_valid_token === false && (
+                  {metaRpcStatus.data.has_valid_token === false && (
                     <p className="text-yellow-400 mt-1">⚠ Token expired - reconnect needed</p>
                   )}
                 </div>
@@ -1112,7 +1123,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
           )}
 
           {/* Meta Onboarding Checklist - Show when connected */}
-          {isMetaConnected && (
+          {metaRpcStatus.connected && (
             <div className="mb-4 p-4 bg-ghoste-bg rounded-lg border border-ghoste-border">
               <h4 className="text-sm font-semibold text-white mb-3">Meta Setup Progress</h4>
 
@@ -1124,27 +1135,27 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
                     {
                       id: 1,
                       label: 'Connect Meta account',
-                      completed: isMetaConnected
+                      completed: metaRpcStatus.connected
                     },
                     {
                       id: 2,
                       label: 'Select primary ad account',
-                      completed: !!(meta?.ad_account_id)
+                      completed: !!(metaRpcStatus.data?.ad_account_id)
                     },
                     {
                       id: 3,
                       label: 'Select Facebook page',
-                      completed: !!(meta?.page_id)
+                      completed: !!(metaRpcStatus.data?.page_id)
                     },
                     {
                       id: 4,
                       label: 'Select Instagram account (optional)',
-                      completed: !!(meta?.instagram_accounts)
+                      completed: (metaRpcStatus.data?.instagram_account_count ?? 0) > 0
                     },
                     {
                       id: 5,
                       label: 'Select Meta Pixel (optional)',
-                      completed: !!(meta?.pixel_id)
+                      completed: !!(metaRpcStatus.data?.pixel_id)
                     },
                   ].map((step) => (
                     <li key={step.id} className="flex items-center gap-3 text-sm">
@@ -1216,7 +1227,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
           </details>
 
           <div className="space-y-3">
-            {!isMetaConnected ? (
+            {!metaRpcStatus.connected ? (
               <button
                 onClick={handleConnectMeta}
                 disabled={actionLoading}
@@ -1599,7 +1610,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
       </div>
 
       {/* Meta Connect Wizard - Show when opened */}
-      {isMetaConnected && showMetaWizard && (
+      {metaRpcStatus.connected && showMetaWizard && (
         <div className="mt-6">
           <div className="bg-ghoste-dark border border-ghoste-border rounded-lg p-6 relative">
             <button
