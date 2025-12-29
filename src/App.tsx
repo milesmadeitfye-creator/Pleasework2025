@@ -49,6 +49,9 @@ const SplitNegotiationView = lazyWithRecovery(() => import('./pages/SplitNegotia
 const UnreleasedMusicPage = lazyWithRecovery(() => import('./pages/studio/UnreleasedMusicPage'));
 const AutomationLogsPage = lazyWithRecovery(() => import('./pages/studio/AutomationLogsPage'));
 
+// Admin pages
+const EmailAdminPage = lazyWithRecovery(() => import('./pages/admin/EmailAdmin'));
+
 // Profile pages
 const ProfileOverviewPage = lazyWithRecovery(() => import('./pages/profile/ProfileOverviewPage'));
 const ConnectedAccountsPage = lazyWithRecovery(() => import('./pages/profile/ConnectAccountsPage'));
@@ -500,6 +503,24 @@ function App() {
                 </AppShell>
               </ProtectedRoute>
             }
+          />
+
+          {/* Admin Routes */}
+          <Route
+            path="/admin/email"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <EmailAdminPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Alias: Allow /studio/admin/email as well */}
+          <Route
+            path="/studio/admin/email"
+            element={<Navigate to="/admin/email" replace />}
           />
 
           {/* Protected Profile Routes */}
