@@ -6,6 +6,7 @@ import { useToast } from './Toast';
 import PhoneInput from './common/PhoneInput';
 import HealthzDebug from './HealthzDebug';
 import ActivityPingV2Debug from './ActivityPingV2Debug';
+import { normalizeToE164 } from '../lib/phoneUtils';
 
 export default function AccountSettings() {
   const { user } = useAuth();
@@ -19,6 +20,7 @@ export default function AccountSettings() {
   const [tiktokPixelId, setTiktokPixelId] = useState('');
   const [phone, setPhone] = useState('');
   const [phoneCountryCode, setPhoneCountryCode] = useState('1');
+  const [smsOptIn, setSmsOptIn] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [savingPixel, setSavingPixel] = useState(false);
   const [savingConversions, setSavingConversions] = useState(false);
@@ -43,7 +45,7 @@ export default function AccountSettings() {
 
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('meta_pixel_id, meta_conversions_token, tiktok_pixel_id, phone, phone_country_code, two_factor_enabled')
+      .select('meta_pixel_id, meta_conversions_token, tiktok_pixel_id, phone, phone_country_code, phone_e164, sms_opt_in, two_factor_enabled')
       .eq('id', user.id)
       .maybeSingle();
 
@@ -57,8 +59,8 @@ export default function AccountSettings() {
       setMetaConversionsToken(data.meta_conversions_token || '');
       setTiktokPixelId(data.tiktok_pixel_id || '');
 
-      // Parse phone and country code
-      const fullPhone = data.phone || '';
+      // Parse phone - prefer phone_e164, fall back to phone
+      const fullPhone = data.phone_e164 || data.phone || '';
       if (fullPhone.startsWith('+')) {
         const match = fullPhone.match(/^\+(\d{1,3})(\d+)$/);
         if (match) {
@@ -67,6 +69,7 @@ export default function AccountSettings() {
         }
       }
 
+      setSmsOptIn(data.sms_opt_in || false);
       setTwoFactorEnabled(data.two_factor_enabled || false);
     }
   };
@@ -199,24 +202,56 @@ export default function AccountSettings() {
   const savePhone = async () => {
     if (!user?.id) return;
 
-    // Validate phone has digits
-    if (!phone || phone.length < 10) {
-      showToast('Please enter a valid phone number', 'error');
+    // If SMS opt-in is enabled, validate phone
+    if (smsOptIn && (!phone || phone.length < 10)) {
+      showToast('Phone number is required when SMS opt-in is enabled', 'error');
+      return;
+    }
+
+    // If phone is provided, validate it
+    let phoneE164: string | null = null;
+    if (phone && phone.trim()) {
+      const fullPhoneInput = `+${phoneCountryCode}${phone}`;
+      const validation = normalizeToE164(fullPhoneInput, phoneCountryCode);
+
+      if (!validation.isValid) {
+        showToast(validation.error || 'Invalid phone number', 'error');
+        return;
+      }
+
+      phoneE164 = validation.e164!;
+    }
+
+    // If SMS opt-in but no phone, prevent
+    if (smsOptIn && !phoneE164) {
+      showToast('Phone number is required for SMS opt-in', 'error');
       return;
     }
 
     setSavingPhone(true);
 
     try {
-      // Build E.164 format phone
-      const fullPhone = `+${phoneCountryCode}${phone}`;
+      // Update user_profiles with phone and SMS opt-in data
+      const updateData: any = {
+        phone: phoneE164,
+        phone_e164: phoneE164,
+        phone_country_code: phoneCountryCode,
+        sms_opt_in: smsOptIn && !!phoneE164,
+      };
+
+      // Set opt-in timestamp and source if newly opting in
+      if (smsOptIn && phoneE164) {
+        updateData.sms_opt_in_at = new Date().toISOString();
+        updateData.sms_opt_in_source = 'settings';
+      } else if (!smsOptIn) {
+        // If opting out, clear timestamp
+        updateData.sms_opt_in_at = null;
+        updateData.sms_opt_in_source = null;
+      }
 
       const { error } = await supabase
         .from('user_profiles')
-        .update({
-          phone: fullPhone,
-          phone_country_code: phoneCountryCode,
-        })
+        .update(updateData)
         .eq('id', user.id);
 
       if (error) throw error;
@@ -226,15 +261,16 @@ export default function AccountSettings() {
       if (authUser) {
         await supabase.auth.updateUser({
           data: {
-            phone: fullPhone,
+            phone: phoneE164,
+            sms_opt_in: smsOptIn && !!phoneE164,
           },
         });
       }
 
-      showToast('Phone number saved!', 'success');
+      showToast('Phone & SMS preferences saved!', 'success');
     } catch (err: any) {
       console.error('Error saving phone:', err);
-      showToast('Error saving phone number: ' + err.message, 'error');
+      showToast('Error saving phone & SMS preferences: ' + err.message, 'error');
     } finally {
       setSavingPhone(false);
     }
@@ -341,13 +377,38 @@ export default function AccountSettings() {
                 <p className="text-xs text-neutral-500 mb-3">
                   Required for Ghoste AI Mobile sync and 2FA.
                 </p>
+
+                {/* SMS Opt-In Checkbox */}
+                <div className="mb-4 space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={smsOptIn}
+                      onChange={(e) => setSmsOptIn(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-neutral-700 rounded bg-neutral-900"
+                    />
+                    <span className="text-sm text-gray-300">
+                      Text me updates and tips about Ghoste One
+                    </span>
+                  </label>
+
+                  {/* SMS Compliance Disclosure */}
+                  {smsOptIn && (
+                    <div className="pl-6 text-xs text-gray-500 leading-relaxed">
+                      By opting in, you agree to receive recurring automated marketing texts from Ghoste One.
+                      Consent is not a condition of purchase. Reply STOP to unsubscribe, HELP for help.
+                      Msg & data rates may apply.
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   onClick={savePhone}
                   disabled={savingPhone}
                   className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {savingPhone ? 'Saving...' : 'Save Phone Number'}
+                  {savingPhone ? 'Saving...' : 'Save Phone & SMS Preferences'}
                 </button>
               </div>
             </div>

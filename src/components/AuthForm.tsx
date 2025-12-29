@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase.client'
-import { Eye, EyeOff, Mail, Lock, Facebook } from 'lucide-react'
+import { Eye, EyeOff, Mail, Lock, Facebook, Phone } from 'lucide-react'
 import { trackCompleteRegistration } from '../lib/ownerMetaPixel'
 import { getConfirmRedirectUrl } from '../lib/authRedirect'
 import { trackMetaEvent } from '../lib/metaTrack'
 import { useMetaOAuth } from '../hooks/useMetaOAuth'
+import { normalizeToE164 } from '../lib/phoneUtils'
 
 interface AuthFormProps {
   mode: 'login' | 'signup'
@@ -23,6 +24,7 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [phone, setPhone] = useState('')
+  const [smsOptIn, setSmsOptIn] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
@@ -79,6 +81,26 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
 
     try {
       if (mode === 'signup') {
+        // Validate SMS opt-in requirements
+        if (smsOptIn && !phone.trim()) {
+          throw new Error('Phone number is required when opting in to SMS updates');
+        }
+
+        // Normalize phone to E.164 if provided
+        let phoneE164: string | null = null;
+        if (phone.trim()) {
+          const phoneValidation = normalizeToE164(phone);
+          if (!phoneValidation.isValid) {
+            throw new Error(phoneValidation.error || 'Invalid phone number');
+          }
+          phoneE164 = phoneValidation.e164!;
+        }
+
+        // If SMS opt-in is checked but no valid phone, error
+        if (smsOptIn && !phoneE164) {
+          throw new Error('Valid phone number required for SMS updates');
+        }
+
         const redirectTo = getConfirmRedirectUrl();
 
         const { data, error } = await supabase.auth.signUp({
@@ -87,7 +109,8 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
           options: {
             emailRedirectTo: redirectTo,
             data: {
-              phone: phone || null,
+              phone: phoneE164,
+              sms_opt_in: smsOptIn,
             },
           }
         })
@@ -108,6 +131,29 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
             );
           }
           throw error;
+        }
+
+        // Store SMS opt-in in user_profiles
+        if (data.user && (phoneE164 || smsOptIn)) {
+          try {
+            const { error: profileError } = await supabase
+              .from('user_profiles')
+              .upsert({
+                id: data.user.id,
+                phone_e164: phoneE164,
+                sms_opt_in: smsOptIn && !!phoneE164,
+                sms_opt_in_at: smsOptIn && phoneE164 ? new Date().toISOString() : null,
+                sms_opt_in_source: smsOptIn && phoneE164 ? 'signup' : null,
+              }, {
+                onConflict: 'id'
+              });
+
+            if (profileError) {
+              console.error('[AuthForm] Error updating profile with SMS opt-in:', profileError);
+            }
+          } catch (profileError) {
+            console.error('[AuthForm] Error storing SMS opt-in:', profileError);
+          }
         }
 
         // Track free signup completion
@@ -311,20 +357,49 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
             </div>
 
             {mode === 'signup' && (
-              <div>
-                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-                  Phone number (optional)
-                </label>
-                <input
-                  id="phone"
-                  name="phone"
-                  type="tel"
-                  autoComplete="tel"
-                  className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
-                  placeholder="+1 224 243 5172"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
+              <div className="space-y-3">
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
+                    Phone number (optional)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <Phone className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input
+                      id="phone"
+                      name="phone"
+                      type="tel"
+                      autoComplete="tel"
+                      className="appearance-none relative block w-full px-3 py-2 pl-10 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 focus:z-10 sm:text-sm"
+                      placeholder="+1 (555) 123-4567"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* SMS Opt-In Checkbox */}
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={smsOptIn}
+                      onChange={(e) => setSmsOptIn(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">
+                      Text me updates and tips about Ghoste One.
+                    </span>
+                  </label>
+
+                  {/* SMS Compliance Disclosure */}
+                  <div className="pl-6 text-xs text-gray-600 leading-relaxed">
+                    By opting in, you agree to receive recurring automated marketing texts from Ghoste One.
+                    Consent is not a condition of purchase. Reply STOP to unsubscribe, HELP for help.
+                    Msg & data rates may apply.
+                  </div>
+                </div>
               </div>
             )}
           </div>

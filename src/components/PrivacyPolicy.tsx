@@ -66,6 +66,24 @@ export default function PrivacyPolicy() {
                     We collect information about how you use Ghoste, including pages visited, features used, clicks, and interactions within our platform. We also collect technical information such as your IP address, browser type, device information, and operating system.
                   </p>
                 </div>
+
+                <div>
+                  <h3 className="text-xl font-semibold text-white mb-2">SMS Communications</h3>
+                  <p className="text-gray-300 leading-relaxed mb-2">
+                    If you opt in to receive SMS communications from Ghoste One, we will collect and store your mobile phone number. We use your phone number to:
+                  </p>
+                  <ul className="list-disc list-inside space-y-1 text-gray-300 ml-4 mb-2">
+                    <li>Send you updates about Ghoste One features and tips</li>
+                    <li>Provide you with promotional content and offers (with your consent)</li>
+                    <li>Send service-related notifications</li>
+                  </ul>
+                  <p className="text-gray-300 leading-relaxed font-semibold">
+                    Mobile opt-in data will not be shared with third parties.
+                  </p>
+                  <p className="text-gray-300 leading-relaxed mt-2">
+                    You can opt out of SMS communications at any time by replying STOP to any message, or by updating your preferences in your account settings. Message and data rates may apply.
+                  </p>
+                </div>
               </div>
             </section>
 
