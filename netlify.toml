@@ -57,6 +57,9 @@ schedule = "* * * * *"
 [functions.email-automation-runner]
 schedule = "*/5 * * * *"
 
+[functions.email-queue]
+schedule = "*/2 * * * *"
+
 [[redirects]]
 from = "/api/meta/status"
 to = "/.netlify/functions/meta-status"
