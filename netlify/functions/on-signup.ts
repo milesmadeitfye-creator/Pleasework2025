@@ -98,7 +98,40 @@ export const handler: Handler = async (event) => {
       console.error('[on-signup] Mailgun sync failed:', err);
     });
 
-    // Enroll in email sequence
+    // Enqueue welcome email (new system)
+    console.log('[on-signup] 📨 enqueueing_welcome_email');
+
+    try {
+      const welcomeResponse = await fetch(`${process.env.URL}/.netlify/functions/email-enqueue-welcome`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId,
+        }),
+      });
+
+      const welcomeResult = await welcomeResponse.json();
+
+      if (welcomeResponse.ok && welcomeResult.ok) {
+        console.log('[on-signup] ✅ welcome_email_queued', {
+          queued: welcomeResult.queued,
+          skipped: welcomeResult.skipped,
+        });
+      } else {
+        console.error('[on-signup] ⚠️ welcome_email_queue_failed', {
+          status: welcomeResponse.status,
+          result: welcomeResult,
+        });
+      }
+    } catch (welcomeError: any) {
+      console.error('[on-signup] ❌ welcome_email_queue_error', {
+        error_message: welcomeError.message,
+      });
+    }
+
+    // Legacy: Enroll in email sequence (keeping for compatibility)
     console.log('[on-signup] 📨 calling_email_enrollment');
 
     try {

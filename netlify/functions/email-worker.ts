@@ -1,0 +1,332 @@
+/**
+ * Email Worker
+ *
+ * Processes email_outbox queue:
+ * - Claims up to 50 queued emails
+ * - Sends via Mailgun
+ * - Updates status to sent/failed
+ * - Records automation_events for welcome_sent
+ * - Updates user_profiles.welcome_email_sent_at
+ *
+ * Protected by X-Admin-Key header.
+ */
+
+import { Handler } from '@netlify/functions';
+import { createClient } from '@supabase/supabase-js';
+
+interface EmailOutboxRow {
+  id: number;
+  user_id: string | null;
+  to_email: string;
+  template_key: string;
+  subject: string;
+  payload: {
+    text?: string;
+    html?: string;
+    firstName?: string;
+    email?: string;
+  };
+  status: string;
+  attempts: number;
+  created_at: string;
+}
+
+interface MailgunResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+async function sendViaMailgun(params: {
+  to: string;
+  subject: string;
+  text?: string;
+  html?: string;
+  from?: string;
+}): Promise<MailgunResult> {
+  const apiKey = process.env.MAILGUN_API_KEY;
+  const domain = process.env.MAILGUN_DOMAIN;
+  const fromEmail = process.env.MAILGUN_FROM_EMAIL || `Ghoste One <hello@${domain}>`;
+
+  if (!apiKey || !domain) {
+    return {
+      success: false,
+      error: 'Mailgun not configured (missing API_KEY or DOMAIN)',
+    };
+  }
+
+  try {
+    const formData = new URLSearchParams();
+    formData.append('from', params.from || fromEmail);
+    formData.append('to', params.to);
+    formData.append('subject', params.subject);
+
+    if (params.text) {
+      formData.append('text', params.text);
+    }
+
+    if (params.html) {
+      formData.append('html', params.html);
+    }
+
+    const auth = Buffer.from(`api:${apiKey}`).toString('base64');
+
+    const response = await fetch(`https://api.mailgun.net/v3/${domain}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || `HTTP ${response.status}`);
+    }
+
+    console.log('[EmailWorker] Mailgun success:', {
+      to: params.to,
+      messageId: result.id,
+    });
+
+    return {
+      success: true,
+      messageId: result.id,
+    };
+  } catch (error: any) {
+    console.error('[EmailWorker] Mailgun error:', error.message);
+    return {
+      success: false,
+      error: error.message || 'Unknown Mailgun error',
+    };
+  }
+}
+
+const handler: Handler = async (event) => {
+  console.log('[EmailWorker] Starting email worker at:', new Date().toISOString());
+
+  // Verify admin key
+  const adminKey = event.headers['x-admin-key'] || event.headers['X-Admin-Key'];
+  if (adminKey !== process.env.ADMIN_TASK_KEY) {
+    return {
+      statusCode: 401,
+      body: JSON.stringify({ error: 'Unauthorized - invalid admin key' }),
+    };
+  }
+
+  const startTime = Date.now();
+  let processed = 0;
+  let sent = 0;
+  let failed = 0;
+
+  try {
+    // Initialize Supabase admin client
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseServiceKey) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Supabase configuration missing' }),
+      };
+    }
+
+    if (!process.env.MAILGUN_API_KEY || !process.env.MAILGUN_DOMAIN) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Mailgun configuration missing' }),
+      };
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+    });
+
+    // Get limit from query param (default 50, max 100)
+    const limit = Math.min(
+      parseInt(event.queryStringParameters?.limit || '50', 10),
+      100
+    );
+
+    console.log(`[EmailWorker] Fetching up to ${limit} queued emails...`);
+
+    // Fetch queued emails
+    const { data: jobs, error: jobsError } = await supabase
+      .from('email_outbox')
+      .select('id, user_id, to_email, template_key, subject, payload, status, attempts, created_at')
+      .eq('status', 'queued')
+      .order('created_at', { ascending: true })
+      .limit(limit);
+
+    if (jobsError) {
+      console.error('[EmailWorker] Error fetching jobs:', jobsError);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: 'Failed to fetch email jobs' }),
+      };
+    }
+
+    if (!jobs || jobs.length === 0) {
+      console.log('[EmailWorker] No queued emails found');
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: true,
+          processed: 0,
+          sent: 0,
+          failed: 0,
+          duration_ms: Date.now() - startTime,
+        }),
+      };
+    }
+
+    console.log(`[EmailWorker] Found ${jobs.length} queued emails, processing...`);
+
+    // Process each job
+    for (const job of jobs as EmailOutboxRow[]) {
+      try {
+        // ATOMIC CLAIM: Mark as sending
+        const { data: claimed, error: claimError } = await supabase
+          .from('email_outbox')
+          .update({ status: 'sending', attempts: job.attempts + 1 })
+          .eq('id', job.id)
+          .eq('status', 'queued')
+          .select('id')
+          .maybeSingle();
+
+        if (claimError || !claimed) {
+          console.log(`[EmailWorker] Job ${job.id} already claimed, skipping`);
+          continue;
+        }
+
+        processed++;
+
+        console.log(`[EmailWorker] Processing job ${job.id}:`, {
+          to: job.to_email,
+          template: job.template_key,
+        });
+
+        // Send email
+        const result = await sendViaMailgun({
+          to: job.to_email,
+          subject: job.subject,
+          text: job.payload?.text,
+          html: job.payload?.html,
+        });
+
+        if (result.success) {
+          // SUCCESS: Mark as sent
+          const now = new Date().toISOString();
+
+          await supabase
+            .from('email_outbox')
+            .update({
+              status: 'sent',
+              sent_at: now,
+              error: null,
+              updated_at: now,
+            })
+            .eq('id', job.id);
+
+          // Update user_profiles.welcome_email_sent_at (for welcome emails only)
+          if (job.template_key === 'welcome_v1' && job.user_id) {
+            await supabase
+              .from('user_profiles')
+              .update({ welcome_email_sent_at: now })
+              .eq('id', job.user_id);
+
+            // Record automation event to trigger subsequent emails
+            await supabase
+              .from('automation_events')
+              .insert({
+                user_id: job.user_id,
+                event_key: 'welcome_sent',
+                payload: {
+                  email: job.to_email,
+                  template_key: job.template_key,
+                  sent_at: now,
+                  messageId: result.messageId,
+                },
+              });
+
+            console.log(`[EmailWorker] ✅ Welcome email sent + automation triggered for user ${job.user_id}`);
+          }
+
+          sent++;
+          console.log(`[EmailWorker] ✅ Job ${job.id} sent successfully`);
+
+        } else {
+          // FAILURE: Mark as failed
+          await supabase
+            .from('email_outbox')
+            .update({
+              status: 'failed',
+              error: (result.error || 'Unknown error').substring(0, 500),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id);
+
+          failed++;
+          console.error(`[EmailWorker] ❌ Job ${job.id} failed:`, result.error);
+        }
+
+      } catch (error: any) {
+        console.error(`[EmailWorker] Unexpected error processing job ${job.id}:`, error);
+
+        try {
+          await supabase
+            .from('email_outbox')
+            .update({
+              status: 'failed',
+              error: (error.message || 'Unexpected error').substring(0, 500),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.id);
+        } catch (updateErr: any) {
+          console.error(`[EmailWorker] Failed to update job ${job.id} error state:`, updateErr);
+        }
+
+        failed++;
+      }
+    }
+
+    const duration = Date.now() - startTime;
+
+    console.log('[EmailWorker] Processing complete:', {
+      processed,
+      sent,
+      failed,
+      duration_ms: duration,
+    });
+
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ok: true,
+        processed,
+        sent,
+        failed,
+        duration_ms: duration,
+      }),
+    };
+
+  } catch (error: any) {
+    console.error('[EmailWorker] Fatal error:', error);
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        error: error.message || 'Fatal error',
+        processed,
+        sent,
+        failed,
+      }),
+    };
+  }
+};
+
+export { handler };
