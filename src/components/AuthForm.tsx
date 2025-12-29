@@ -428,14 +428,27 @@ export function AuthForm({ mode, onToggleMode }: AuthFormProps) {
             </button>
           </div>
 
+          {mode === 'signup' && (
+            <div className="text-center text-xs text-gray-500">
+              By signing up, you agree to our{' '}
+              <a href="/privacy-policy" className="text-indigo-600 hover:text-indigo-500" target="_blank" rel="noopener noreferrer">
+                Privacy Policy
+              </a>
+              {' '}and{' '}
+              <a href="/terms-of-service" className="text-indigo-600 hover:text-indigo-500" target="_blank" rel="noopener noreferrer">
+                Terms of Service
+              </a>
+            </div>
+          )}
+
           <div className="text-center">
             <button
               type="button"
               onClick={onToggleMode}
               className="text-indigo-600 hover:text-indigo-500 text-sm"
             >
-              {mode === 'login' 
-                ? "Don't have an account? Sign up" 
+              {mode === 'login'
+                ? "Don't have an account? Sign up"
                 : 'Already have an account? Sign in'
               }
             </button>

@@ -12,6 +12,8 @@ import ResumeTourPrompt from './components/tour/ResumeTourPrompt';
 // Public Pages
 import LandingPageV2 from './pages/LandingPageV2';
 import AuthPage from './components/AuthPage';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import TermsOfService from './components/TermsOfService';
 
 // Debug Page (NO AUTH - ALWAYS ACCESSIBLE)
 import DebugCrash from './pages/DebugCrash';
@@ -148,6 +150,13 @@ function App() {
           <Route path="/help" element={<HelpCenter />} />
           <Route path="/help/:category" element={<HelpCenter />} />
           <Route path="/help/:category/:slug" element={<HelpCenter />} />
+
+          {/* Legal Pages - Public Access */}
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
+          <Route path="/privacy_policy" element={<Navigate to="/privacy-policy" replace />} />
+          <Route path="/terms-of-service" element={<TermsOfService />} />
+          <Route path="/terms" element={<Navigate to="/terms-of-service" replace />} />
 
           {/* Welcome/Tutorial - Protected */}
           <Route
