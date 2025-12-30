@@ -1,17 +1,16 @@
 /**
  * Email Enqueue Welcome
  *
- * Enqueues welcome emails for:
+ * Enqueues welcome emails using the email engine (email_jobs + email_templates):
  * - Single user (POST with userId or email)
  * - All users (POST with X-Admin-Key header for backfill)
  *
- * Prevents duplicates using unique constraint on (user_id, template_key).
+ * Uses enqueue_welcome_email RPC which calls enqueue_onboarding_email.
  * Does NOT send emails - only queues them for email-worker to process.
  */
 
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
-import { getWelcomeEmailText, getWelcomeEmailHtml } from './_welcomeEmailTemplate';
 
 interface EnqueueRequest {
   userId?: string;
@@ -69,77 +68,118 @@ const handler: Handler = async (event) => {
     let usersToEnqueue: UserProfile[] = [];
 
     if (isBackfill) {
-      // BACKFILL MODE: Fetch all users without welcome emails
-      console.log('[EnqueueWelcome] Backfill mode: fetching all users without welcome email');
+      // BACKFILL MODE: Fetch all users who haven't been sent welcome email
+      console.log('[EnqueueWelcome] Backfill mode: fetching users without welcome email');
 
-      const { data: profiles, error } = await supabase
-        .from('user_profiles')
-        .select('id, email, first_name, welcome_email_sent_at')
-        .not('email', 'is', null)
-        .is('welcome_email_sent_at', null)
-        .order('created_at', { ascending: true })
-        .limit(1000);
+      // Get users from auth.users and check if they have email_jobs for welcome
+      const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
 
-      if (error) {
-        console.error('[EnqueueWelcome] Error fetching profiles:', error);
+      if (authError) {
+        console.error('[EnqueueWelcome] Error fetching auth users:', authError);
         return {
           statusCode: 500,
-          body: JSON.stringify({ error: 'Failed to fetch profiles' }),
+          body: JSON.stringify({ error: 'Failed to fetch users' }),
         };
       }
 
-      usersToEnqueue = profiles || [];
+      // Get profiles for these users (if they exist)
+      const userIds = authUsers.users.map(u => u.id);
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('user_id, first_name')
+        .in('user_id', userIds);
+
+      const profileMap = new Map(profiles?.map(p => [p.user_id, p]) || []);
+
+      // Get existing email_jobs for welcome template
+      const { data: existingJobs } = await supabase
+        .from('email_jobs')
+        .select('user_id')
+        .eq('template_key', 'welcome')
+        .in('user_id', userIds);
+
+      const sentUserIds = new Set(existingJobs?.map(j => j.user_id) || []);
+
+      // Build list of users who need welcome email
+      usersToEnqueue = authUsers.users
+        .filter(u => u.email && !sentUserIds.has(u.id))
+        .map(u => {
+          const profile = profileMap.get(u.id);
+          return {
+            id: u.id,
+            email: u.email!,
+            first_name: profile?.first_name,
+          };
+        })
+        .slice(0, 1000); // Limit to 1000
+
       console.log(`[EnqueueWelcome] Found ${usersToEnqueue.length} users to enqueue`);
 
     } else if (userId) {
       // SINGLE USER MODE: Fetch specific user
-      const { data: profile, error } = await supabase
-        .from('user_profiles')
-        .select('id, email, first_name, welcome_email_sent_at')
-        .eq('id', userId)
-        .maybeSingle();
+      const { data: authUser, error: authError } = await supabase.auth.admin.getUserById(userId);
 
-      if (error) {
-        console.error('[EnqueueWelcome] Error fetching profile:', error);
+      if (authError || !authUser.user) {
+        console.error('[EnqueueWelcome] Error fetching auth user:', authError);
         return {
-          statusCode: 500,
-          body: JSON.stringify({ error: 'Failed to fetch profile' }),
-        };
-      }
-
-      if (!profile || !profile.email) {
-        return {
-          statusCode: 400,
-          body: JSON.stringify({ error: 'User not found or missing email' }),
-        };
-      }
-
-      usersToEnqueue = [profile];
-
-    } else if (email) {
-      // EMAIL MODE: Fetch user by email
-      const { data: profile, error } = await supabase
-        .from('user_profiles')
-        .select('id, email, first_name, welcome_email_sent_at')
-        .eq('email', email)
-        .maybeSingle();
-
-      if (error) {
-        console.error('[EnqueueWelcome] Error fetching profile by email:', error);
-        return {
-          statusCode: 500,
-          body: JSON.stringify({ error: 'Failed to fetch profile' }),
-        };
-      }
-
-      if (!profile) {
-        return {
-          statusCode: 400,
+          statusCode: 404,
           body: JSON.stringify({ error: 'User not found' }),
         };
       }
 
-      usersToEnqueue = [profile];
+      if (!authUser.user.email) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'User has no email' }),
+        };
+      }
+
+      // Get profile for first_name
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('first_name')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      usersToEnqueue = [{
+        id: authUser.user.id,
+        email: authUser.user.email,
+        first_name: profile?.first_name,
+      }];
+
+    } else if (email) {
+      // EMAIL MODE: Fetch user by email from auth.users
+      const { data: authUsers, error: authError } = await supabase.auth.admin.listUsers();
+
+      if (authError) {
+        console.error('[EnqueueWelcome] Error fetching auth users:', authError);
+        return {
+          statusCode: 500,
+          body: JSON.stringify({ error: 'Failed to fetch users' }),
+        };
+      }
+
+      const authUser = authUsers.users.find(u => u.email === email);
+
+      if (!authUser) {
+        return {
+          statusCode: 404,
+          body: JSON.stringify({ error: 'User not found' }),
+        };
+      }
+
+      // Get profile for first_name
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('first_name')
+        .eq('user_id', authUser.id)
+        .maybeSingle();
+
+      usersToEnqueue = [{
+        id: authUser.id,
+        email: authUser.email!,
+        first_name: profile?.first_name,
+      }];
 
     } else {
       return {
@@ -150,7 +190,7 @@ const handler: Handler = async (event) => {
       };
     }
 
-    // Enqueue welcome emails
+    // Enqueue welcome emails using RPC
     let queued = 0;
     let skipped = 0;
     let errors = 0;
@@ -158,42 +198,22 @@ const handler: Handler = async (event) => {
     for (const user of usersToEnqueue) {
       try {
         const firstName = user.first_name || 'there';
-        const payload = {
-          firstName,
-          email: user.email,
-          text: getWelcomeEmailText({ firstName, email: user.email }),
-          html: getWelcomeEmailHtml({ firstName, email: user.email }),
-        };
 
-        // Insert into email_outbox (unique constraint prevents duplicates)
-        const { data, error } = await supabase
-          .from('email_outbox')
-          .insert({
-            user_id: user.id,
-            to_email: user.email,
-            template_key: 'welcome_v1',
-            subject: 'Welcome to Ghoste One 👻',
-            payload,
-            status: 'queued',
-            attempts: 0,
-          })
-          .select('id')
-          .maybeSingle();
+        // Call enqueue_welcome_email RPC (which calls enqueue_onboarding_email)
+        const { data: jobId, error } = await supabase.rpc('enqueue_welcome_email', {
+          p_user_id: user.id,
+          p_user_email: user.email,
+          p_first_name: firstName,
+        });
 
         if (error) {
-          // Check if it's a duplicate (unique constraint violation)
-          if (error.code === '23505') {
-            console.log(`[EnqueueWelcome] Skipped duplicate for user ${user.id}`);
-            skipped++;
-          } else {
-            console.error(`[EnqueueWelcome] Error enqueueing for user ${user.id}:`, error);
-            errors++;
-          }
-        } else if (data) {
-          console.log(`[EnqueueWelcome] Queued email ${data.id} for user ${user.id}`);
+          console.error(`[EnqueueWelcome] Error enqueueing for user ${user.id}:`, error);
+          errors++;
+        } else if (jobId) {
+          console.log(`[EnqueueWelcome] Queued email job ${jobId} for user ${user.id}`);
           queued++;
         } else {
-          // No error but no data = conflict was handled by ON CONFLICT DO NOTHING
+          console.log(`[EnqueueWelcome] Skipped (already queued) for user ${user.id}`);
           skipped++;
         }
       } catch (err: any) {

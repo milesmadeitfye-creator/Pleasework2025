@@ -1,31 +1,28 @@
 /**
  * Email Worker
  *
- * Processes email_outbox queue:
- * - Claims up to 50 queued emails
- * - Sends via Mailgun
+ * Processes email_jobs queue via the email engine:
+ * - Reads pending/scheduled jobs from email_jobs
+ * - Resolves template content from email_templates or payload
+ * - Sends via Mailgun API
  * - Updates status to sent/failed
- * - Records automation_events for welcome_sent
- * - Updates user_profiles.welcome_email_sent_at
- *
- * Protected by X-Admin-Key header.
+ * - On successful WELCOME send: inserts automation_events('welcome_sent') + updates user_email_state
  */
 
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
 
-interface EmailOutboxRow {
-  id: number;
-  user_id: string | null;
+const APP_URL = 'https://ghoste.one';
+const BATCH_SIZE = 50;
+const MAX_ATTEMPTS = 3;
+
+interface EmailJob {
+  id: string;
+  user_id: string;
   to_email: string;
   template_key: string;
   subject: string;
-  payload: {
-    text?: string;
-    html?: string;
-    firstName?: string;
-    email?: string;
-  };
+  payload: any;
   status: string;
   attempts: number;
   created_at: string;
@@ -35,6 +32,27 @@ interface MailgunResult {
   success: boolean;
   messageId?: string;
   error?: string;
+}
+
+/**
+ * Substitute template variables like {{first_name}}, {{app_url}}
+ */
+function substituteVariables(template: string, variables: Record<string, any>): string {
+  let result = template;
+
+  // Add default variables
+  const allVars = {
+    app_url: APP_URL,
+    ...variables,
+  };
+
+  // Replace {{variable}} with value
+  for (const [key, value] of Object.entries(allVars)) {
+    const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+    result = result.replace(regex, String(value || ''));
+  }
+
+  return result;
 }
 
 async function sendViaMailgun(params: {
@@ -107,15 +125,6 @@ async function sendViaMailgun(params: {
 const handler: Handler = async (event) => {
   console.log('[EmailWorker] Starting email worker at:', new Date().toISOString());
 
-  // Verify admin key
-  const adminKey = event.headers['x-admin-key'] || event.headers['X-Admin-Key'];
-  if (adminKey !== process.env.ADMIN_TASK_KEY) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ error: 'Unauthorized - invalid admin key' }),
-    };
-  }
-
   const startTime = Date.now();
   let processed = 0;
   let sent = 0;
@@ -144,21 +153,17 @@ const handler: Handler = async (event) => {
       auth: { persistSession: false },
     });
 
-    // Get limit from query param (default 50, max 100)
-    const limit = Math.min(
-      parseInt(event.queryStringParameters?.limit || '50', 10),
-      100
-    );
+    const now = new Date().toISOString();
 
-    console.log(`[EmailWorker] Fetching up to ${limit} queued emails...`);
+    console.log(`[EmailWorker] Fetching up to ${BATCH_SIZE} pending/scheduled emails...`);
 
-    // Fetch queued emails
+    // Fetch pending jobs (including scheduled jobs that are due)
     const { data: jobs, error: jobsError } = await supabase
-      .from('email_outbox')
-      .select('id, user_id, to_email, template_key, subject, payload, status, attempts, created_at')
-      .eq('status', 'queued')
+      .from('email_jobs')
+      .select('*')
+      .or(`status.eq.pending,and(status.eq.scheduled,payload->>scheduled_at.lte.${now})`)
       .order('created_at', { ascending: true })
-      .limit(limit);
+      .limit(BATCH_SIZE);
 
     if (jobsError) {
       console.error('[EmailWorker] Error fetching jobs:', jobsError);
@@ -169,7 +174,7 @@ const handler: Handler = async (event) => {
     }
 
     if (!jobs || jobs.length === 0) {
-      console.log('[EmailWorker] No queued emails found');
+      console.log('[EmailWorker] No pending jobs to process');
       return {
         statusCode: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -183,17 +188,17 @@ const handler: Handler = async (event) => {
       };
     }
 
-    console.log(`[EmailWorker] Found ${jobs.length} queued emails, processing...`);
+    console.log(`[EmailWorker] Found ${jobs.length} jobs, processing...`);
 
     // Process each job
-    for (const job of jobs as EmailOutboxRow[]) {
+    for (const job of jobs as EmailJob[]) {
       try {
         // ATOMIC CLAIM: Mark as sending
         const { data: claimed, error: claimError } = await supabase
-          .from('email_outbox')
-          .update({ status: 'sending', attempts: job.attempts + 1 })
+          .from('email_jobs')
+          .update({ status: 'sending', attempts: job.attempts + 1, updated_at: now })
           .eq('id', job.id)
-          .eq('status', 'queued')
+          .in('status', ['pending', 'scheduled'])
           .select('id')
           .maybeSingle();
 
@@ -204,85 +209,148 @@ const handler: Handler = async (event) => {
 
         processed++;
 
-        console.log(`[EmailWorker] Processing job ${job.id}:`, {
-          to: job.to_email,
-          template: job.template_key,
-        });
+        console.log(`[EmailWorker] Processing job ${job.id}: ${job.template_key} to ${job.to_email}`);
+
+        // Get template variables from payload or defaults
+        const variables: Record<string, any> = {
+          first_name: job.payload?.first_name || 'there',
+          email: job.to_email,
+          credits: job.payload?.credits || '7,500',
+          feature_name: job.payload?.feature_name || 'this feature',
+        };
+
+        // Check if template content is in payload (from enqueue_onboarding_email)
+        let textContent = job.payload?.text;
+        let htmlContent = job.payload?.html;
+        let subject = job.subject;
+
+        // If not in payload, fetch from email_templates table
+        if (!textContent || !htmlContent) {
+          const { data: template, error: templateError } = await supabase
+            .from('email_templates')
+            .select('subject, body_text, body_html')
+            .eq('template_key', job.template_key)
+            .eq('enabled', true)
+            .single();
+
+          if (templateError || !template) {
+            console.error(`[EmailWorker] Template not found: ${job.template_key}`, templateError);
+            await supabase
+              .from('email_jobs')
+              .update({
+                status: 'failed',
+                error: `Template not found: ${job.template_key}`,
+                updated_at: now,
+              })
+              .eq('id', job.id);
+            failed++;
+            continue;
+          }
+
+          textContent = template.body_text;
+          htmlContent = template.body_html;
+          subject = template.subject;
+        }
+
+        // Substitute variables in all content
+        const finalSubject = substituteVariables(subject, variables);
+        const finalText = substituteVariables(textContent, variables);
+        const finalHtml = substituteVariables(htmlContent, variables);
 
         // Send email
         const result = await sendViaMailgun({
           to: job.to_email,
-          subject: job.subject,
-          text: job.payload?.text,
-          html: job.payload?.html,
+          subject: finalSubject,
+          text: finalText,
+          html: finalHtml,
         });
 
         if (result.success) {
           // SUCCESS: Mark as sent
-          const now = new Date().toISOString();
+          const sentAt = new Date().toISOString();
 
           await supabase
-            .from('email_outbox')
+            .from('email_jobs')
             .update({
               status: 'sent',
-              sent_at: now,
+              sent_at: sentAt,
               error: null,
-              updated_at: now,
+              updated_at: sentAt,
             })
             .eq('id', job.id);
 
-          // Update user_profiles.welcome_email_sent_at (for welcome emails only)
-          if (job.template_key === 'welcome_v1' && job.user_id) {
-            await supabase
-              .from('user_profiles')
-              .update({ welcome_email_sent_at: now })
-              .eq('id', job.user_id);
+          // If welcome email, insert automation_events + update user_email_state
+          if (job.template_key === 'welcome') {
+            await supabase.from('automation_events').insert({
+              user_id: job.user_id,
+              event_key: 'welcome_sent',
+              payload: {
+                email: job.to_email,
+                template_key: job.template_key,
+                sent_at: sentAt,
+                messageId: result.messageId,
+              },
+            });
 
-            // Record automation event to trigger subsequent emails
             await supabase
-              .from('automation_events')
-              .insert({
-                user_id: job.user_id,
-                event_key: 'welcome_sent',
-                payload: {
-                  email: job.to_email,
-                  template_key: job.template_key,
-                  sent_at: now,
-                  messageId: result.messageId,
+              .from('user_email_state')
+              .upsert(
+                {
+                  user_id: job.user_id,
+                  enrolled_at: sentAt,
+                  last_email_key: job.template_key,
+                  last_email_sent_at: sentAt,
                 },
-              });
+                { onConflict: 'user_id' }
+              );
 
-            console.log(`[EmailWorker] ✅ Welcome email sent + automation triggered for user ${job.user_id}`);
+            console.log(`[EmailWorker] ✅ Welcome email sent + automation triggered for ${job.to_email}`);
           }
 
           sent++;
           console.log(`[EmailWorker] ✅ Job ${job.id} sent successfully`);
-
         } else {
-          // FAILURE: Mark as failed
-          await supabase
-            .from('email_outbox')
-            .update({
-              status: 'failed',
-              error: (result.error || 'Unknown error').substring(0, 500),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', job.id);
+          // FAILURE: Check if we should retry
+          const shouldRetry = job.attempts + 1 < MAX_ATTEMPTS;
+
+          if (shouldRetry) {
+            // Mark back as pending for retry
+            await supabase
+              .from('email_jobs')
+              .update({
+                status: 'pending',
+                error: (result.error || 'Unknown error').substring(0, 500),
+                updated_at: now,
+              })
+              .eq('id', job.id);
+
+            console.log(`[EmailWorker] ⟳ Retry ${job.attempts + 1}/${MAX_ATTEMPTS} for ${job.to_email}`);
+          } else {
+            // Mark as failed (max attempts reached)
+            await supabase
+              .from('email_jobs')
+              .update({
+                status: 'failed',
+                error: (result.error || 'Unknown error').substring(0, 500),
+                updated_at: now,
+              })
+              .eq('id', job.id);
+
+            console.error(`[EmailWorker] ❌ Job ${job.id} failed permanently: ${result.error}`);
+          }
 
           failed++;
-          console.error(`[EmailWorker] ❌ Job ${job.id} failed:`, result.error);
         }
-
       } catch (error: any) {
         console.error(`[EmailWorker] Unexpected error processing job ${job.id}:`, error);
 
         try {
           await supabase
-            .from('email_outbox')
+            .from('email_jobs')
             .update({
               status: 'failed',
               error: (error.message || 'Unexpected error').substring(0, 500),
-              updated_at: new Date().toISOString(),
+              updated_at: now,
             })
             .eq('id', job.id);
         } catch (updateErr: any) {
@@ -313,7 +381,6 @@ const handler: Handler = async (event) => {
         duration_ms: duration,
       }),
     };
-
   } catch (error: any) {
     console.error('[EmailWorker] Fatal error:', error);
     return {
