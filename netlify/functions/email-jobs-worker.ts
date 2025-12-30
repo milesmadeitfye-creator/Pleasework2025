@@ -247,6 +247,7 @@ async function processEmailJobs(): Promise<WorkerResult> {
         });
 
         if (sendResult.success) {
+          // Update email_jobs status
           await supabase
             .from('email_jobs')
             .update({
@@ -257,6 +258,21 @@ async function processEmailJobs(): Promise<WorkerResult> {
               updated_at: now,
             })
             .eq('id', job.id);
+
+          // Track send in user_email_sends (prevents duplicate sends in future)
+          const templateCategory = job.payload?.category || 'onboarding';
+          await supabase
+            .from('user_email_sends')
+            .insert({
+              user_id: job.user_id,
+              template_key: job.template_key,
+              category: templateCategory,
+              provider_message_id: sendResult.messageId || null,
+              status: 'sent',
+              sent_at: now,
+            })
+            .onConflict('user_id, template_key')
+            .ignore();
 
           if (job.template_key === 'welcome_v1') {
             await supabase.from('automation_events').insert({
@@ -270,8 +286,9 @@ async function processEmailJobs(): Promise<WorkerResult> {
           }
 
           result.sent++;
-          console.log('[EmailJobsWorker] Sent job ' + job.id + ' to ' + job.to_email);
+          console.log('[EmailJobsWorker] Sent job ' + job.id + ' | user: ' + job.user_id + ' | template: ' + job.template_key + ' | to: ' + job.to_email);
         } else {
+          // Update email_jobs status
           await supabase
             .from('email_jobs')
             .update({
@@ -282,8 +299,24 @@ async function processEmailJobs(): Promise<WorkerResult> {
             })
             .eq('id', job.id);
 
+          // Track failed send in user_email_sends
+          const templateCategory = job.payload?.category || 'onboarding';
+          await supabase
+            .from('user_email_sends')
+            .insert({
+              user_id: job.user_id,
+              template_key: job.template_key,
+              category: templateCategory,
+              provider_message_id: null,
+              status: 'failed',
+              error_message: sendResult.error || 'Unknown error',
+              sent_at: now,
+            })
+            .onConflict('user_id, template_key')
+            .ignore();
+
           result.failed++;
-          console.error('[EmailJobsWorker] Failed job ' + job.id + ': ' + sendResult.error);
+          console.error('[EmailJobsWorker] Failed job ' + job.id + ' | user: ' + job.user_id + ' | template: ' + job.template_key + ' | error: ' + sendResult.error);
         }
       } catch (jobError: any) {
         console.error('[EmailJobsWorker] Error processing job ' + job.id + ':', jobError);
