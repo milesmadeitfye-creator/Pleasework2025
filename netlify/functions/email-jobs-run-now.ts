@@ -36,12 +36,32 @@ interface WorkerResult {
   failed: number;
 }
 
+/**
+ * Create a safe payload with guaranteed first_name fallback
+ */
+function createSafePayload(payload: Record<string, any>, toEmail: string): Record<string, any> {
+  const emailPrefix = toEmail ? toEmail.split('@')[0] : 'there';
+
+  const safePayload = {
+    ...payload,
+    first_name: payload.first_name ||
+                payload.display_name ||
+                payload.full_name ||
+                emailPrefix,
+  };
+
+  return safePayload;
+}
+
+/**
+ * Render template with variable replacement
+ */
 function renderTemplate(template: string, payload: Record<string, any>): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
     const trimmedKey = key.trim();
     const keys = trimmedKey.split('.');
     let value: any = payload;
-    
+
     for (const k of keys) {
       if (value && typeof value === 'object' && k in value) {
         value = value[k];
@@ -49,7 +69,7 @@ function renderTemplate(template: string, payload: Record<string, any>): string 
         return match;
       }
     }
-    
+
     return value != null ? String(value) : match;
   });
 }
@@ -143,7 +163,7 @@ async function processEmailJobs(): Promise<WorkerResult> {
 
         if (templateError || !template) {
           console.error('[EmailJobsRunNow] Template not found: ' + job.template_key);
-          
+
           await supabase
             .from('email_jobs')
             .update({
@@ -158,10 +178,16 @@ async function processEmailJobs(): Promise<WorkerResult> {
           continue;
         }
 
+        // Create safe payload with guaranteed first_name fallback
+        const safePayload = createSafePayload(job.payload, job.to_email);
+
         const subject = job.subject || template.subject;
-        const renderedSubject = renderTemplate(subject, job.payload);
-        const renderedText = renderTemplate(template.body_text, job.payload);
-        const renderedHtml = renderTemplate(template.body_html, job.payload);
+        const renderedSubject = renderTemplate(subject, safePayload);
+        const renderedText = renderTemplate(template.body_text, safePayload);
+        const renderedHtml = renderTemplate(template.body_html, safePayload);
+
+        // Log job details for debugging
+        console.log('[EmailJobsRunNow] Job ' + job.id + ' | To: ' + job.to_email + ' | Template: ' + job.template_key + ' | Subject: ' + renderedSubject.substring(0, 80));
 
         const sendResult = await sendViaMailgun({
           to: job.to_email,
