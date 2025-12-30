@@ -76,19 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Handle profile creation and wallet bootstrap asynchronously
           (async () => {
             try {
-              const { data: profile } = await supabase
-                .from('user_profiles')
-                .select('id')
-                .eq('id', session.user.id)
-                .maybeSingle();
+              // Use RPC to ensure profile exists (prevents 401 loops)
+              const { error: profileError } = await supabase.rpc('get_or_create_user_profile');
 
-              if (!profile) {
-                console.log('[AuthContext] Creating user profile for:', session.user.id);
-                await supabase.from('user_profiles').insert({
-                  id: session.user.id,
-                  display_name: session.user.user_metadata.full_name || '',
-                });
+              if (profileError) {
+                console.warn('[AuthContext] Profile creation via RPC failed (non-critical):', profileError);
+              } else {
+                console.log('[AuthContext] Profile ensured via RPC for:', session.user.id);
 
+                // Create onboarding schedule
                 try {
                   const onboardingEvents = buildDefaultOnboardingSchedule({ userId: session.user.id });
                   const { error: scheduleError } = await supabase
@@ -150,19 +146,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (session?.user) {
         (async () => {
           try {
-            const { data: profile } = await supabase
-              .from('user_profiles')
-              .select('id')
-              .eq('id', session.user.id)
-              .maybeSingle();
+            // Use RPC to ensure profile exists (prevents 401 loops)
+            const { error: profileError } = await supabase.rpc('get_or_create_user_profile');
 
-            if (!profile) {
-              console.log('[AuthContext] Creating user profile for:', session.user.id);
-              await supabase.from('user_profiles').insert({
-                id: session.user.id,
-                display_name: session.user.user_metadata.full_name || '',
-              });
+            if (profileError) {
+              console.warn('[AuthContext] Profile creation via RPC failed (non-critical):', profileError);
+            } else {
+              console.log('[AuthContext] Profile ensured via RPC for:', session.user.id);
 
+              // Create onboarding schedule
               try {
                 const onboardingEvents = buildDefaultOnboardingSchedule({ userId: session.user.id });
                 const { error: scheduleError } = await supabase
@@ -224,10 +216,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       if (data.user) {
-        await supabase.from('user_profiles').insert({
-          id: data.user.id,
-          display_name: fullName,
-        });
+        // Use RPC to ensure profile exists (prevents 401 loops)
+        const { error: profileError } = await supabase.rpc('get_or_create_user_profile');
+
+        if (profileError) {
+          console.warn('[AuthContext] Profile creation via RPC failed during signup (non-critical):', profileError);
+        }
 
         try {
           const onboardingEvents = buildDefaultOnboardingSchedule({ userId: data.user.id });

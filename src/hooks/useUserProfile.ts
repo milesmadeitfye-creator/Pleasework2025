@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth } from "./useAuth";
-import { supabase } from "../lib/supabaseClient";
+import { supabase } from "@/lib/supabase";
 
 export type UserProfile = {
   id: string;
@@ -36,10 +36,42 @@ export function useUserProfile() {
       return;
     }
 
+    // Guard: Verify we have an authenticated session before loading profile
+    if (!supabase) {
+      console.warn("[useUserProfile] Supabase client not configured");
+      setProfile(null);
+      return;
+    }
+
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) {
+      console.log("[useUserProfile] No authenticated session, skipping profile load");
+      setProfile(null);
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
     try {
+      // CRITICAL: Use RPC to get or create profile (prevents 401 loops)
+      const { data: profileData, error: profileError } = await supabase
+        .rpc('get_or_create_user_profile');
+
+      if (profileError) {
+        console.error("[useUserProfile] Failed to load profile via RPC:", profileError);
+        setError(profileError.message);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!profileData) {
+        console.error("[useUserProfile] RPC returned no profile data");
+        setError("Failed to load profile");
+        setIsLoading(false);
+        return;
+      }
+
       // CRITICAL: Load wallet balances from user_wallets (source of truth)
       const { data: walletData, error: walletError } = await supabase
         .from("user_wallets")
@@ -51,63 +83,14 @@ export function useUserProfile() {
         console.error("[useUserProfile] Failed to load wallet:", walletError);
       }
 
-      // Load profile info (plan, subscription, etc.)
-      const { data: profileData, error: profileError } = await supabase
-        .from("user_profiles")
-        .select("*")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (profileError) {
-        console.error("[useUserProfile] Failed to load profile:", profileError);
-        setError(profileError.message);
-        setIsLoading(false);
-        return;
-      }
-
-      if (!profileData) {
-        // Profile doesn't exist - create with defaults
-        console.log("[useUserProfile] No profile found, creating default for user:", user.id);
-        const { data: inserted, error: insertError } = await supabase
-          .from("user_profiles")
-          .insert({
-            id: user.id,
-            plan: "free",
-            is_pro: false,
-            credits_manager: 0,
-            credits_tools: 1000,
-          })
-          .select("*")
-          .single();
-
-        if (insertError) {
-          console.error("[useUserProfile] Failed to create profile:", insertError);
-          setError(insertError.message);
-          setIsLoading(false);
-          return;
-        }
-
-        // Combine profile with wallet data (if available)
-        const combinedProfile = {
-          ...inserted,
-          credits_manager: walletData?.manager_budget_balance ?? inserted.credits_manager ?? 0,
-          credits_tools: walletData?.tools_budget_balance ?? inserted.credits_tools ?? 1000,
-        } as UserProfile;
-
-        console.log("[useUserProfile] Created profile, wallet balances from DB:", combinedProfile);
-        setProfile(combinedProfile);
-        setIsLoading(false);
-        return;
-      }
-
-      // CRITICAL: Use wallet balances from user_wallets, not user_profiles
+      // Combine profile with wallet data (wallet is source of truth for credits)
       const combinedProfile = {
         ...profileData,
         credits_manager: walletData?.manager_budget_balance ?? profileData.credits_manager ?? 0,
         credits_tools: walletData?.tools_budget_balance ?? profileData.credits_tools ?? 0,
       } as UserProfile;
 
-      console.log("[useUserProfile] Loaded fresh wallet balances from user_wallets:", {
+      console.log("[useUserProfile] Loaded profile via RPC, wallet balances from DB:", {
         manager: combinedProfile.credits_manager,
         tools: combinedProfile.credits_tools,
       });
