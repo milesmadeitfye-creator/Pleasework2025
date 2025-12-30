@@ -29,6 +29,7 @@ export default function AccountSettings() {
   const [saving2FA, setSaving2FA] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [kickingOffEmails, setKickingOffEmails] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -302,6 +303,60 @@ export default function AccountSettings() {
       showToast('Error updating 2FA: ' + err.message, 'error');
     } finally {
       setSaving2FA(false);
+    }
+  };
+
+  const handleKickoffEmails = async () => {
+    if (!user?.email) return;
+
+    setKickingOffEmails(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch('/.netlify/functions/email-kickoff', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to kickoff emails');
+      }
+
+      const { enqueued, sent, failed, remainingQueued, errors } = data;
+
+      let message = `Email Kickoff Complete:\n\n`;
+      message += `✓ Enqueued: ${enqueued}\n`;
+      message += `✓ Sent: ${sent}\n`;
+      message += `✗ Failed: ${failed}\n`;
+      message += `📬 Remaining: ${remainingQueued}\n`;
+
+      if (errors && errors.length > 0) {
+        message += `\nErrors:\n${errors.slice(0, 3).join('\n')}`;
+      }
+
+      if (sent > 0) {
+        showToast(`Successfully sent ${sent} welcome emails!`, 'success');
+      } else if (remainingQueued === 0 && enqueued === 0) {
+        showToast('No emails to send. All users have received welcome emails!', 'success');
+      } else {
+        showToast(message, 'error');
+      }
+
+      console.log('[Email Kickoff] Result:', data);
+    } catch (error: any) {
+      console.error('[Email Kickoff] Error:', error);
+      showToast(`Error: ${error.message}`, 'error');
+    } finally {
+      setKickingOffEmails(false);
     }
   };
 
@@ -624,10 +679,35 @@ export default function AccountSettings() {
           <Wrench className="w-5 h-5 text-sky-400" />
           Internal Tools
         </h3>
-        <div className="p-4 bg-sky-500/10 border border-sky-500/20 rounded-lg">
-          <div className="text-sm text-gray-300 mb-2">
-            Internal tools have been moved to <a href="/studio/getting-started" className="text-sky-400 hover:text-sky-300 underline font-medium">Ghoste Studio → Getting Started</a>
+        <div className="space-y-4">
+          <div className="p-4 bg-sky-500/10 border border-sky-500/20 rounded-lg">
+            <div className="text-sm text-gray-300 mb-2">
+              Internal tools have been moved to <a href="/studio/getting-started" className="text-sky-400 hover:text-sky-300 underline font-medium">Ghoste Studio → Getting Started</a>
+            </div>
           </div>
+
+          {user?.email === 'milesdorre5@gmail.com' && (
+            <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <div className="font-medium text-emerald-400 mb-1">Email Kickoff (Owner Only)</div>
+                  <div className="text-sm text-gray-300 mb-2">
+                    Diagnose Mailgun config and send queued welcome emails to all users who haven't received them yet.
+                  </div>
+                  <div className="text-xs text-gray-400">
+                    Processes up to 500 emails per run. Tracks success via email_outbox + automation_events.
+                  </div>
+                </div>
+                <button
+                  onClick={handleKickoffEmails}
+                  disabled={kickingOffEmails}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {kickingOffEmails ? 'Sending...' : 'Kickoff Sales Emails'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
