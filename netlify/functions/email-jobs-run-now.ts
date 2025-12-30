@@ -12,7 +12,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY!;
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN!;
-const MAILGUN_FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL || 'Ghoste One <noreply@ghoste.one>';
+const MAILGUN_FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL || `Ghoste One <no-reply@${MAILGUN_DOMAIN}>`;
 const ADMIN_TASK_KEY = process.env.ADMIN_TASK_KEY;
 const OWNER_EMAIL = 'milesdorre5@gmail.com';
 
@@ -194,8 +194,8 @@ async function processEmailJobs(): Promise<WorkerResult> {
         // Create safe payload with guaranteed first_name fallback
         const safePayload = createSafePayload(job.payload, job.to_email);
 
-        // Choose subject: job.subject takes priority, otherwise use template.subject
-        const baseSubject = job.subject ?? template.subject ?? '';
+        // Choose subject: job.subject takes priority, otherwise use template.subject, fallback to default
+        const baseSubject = job.subject ?? template.subject ?? 'Ghoste One Update';
         const baseText = template.body_text ?? '';
         const baseHtml = template.body_html ?? '';
 
