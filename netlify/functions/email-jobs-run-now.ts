@@ -54,7 +54,7 @@ function createSafePayload(payload: Record<string, any>, toEmail: string): Recor
 }
 
 /**
- * Render template with variable replacement
+ * Render template with variable replacement (supports nested keys like {{plan.name}})
  */
 function renderTemplate(template: string, payload: Record<string, any>): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (match, key) => {
@@ -72,6 +72,19 @@ function renderTemplate(template: string, payload: Record<string, any>): string 
 
     return value != null ? String(value) : match;
   });
+}
+
+/**
+ * Finalize rendered content: replace leftover {{first_name}} with "there" and strip remaining tokens
+ */
+function finalizeRenderedContent(content: string): string {
+  // First pass: replace any leftover {{first_name}} or {{ first_name }} with "there"
+  let finalized = content.replace(/\{\{\s*first_name\s*\}\}/gi, 'there');
+
+  // Second pass: strip any remaining {{...}} tokens to avoid shipping braces to users
+  finalized = finalized.replace(/\{\{[^}]+\}\}/g, '');
+
+  return finalized;
 }
 
 async function sendViaMailgun(params: {
@@ -181,19 +194,30 @@ async function processEmailJobs(): Promise<WorkerResult> {
         // Create safe payload with guaranteed first_name fallback
         const safePayload = createSafePayload(job.payload, job.to_email);
 
-        const subject = job.subject || template.subject;
-        const renderedSubject = renderTemplate(subject, safePayload);
-        const renderedText = renderTemplate(template.body_text, safePayload);
-        const renderedHtml = renderTemplate(template.body_html, safePayload);
+        // Choose subject: job.subject takes priority, otherwise use template.subject
+        const baseSubject = job.subject ?? template.subject ?? '';
+        const baseText = template.body_text ?? '';
+        const baseHtml = template.body_html ?? '';
 
-        // Log job details for debugging
-        console.log('[EmailJobsRunNow] Job ' + job.id + ' | To: ' + job.to_email + ' | Template: ' + job.template_key + ' | Subject: ' + renderedSubject.substring(0, 80));
+        // Render templates with payload
+        const renderedSubject = renderTemplate(baseSubject, safePayload);
+        const renderedText = renderTemplate(baseText, safePayload);
+        const renderedHtml = renderTemplate(baseHtml, safePayload);
+
+        // Finalize: replace leftover {{first_name}} with "there" and strip remaining tokens
+        const finalSubject = finalizeRenderedContent(renderedSubject);
+        const finalText = finalizeRenderedContent(renderedText);
+        const finalHtml = finalizeRenderedContent(renderedHtml);
+
+        // Log job details for debugging (check if subject still contains "{{")
+        const hasUnresolvedTokens = finalSubject.includes('{{');
+        console.log('[EmailJobsRunNow] Job ' + job.id + ' | To: ' + job.to_email + ' | Template: ' + job.template_key + ' | Subject: ' + finalSubject.substring(0, 80) + (hasUnresolvedTokens ? ' [WARN: unresolved tokens]' : ''));
 
         const sendResult = await sendViaMailgun({
           to: job.to_email,
-          subject: renderedSubject,
-          text: renderedText,
-          html: renderedHtml,
+          subject: finalSubject,
+          text: finalText,
+          html: finalHtml,
         });
 
         if (sendResult.success) {
