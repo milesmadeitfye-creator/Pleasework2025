@@ -131,6 +131,26 @@ export const handler: Handler = async (event) => {
       });
     }
 
+    // Run email decider immediately after signup (triggers onboarding_day0/welcome)
+    console.log('[on-signup] 🎯 running_email_decider');
+
+    try {
+      const { data: deciderData, error: deciderError } = await supabase
+        .rpc('run_email_decider');
+
+      if (deciderError) {
+        console.error('[on-signup] ⚠️ email_decider_failed', {
+          error_message: deciderError.message,
+        });
+      } else {
+        console.log('[on-signup] ✅ email_decider_complete', deciderData);
+      }
+    } catch (deciderCatchError: any) {
+      console.error('[on-signup] ❌ email_decider_error', {
+        error_message: deciderCatchError.message,
+      });
+    }
+
     // Legacy: Enroll in email sequence (keeping for compatibility)
     console.log('[on-signup] 📨 calling_email_enrollment');
 

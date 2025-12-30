@@ -8,6 +8,7 @@
 import { Handler } from '@netlify/functions';
 import { getOAuthClient } from './_googleCalendarClient';
 import { createClient } from '@supabase/supabase-js';
+import { AutomationEventLogger } from './_automationEvents';
 
 const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, APP_BASE_URL } = process.env;
 const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
@@ -153,6 +154,11 @@ const handler: Handler = async (event) => {
         rowsAffected: connectedData?.length,
       });
     }
+
+    // Log automation event (triggers email decider)
+    await AutomationEventLogger.calendarConnected(userId, 'google_calendar').catch(err => {
+      console.error('[gcal-callback] Failed to log automation event:', err);
+    });
 
     // Redirect to OAuth completion page (for popup auto-close pattern)
     const redirectUrl = `${BASE_URL}/oauth-complete/google-calendar?status=success`;

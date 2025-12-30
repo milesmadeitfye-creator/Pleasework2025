@@ -6,6 +6,7 @@ import { getAISetupStatus, formatSetupStatusForAI, type AISetupStatus } from './
 import { runAdsFromChat } from './_runAdsPipeline';
 import { getAIRunAdsContext, formatRunAdsContextForAI, formatMediaForAI, formatMetaForAI } from './_aiCanonicalContext';
 import { resolveAttachments, formatAttachmentsForAI } from './_ghosteAttachments';
+import { AutomationEventLogger } from './_automationEvents';
 
 // Types
 type Role = 'system' | 'user' | 'assistant';
@@ -91,7 +92,7 @@ async function ensureConversation(
   userId: string,
   conversationId?: string,
   messages?: GhosteMessage[]
-): Promise<string> {
+): Promise<{ id: string; isNew: boolean }> {
   // If conversationId provided, verify it exists
   if (conversationId) {
     const { data, error } = await supabase
@@ -102,7 +103,7 @@ async function ensureConversation(
       .maybeSingle();
 
     if (!error && data) {
-      return conversationId;
+      return { id: conversationId, isNew: false };
     }
   }
 
@@ -125,7 +126,7 @@ async function ensureConversation(
     throw new Error('Failed to create conversation');
   }
 
-  return data.id;
+  return { id: data.id, isNew: true };
 }
 
 // Store messages
@@ -707,12 +708,20 @@ export const handler: Handler = async (event) => {
     });
 
     // Ensure conversation exists
-    const finalConversationId = await ensureConversation(
+    const conversation = await ensureConversation(
       supabase,
       user_id,
       conversation_id,
       messages
     );
+    const finalConversationId = conversation.id;
+
+    // Log automation event for first-time AI usage
+    if (conversation.isNew) {
+      await AutomationEventLogger.ghosteAiUsed(user_id).catch(err => {
+        console.error('[ghoste-ai] Failed to log automation event:', err);
+      });
+    }
 
     // Store user messages
     const userMessages = messages.filter(m => m.role === 'user');

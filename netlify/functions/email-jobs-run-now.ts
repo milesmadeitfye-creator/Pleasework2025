@@ -37,7 +37,7 @@ interface WorkerResult {
 }
 
 /**
- * Create a safe payload with guaranteed first_name fallback
+ * Create a safe payload with guaranteed fallbacks
  */
 function createSafePayload(payload: Record<string, any>, toEmail: string): Record<string, any> {
   const emailPrefix = toEmail ? toEmail.split('@')[0] : 'there';
@@ -48,9 +48,29 @@ function createSafePayload(payload: Record<string, any>, toEmail: string): Recor
                 payload.display_name ||
                 payload.full_name ||
                 emailPrefix,
+    cta_url: ensureHttpsUrl(payload.cta_url || 'https://ghoste.one/overview'),
   };
 
   return safePayload;
+}
+
+/**
+ * Ensure URL has https:// prefix and is valid
+ */
+function ensureHttpsUrl(url: string): string {
+  if (!url || url.trim() === '') {
+    return 'https://ghoste.one/overview';
+  }
+
+  const trimmed = url.trim();
+
+  // If it already has a protocol, return as-is
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  // Add https:// prefix
+  return 'https://' + trimmed;
 }
 
 /**

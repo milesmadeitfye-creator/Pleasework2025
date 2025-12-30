@@ -2,6 +2,7 @@ import { Handler, HandlerEvent } from '@netlify/functions';
 import Stripe from 'stripe';
 import { createHash } from 'crypto';
 import { getSupabaseAdmin } from './_supabaseAdmin';
+import { AutomationEventLogger } from './_automationEvents';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -325,6 +326,13 @@ export const handler: Handler = async (event: HandlerEvent) => {
               stripeSubscriptionId: subscriptionId,
               cancelAtPeriodEnd: sub.cancel_at_period_end,
             });
+
+            // Log automation event for successful upgrade (triggers email decider)
+            if (sub.status === 'active') {
+              await AutomationEventLogger.upgraded(userId, planKey).catch(err => {
+                console.error('[WEBHOOK] Failed to log automation event:', err);
+              });
+            }
           } catch (entError: any) {
             console.error('[WEBHOOK] Entitlement error:', entError.message);
           }

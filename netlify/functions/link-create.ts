@@ -1,5 +1,6 @@
 import { Handler, HandlerEvent, HandlerContext } from '@netlify/functions';
 import { getSupabaseAdmin } from './_supabaseAdmin';
+import { AutomationEventLogger } from './_automationEvents';
 
 const SITE_URL = 'https://ghoste.one';
 
@@ -158,6 +159,11 @@ export const handler: Handler = async (event: HandlerEvent, context: HandlerCont
     }
 
     console.log('[link-create] Link created:', finalSlug);
+
+    // Log automation event (triggers email decider)
+    await AutomationEventLogger.smartlinkCreated(user.id, newLink.id).catch(err => {
+      console.error('[link-create] Failed to log automation event:', err);
+    });
 
     // Use /s/:slug route (matches public smart link landing page)
     const publicUrl = `${SITE_URL}/s/${finalSlug}`;
