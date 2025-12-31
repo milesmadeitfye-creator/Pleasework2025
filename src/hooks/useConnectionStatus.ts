@@ -68,17 +68,33 @@ export function useConnectionStatus(provider: string): ConnectionStatus {
             return;
           }
 
-          if (rpcData && rpcData.is_connected) {
+          // Use auth_connected for connection status (not assets_configured)
+          // auth_connected = true means OAuth token is valid
+          // assets_configured = true means required assets are selected
+          const authConnected = rpcData?.auth_connected === true;
+          const assetsConfigured = rpcData?.assets_configured === true;
+
+          console.log('[useConnectionStatus] Meta status:', {
+            auth_connected: authConnected,
+            assets_configured: assetsConfigured,
+            missing_assets: rpcData?.missing_assets,
+          });
+
+          if (authConnected) {
             setStatus('connected');
             setLastConnectedAt(rpcData.last_updated || undefined);
             setData({
+              auth_connected: authConnected,
+              assets_configured: assetsConfigured,
+              missing_assets: rpcData.missing_assets || [],
               ad_account_id: rpcData.ad_account_id,
               ad_account_name: rpcData.ad_account_name,
               page_id: rpcData.page_id,
               page_name: rpcData.page_name,
+              instagram_actor_id: rpcData.instagram_actor_id,
               instagram_account_count: rpcData.instagram_account_count || 0,
               pixel_id: rpcData.pixel_id,
-              has_valid_token: rpcData.has_valid_token,
+              has_valid_token: rpcData.has_token && rpcData.token_valid,
             });
           } else {
             setStatus('disconnected');

@@ -33,18 +33,50 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const { data: metaConnection } = await supabase
-      .from("user_meta_connections")
-      .select("access_token")
+    // Get user's Meta credentials (canonical source: meta_credentials table)
+    const { data: metaConnection, error: connError } = await supabase
+      .from("meta_credentials")
+      .select("access_token, expires_at")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (!metaConnection || !metaConnection.access_token) {
+    if (connError) {
+      console.error('[meta-accounts] Database error:', connError);
       return {
-        statusCode: 400,
+        statusCode: 500,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "Meta account not connected" })
+        body: JSON.stringify({ error: "Failed to fetch Meta credentials" })
       };
+    }
+
+    // Auth check: Only require access_token (not assets like ad_account_id, page_id)
+    // This allows fetching accounts for Configure Assets wizard
+    if (!metaConnection || !metaConnection.access_token) {
+      console.warn('[meta-accounts] No Meta token found for user:', user.id);
+      return {
+        statusCode: 401,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          error: "meta_auth_missing",
+          message: "No Meta connection found. Please connect your Meta account first."
+        })
+      };
+    }
+
+    // Optional: Check token expiry if expires_at is set
+    if (metaConnection.expires_at) {
+      const expiresAt = new Date(metaConnection.expires_at);
+      if (expiresAt < new Date()) {
+        console.warn('[meta-accounts] Meta token expired for user:', user.id);
+        return {
+          statusCode: 401,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            error: "meta_token_expired",
+            message: "Meta token has expired. Please reconnect your Meta account."
+          })
+        };
+      }
     }
 
     const response = await fetch(
