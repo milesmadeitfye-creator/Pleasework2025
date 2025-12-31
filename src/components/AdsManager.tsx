@@ -15,6 +15,7 @@ interface Campaign {
   budget?: number;
   daily_budget_cents?: number;
   total_budget_cents?: number;
+  lifetime_budget_cents?: number;
   spend?: number;
   impressions?: number;
   clicks?: number;
@@ -24,6 +25,11 @@ interface Campaign {
   meta_campaign_id?: string;
   meta_adset_id?: string;
   meta_ad_id?: string;
+  meta_video_id?: string;
+  meta_thumbnail_url?: string;
+  meta_video_status?: string;
+  meta_video_progress?: number;
+  creative_type?: 'image' | 'video' | 'carousel';
   destination_url?: string;
   smart_link_slug?: string;
   last_error?: string;
@@ -599,6 +605,36 @@ export default function AdsManager() {
                         </span>
                       )}
                     </div>
+                    {/* Video Ad Status */}
+                    {campaign.creative_type === 'video' && campaign.meta_video_id && (
+                      <div className="mt-2 flex items-center gap-2">
+                        {campaign.meta_thumbnail_url && (
+                          <img
+                            src={campaign.meta_thumbnail_url}
+                            alt="Video thumbnail"
+                            className="w-16 h-16 rounded object-cover border border-gray-700"
+                          />
+                        )}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-gray-400">
+                            Video: ...{campaign.meta_video_id.slice(-8)}
+                          </span>
+                          {campaign.meta_video_status && (
+                            <span className={`text-xs ${
+                              campaign.meta_video_status === 'ready' ? 'text-green-400' :
+                              campaign.meta_video_status === 'processing' ? 'text-yellow-400 animate-pulse' :
+                              campaign.meta_video_status === 'error' ? 'text-red-400' :
+                              'text-gray-400'
+                            }`}>
+                              Status: {campaign.meta_video_status}
+                              {campaign.meta_video_progress !== undefined && campaign.meta_video_status === 'processing' && (
+                                <span> ({campaign.meta_video_progress}%)</span>
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                     {campaign.last_error && (
                       <div className="text-xs text-red-400 mt-1">
                         Error: {campaign.last_error}

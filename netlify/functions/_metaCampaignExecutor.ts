@@ -12,6 +12,13 @@ import {
   sanitizeCampaignPayload,
   getPayloadDebugInfo,
 } from "./_metaPayloadBuilders";
+import {
+  uploadVideoToMeta,
+  waitForVideoReady,
+  buildVideoCreative,
+  getDefaultThumbnailUrl,
+  validateInstagramRequirements,
+} from "./_metaVideoHelper";
 
 interface MetaAssets {
   access_token: string;
@@ -29,6 +36,9 @@ interface CreateCampaignInput {
   destination_url: string;
   creative_ids: string[];
   creative_urls?: string[];
+  creative_type?: 'image' | 'video' | 'carousel';
+  video_url?: string;
+  custom_thumbnail_url?: string;
   metaStatus?: any; // RPC result from get_meta_connection_status
 }
 
@@ -48,7 +58,12 @@ interface MetaExecutionResult {
   meta_campaign_id?: string;
   meta_adset_id?: string;
   meta_ad_id?: string;
+  meta_video_id?: string;
+  meta_thumbnail_url?: string;
+  meta_video_status?: string;
+  meta_video_progress?: number;
   error?: string;
+  error_code?: string;
   meta_error?: MetaGraphError;
   stage?: string;
   meta_permissions?: any;
@@ -469,7 +484,7 @@ async function createMetaAdSet(
 }
 
 /**
- * Create Meta Ad Creative and Ad
+ * Create Meta Ad Creative and Ad (with video support)
  * @throws Error with Meta Graph API error details if creation fails
  */
 async function createMetaAd(
@@ -477,10 +492,138 @@ async function createMetaAd(
   adsetId: string,
   name: string,
   destinationUrl: string,
-  creativeUrls: string[]
-): Promise<{ id: string }> {
-  // For now, use a simple link ad format
-  // In production, you'd fetch the actual creative from storage and upload to Meta
+  creativeUrls: string[],
+  creativeType: 'image' | 'video' | 'carousel' = 'image',
+  videoUrl?: string,
+  customThumbnailUrl?: string,
+  campaignId?: string,
+  onVideoProgress?: (videoId: string, status: string, progress: number) => Promise<void>
+): Promise<{ id: string; video_id?: string; thumbnail_url?: string; video_status?: string }> {
+  console.log('[createMetaAd] Creating ad:', {
+    adsetId,
+    creativeType,
+    hasVideoUrl: !!videoUrl,
+    hasCustomThumbnail: !!customThumbnailUrl,
+  });
+
+  let videoId: string | undefined;
+  let thumbnailUrl: string | undefined;
+  let videoStatus: string | undefined;
+
+  // Handle video creative
+  if (creativeType === 'video' && videoUrl) {
+    console.log('[createMetaAd] Uploading video to Meta...');
+
+    // Validate Instagram requirements if IG placements enabled
+    const igValidation = validateInstagramRequirements(assets.instagram_actor_id, true);
+    if (!igValidation.valid) {
+      console.warn('[createMetaAd] Instagram validation failed:', igValidation.error);
+      // Continue without IG - will only use Facebook placements
+    }
+
+    try {
+      // Step 1: Upload video
+      const uploadResult = await uploadVideoToMeta(
+        assets.access_token,
+        assets.ad_account_id,
+        videoUrl,
+        name,
+        customThumbnailUrl
+      );
+
+      videoId = uploadResult.video_id;
+      thumbnailUrl = uploadResult.thumbnail_url;
+      videoStatus = uploadResult.status.video_status;
+
+      console.log('[createMetaAd] Video uploaded:', {
+        video_id: videoId,
+        initial_status: videoStatus,
+        thumbnail: thumbnailUrl,
+      });
+
+      // Step 2: Wait for video to be ready
+      console.log('[createMetaAd] Waiting for video processing...');
+      const finalStatus = await waitForVideoReady(
+        assets.access_token,
+        videoId,
+        async (status) => {
+          videoStatus = status.video_status;
+          console.log('[createMetaAd] Video processing update:', {
+            status: status.video_status,
+            progress: status.processing_progress,
+          });
+
+          // Update DB with progress if callback provided
+          if (onVideoProgress && campaignId) {
+            await onVideoProgress(videoId!, status.video_status, status.processing_progress || 0);
+          }
+        }
+      );
+
+      videoStatus = finalStatus.video_status;
+      console.log('[createMetaAd] ✅ Video ready:', finalStatus);
+
+      // Step 3: Build video creative
+      const creative = buildVideoCreative(
+        videoId,
+        thumbnailUrl,
+        destinationUrl,
+        'Check out this music!',
+        assets.page_id || assets.ad_account_id.replace('act_', ''),
+        igValidation.valid ? assets.instagram_actor_id : undefined
+      );
+
+      const body = {
+        name,
+        adset_id: adsetId,
+        creative,
+        status: 'PAUSED',
+      };
+
+      console.log('[createMetaAd] Creating video ad with creative...');
+      const data = await metaRequest<{ id: string }>(
+        `/${assets.ad_account_id}/ads`,
+        'POST',
+        assets.access_token,
+        body
+      );
+
+      console.log('[createMetaAd] ✅ Video ad created:', data.id);
+      return {
+        id: data.id,
+        video_id: videoId,
+        thumbnail_url: thumbnailUrl,
+        video_status: videoStatus,
+      };
+    } catch (videoError: any) {
+      console.error('[createMetaAd] Video ad creation failed:', videoError);
+
+      // Check if this is a VIDEO_NOT_READY error
+      let errorObj: any = {};
+      try {
+        errorObj = JSON.parse(videoError.message);
+      } catch {
+        errorObj = { message: videoError.message };
+      }
+
+      if (errorObj.code === 'VIDEO_NOT_READY' || errorObj.code === 'VIDEO_PROCESSING_ERROR') {
+        // Re-throw with video context
+        throw new Error(
+          JSON.stringify({
+            ...errorObj,
+            video_id: videoId,
+            thumbnail_url: thumbnailUrl,
+            video_status: videoStatus,
+          })
+        );
+      }
+
+      throw videoError;
+    }
+  }
+
+  // Handle image creative (original logic)
+  console.log('[createMetaAd] Creating image ad...');
 
   const creative: any = {
     name: `${name} Creative`,
@@ -511,7 +654,7 @@ async function createMetaAd(
     status: 'PAUSED',
   };
 
-  console.log('[createMetaAd] Creating ad for adset:', adsetId);
+  console.log('[createMetaAd] Creating image ad for adset:', adsetId);
   const data = await metaRequest<{ id: string }>(
     `/${assets.ad_account_id}/ads`,
     'POST',
@@ -519,8 +662,8 @@ async function createMetaAd(
     body
   );
 
-  console.log('[createMetaAd] ✅ Ad created:', data.id);
-  return data;
+  console.log('[createMetaAd] ✅ Image ad created:', data.id);
+  return { id: data.id };
 }
 
 /**
@@ -720,35 +863,122 @@ export async function executeMetaCampaign(
       };
     }
 
-    // Step 4: Create Ad
+    // Step 4: Create Ad (with video support)
     console.log('[executeMetaCampaign] Step 4/4: Creating Meta ad...');
     const adName = `${campaignName} Ad`;
 
-    let ad: { id: string };
+    // Get Supabase admin for DB updates during video processing
+    const supabase = getSupabaseAdmin();
+
+    // Video progress callback
+    const onVideoProgress = async (videoId: string, status: string, progress: number) => {
+      try {
+        await supabase
+          .from('ad_campaigns')
+          .update({
+            meta_video_id: videoId,
+            meta_video_status: status,
+            meta_video_progress: progress,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', input.campaign_id);
+        console.log('[executeMetaCampaign] Updated video progress in DB:', { videoId, status, progress });
+      } catch (dbErr: any) {
+        console.error('[executeMetaCampaign] Failed to update video progress:', dbErr);
+      }
+    };
+
+    let ad: { id: string; video_id?: string; thumbnail_url?: string; video_status?: string };
     try {
       ad = await createMetaAd(
         assets,
         adset.id,
         adName,
         input.destination_url,
-        input.creative_urls || []
+        input.creative_urls || [],
+        input.creative_type || 'image',
+        input.video_url,
+        input.custom_thumbnail_url,
+        input.campaign_id,
+        onVideoProgress
       );
-      console.log('[executeMetaCampaign] ✓ Created ad:', ad.id);
+      console.log('[executeMetaCampaign] ✓ Created ad:', {
+        ad_id: ad.id,
+        video_id: ad.video_id,
+        thumbnail_url: ad.thumbnail_url,
+        video_status: ad.video_status,
+      });
     } catch (adErr: any) {
       console.error('[executeMetaCampaign] ❌ Ad creation failed:', adErr.message);
       let meta_error: MetaGraphError | undefined;
+      let error_code: string | undefined;
+      let video_id: string | undefined;
+      let thumbnail_url: string | undefined;
+      let video_status: string | undefined;
+
       try {
-        meta_error = JSON.parse(adErr.message);
+        const errorObj = JSON.parse(adErr.message);
+        meta_error = errorObj;
+        error_code = errorObj.code;
+        video_id = errorObj.video_id;
+        thumbnail_url = errorObj.thumbnail_url;
+        video_status = errorObj.video_status;
       } catch {
         meta_error = { message: adErr.message };
       }
+
+      // Handle VIDEO_NOT_READY specially
+      if (error_code === 'VIDEO_NOT_READY') {
+        console.log('[executeMetaCampaign] Video not ready, storing state for retry...');
+
+        // Update DB with video state
+        try {
+          await supabase
+            .from('ad_campaigns')
+            .update({
+              meta_video_id: video_id,
+              meta_thumbnail_url: thumbnail_url,
+              meta_video_status: 'processing',
+              last_error: 'Video is still processing on Meta. Please retry in 1-2 minutes.',
+              status: 'draft', // Keep as draft
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', input.campaign_id);
+        } catch (dbErr: any) {
+          console.error('[executeMetaCampaign] Failed to update video state:', dbErr);
+        }
+
+        return {
+          success: false,
+          error: 'Video is still processing on Meta. Please retry in 1-2 minutes.',
+          error_code: 'VIDEO_NOT_READY',
+          meta_error,
+          stage: 'create_ad',
+          meta_campaign_id: campaign.id,
+          meta_adset_id: adset.id,
+          meta_video_id: video_id,
+          meta_thumbnail_url: thumbnail_url,
+          meta_video_status: 'processing',
+          meta_permissions,
+          ad_account_info,
+          adset_payload_preview,
+          ad_goal: input.ad_goal,
+          objective,
+          meta_request_summary,
+        };
+      }
+
       return {
         success: false,
         error: 'Meta Graph error during ad creation',
+        error_code,
         meta_error,
         stage: 'create_ad',
         meta_campaign_id: campaign.id,
         meta_adset_id: adset.id,
+        meta_video_id: video_id,
+        meta_thumbnail_url: thumbnail_url,
+        meta_video_status: video_status,
         meta_permissions,
         ad_account_info,
         adset_payload_preview,
@@ -762,13 +992,38 @@ export async function executeMetaCampaign(
       campaign: campaign.id,
       adset: adset.id,
       ad: ad.id,
+      video_id: ad.video_id,
+      video_status: ad.video_status,
     });
+
+    // Update DB with final video metadata if video ad
+    if (ad.video_id) {
+      try {
+        await supabase
+          .from('ad_campaigns')
+          .update({
+            meta_video_id: ad.video_id,
+            meta_thumbnail_url: ad.thumbnail_url,
+            meta_video_status: ad.video_status || 'ready',
+            meta_video_progress: 100,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', input.campaign_id);
+        console.log('[executeMetaCampaign] Updated final video metadata in DB');
+      } catch (dbErr: any) {
+        console.error('[executeMetaCampaign] Failed to update final video metadata:', dbErr);
+      }
+    }
 
     return {
       success: true,
       meta_campaign_id: campaign.id,
       meta_adset_id: adset.id,
       meta_ad_id: ad.id,
+      meta_video_id: ad.video_id,
+      meta_thumbnail_url: ad.thumbnail_url,
+      meta_video_status: ad.video_status,
+      meta_video_progress: ad.video_id ? 100 : undefined,
       meta_permissions,
       ad_account_info,
       adset_payload_preview,
