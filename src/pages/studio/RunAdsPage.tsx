@@ -181,19 +181,32 @@ export default function RunAdsPage() {
   const handleSubmit = async () => {
     if (!user) return;
 
+    console.log('[ADS] Submit start', { user: user.id, step });
+
     setLaunching(true);
     const startTime = Date.now();
     setDebugTiming({ start: startTime });
 
     try {
+      console.log('[ADS] Getting auth session...');
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
 
-      if (!token) throw new Error('Not authenticated');
+      if (!token) {
+        console.error('[ADS] Not authenticated');
+        throw new Error('Not authenticated');
+      }
+      console.log('[ADS] Auth token obtained');
 
       // Find the full smart link object for payload
       const smartLinkObj = smartLinks.find(link => link.id === selectedSmartLink);
       const smartLinkUrl = smartLinkObj?.destination_url || (smartLinkObj?.slug ? `https://ghoste.one/l/${smartLinkObj.slug}` : undefined);
+
+      console.log('[ADS] Smart link resolved', {
+        selectedSmartLink,
+        foundSmartLink: !!smartLinkObj,
+        smartLinkUrl,
+      });
 
       // Capture debug data BEFORE sending
       const payload = {
@@ -211,11 +224,19 @@ export default function RunAdsPage() {
         manager_mode_enabled: managerModeEnabled,
       };
 
+      console.log('[ADS] Payload prepared', {
+        goal: selectedGoal,
+        budgetCents: dailyBudget * 100,
+        creativeCount: creatives.length,
+        automationMode,
+      });
+
       setDebugPayload(payload);
       if (smartLinkObj) {
         setDebugMetaStatus({ selectedSmartLink: smartLinkObj });
       }
 
+      console.log('[ADS] Submitting to run-ads-submit...');
       const res = await fetch('/.netlify/functions/run-ads-submit', {
         method: 'POST',
         headers: {
@@ -225,9 +246,21 @@ export default function RunAdsPage() {
         body: JSON.stringify(payload),
       });
 
+      console.log('[ADS] Response received', {
+        status: res.status,
+        ok: res.ok,
+      });
+
       const json = await res.json();
       const endTime = Date.now();
       setDebugTiming({ start: startTime, end: endTime });
+
+      console.log('[ADS] Submit response', {
+        status: res.status,
+        ok: res.ok,
+        json,
+        durationMs: endTime - startTime,
+      });
 
       // Capture debug response
       setDebugResponse({
@@ -247,8 +280,11 @@ export default function RunAdsPage() {
       });
 
       if (json.ok) {
+        console.log('[ADS] Success! Setting launch result and moving to step 5');
         setLaunchResult(json);
+        console.log('[ADS] setLaunchResult called');
         setStep(5);
+        console.log('[ADS] setStep(5) called - should navigate to success screen');
       } else {
         // Handle specific error codes
         let errorMessage = json.error || 'Failed to create campaign';
@@ -257,11 +293,19 @@ export default function RunAdsPage() {
           errorMessage = 'Select a valid Smart Link before publishing.';
         }
 
-        console.error('[RunAds] Submit failed:', errorMessage);
+        console.error('[ADS] Submit failed:', {
+          errorMessage,
+          code: json.code,
+          fullResponse: json,
+        });
         alert(errorMessage); // Simple error display
       }
     } catch (err: any) {
-      console.error('[RunAds] Submit error:', err);
+      console.error('[ADS] Submit exception:', {
+        message: err.message,
+        stack: err.stack,
+        error: err,
+      });
       const errorMessage = err.message || 'Failed to create campaign';
       const endTime = Date.now();
       setDebugTiming({ start: startTime, end: endTime });
@@ -284,7 +328,12 @@ export default function RunAdsPage() {
 
       alert(errorMessage);
     } finally {
+      console.log('[ADS] Finally block - setLaunching(false)');
       setLaunching(false);
+      console.log('[ADS] Submit flow complete', {
+        currentStep: step,
+        launching: false,
+      });
     }
   };
 
