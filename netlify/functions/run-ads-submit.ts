@@ -1,8 +1,10 @@
 import type { Handler } from "@netlify/functions";
+import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "./_supabaseAdmin";
 import { buildAndLaunchCampaign, RunAdsInput } from "./_runAdsCampaignBuilder";
 import { recordAdsOperation } from "./_utils/recordAdsOperation";
 import { executeMetaCampaign } from "./_metaCampaignExecutor";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../../src/lib/supabaseEnv";
 
 function extractSmartLinkSlug(url: string | undefined): string | null {
   if (!url || typeof url !== 'string') return null;
@@ -483,11 +485,119 @@ export const handler: Handler = async (event) => {
     // Mode is "publish" - execute Meta campaign creation
     console.log('[run-ads-submit] Mode is publish, executing Meta campaign...');
 
+    // Check Meta connection status using canonical RPC
+    console.log('[run-ads-submit] Checking Meta connection status...');
+    const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        headers: {
+          Authorization: authHeader,
+        },
+      },
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    const { data: metaStatus, error: metaStatusError } = await userSupabase.rpc('get_meta_connection_status');
+
+    if (metaStatusError) {
+      console.error('[run-ads-submit] Failed to check Meta status:', metaStatusError);
+
+      statusCode = 500;
+      responseData = {
+        ok: false,
+        campaign_id: ghosteCampaignId,
+        error: 'Failed to check Meta connection status',
+        detail: metaStatusError,
+      };
+
+      await supabase
+        .from('ad_campaigns')
+        .update({
+          status: 'failed',
+          last_error: 'Meta status check failed: ' + metaStatusError.message,
+        })
+        .eq('id', ghosteCampaignId);
+
+      return {
+        statusCode,
+        body: JSON.stringify(responseData),
+      };
+    }
+
+    console.log('[run-ads-submit] Meta status:', metaStatus);
+
+    // Check if Meta is ready for publish
+    const metaReady = !!(
+      metaStatus?.auth_connected &&
+      metaStatus?.assets_configured &&
+      (metaStatus?.missing_assets?.length ?? 0) === 0
+    );
+
+    if (!metaReady) {
+      console.warn('[run-ads-submit] Meta not ready for publish:', {
+        auth_connected: metaStatus?.auth_connected,
+        assets_configured: metaStatus?.assets_configured,
+        missing_assets: metaStatus?.missing_assets,
+      });
+
+      statusCode = 400;
+      responseData = {
+        ok: false,
+        campaign_id: ghosteCampaignId,
+        error: 'Meta assets not configured. Connect Meta in Profile → Connected Accounts.',
+        metaStatus: {
+          auth_connected: metaStatus?.auth_connected,
+          assets_configured: metaStatus?.assets_configured,
+          missing_assets: metaStatus?.missing_assets,
+        },
+      };
+
+      await supabase
+        .from('ad_campaigns')
+        .update({
+          status: 'failed',
+          last_error: 'Meta assets not configured',
+        })
+        .eq('id', ghosteCampaignId);
+
+      await recordAdsOperation({
+        label: 'publish_failed_meta_not_ready',
+        request: requestBody,
+        response: responseData,
+        status: statusCode,
+        ok: false,
+        error: 'Meta assets not configured',
+        userId,
+        authHeader,
+      });
+
+      return {
+        statusCode,
+        body: JSON.stringify(responseData),
+      };
+    }
+
+    console.log('[run-ads-submit] ✓ Meta ready for publish:', {
+      ad_account_id: metaStatus.ad_account_id,
+      page_id: metaStatus.page_id,
+      instagram_actor_id: metaStatus.instagram_actor_id,
+      pixel_id: metaStatus.pixel_id,
+    });
+
     // Record publish attempt start
     await recordAdsOperation({
       label: 'publish_start',
       request: requestBody,
-      response: { campaign_id: ghosteCampaignId, stage: 'starting_meta_publish' },
+      response: {
+        campaign_id: ghosteCampaignId,
+        stage: 'starting_meta_publish',
+        meta_status: {
+          ad_account_id: metaStatus.ad_account_id,
+          page_id: metaStatus.page_id,
+        },
+      },
       status: 200,
       ok: true,
       userId,
@@ -502,6 +612,7 @@ export const handler: Handler = async (event) => {
       destination_url: resolvedDestinationUrl,
       creative_ids: resolvedCreativeIds,
       creative_urls: resolvedCreativeUrls,
+      metaStatus, // Pass RPC status to executor
     });
 
     if (!metaResult.success) {
