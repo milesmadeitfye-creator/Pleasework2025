@@ -14,9 +14,21 @@
 /api/capture                      /.netlify/functions/capture                    200
 
 # OAuth Integrations
+
+# Meta / Facebook OAuth - Multiple paths to prevent 404s
+/meta/connect                     /.netlify/functions/meta-auth-start            200
+/api/meta/connect                 /.netlify/functions/meta-auth-start            200
+/meta/callback                    /.netlify/functions/meta-auth-callback         200
+/meta/oauth/callback              /.netlify/functions/meta-auth-callback         200
+/auth/meta/callback               /.netlify/functions/meta-auth-callback         200
+/auth/callback/meta               /.netlify/functions/meta-auth-callback         200
+
+# Mailchimp OAuth
 /api/mailchimp/start              /.netlify/functions/mailchimp-oauth-start      200
 /api/mailchimp/callback           /.netlify/functions/mailchimp-oauth-callback   200
 /mailchimp/callback               /.netlify/functions/mailchimp-oauth-callback   200
+
+# TikTok OAuth
 /api/tiktok/start                 /.netlify/functions/tiktok-oauth-start         200
 /api/tiktok/callback              /.netlify/functions/tiktok-oauth-callback      200
 

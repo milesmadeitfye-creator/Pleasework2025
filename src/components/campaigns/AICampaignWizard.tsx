@@ -154,50 +154,60 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         return;
       }
 
-      // Build campaign payload
-      const payload = {
-        goal,
-        daily_budget: dailyBudget,
-        duration_days: duration,
-        countries,
-        creative_ids: selectedCreatives.map(c => c.id),
-        smart_link_id: selectedSmartLink.id,
-        destination_url: selectedSmartLink.destination_url || `https://ghoste.one/l/${selectedSmartLink.slug}`,
-      };
+      // Validate creatives
+      if (selectedCreatives.length === 0) {
+        setValidationErrors(['At least one creative asset is required']);
+        return;
+      }
 
-      // Call AI draft endpoint (reusing existing logic)
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch('/.netlify/functions/ai-approve-action', {
+      // Build payload for run-ads-submit endpoint
+      // Map goal to ad_goal, convert budget to cents, and map fields correctly
+      const payload = {
+        ad_goal: goal, // streams, followers, link_clicks, leads
+        daily_budget_cents: Math.round(dailyBudget * 100), // Convert dollars to cents
+        automation_mode: 'manual', // Default automation mode
+        creative_ids: selectedCreatives.map(c => c.id),
+        smart_link_id: selectedSmartLink.id,
+        total_budget_cents: duration > 0 ? Math.round(dailyBudget * duration * 100) : null,
+      };
+
+      console.log('[AICampaignWizard] Publishing campaign:', {
+        ad_goal: payload.ad_goal,
+        daily_budget_cents: payload.daily_budget_cents,
+        creative_count: payload.creative_ids.length,
+        smart_link_id: payload.smart_link_id,
+      });
+
+      // Call the correct endpoint for campaign creation
+      const response = await fetch('/.netlify/functions/run-ads-submit', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          action_type: 'create_campaign',
-          payload,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(error.message || error.error || 'Failed to create campaign');
+        console.error('[AICampaignWizard] Publish failed:', error);
+        throw new Error(error.error || error.message || 'Failed to create campaign');
       }
 
       const result = await response.json();
 
-      // Check for missing requirements
-      if (result.missing_requirements && result.missing_requirements.length > 0) {
-        setValidationErrors(result.missing_requirements);
-        return;
+      if (!result.ok) {
+        throw new Error(result.error || 'Failed to create campaign');
       }
 
       // Success
-      notify('success', 'Campaign created successfully!');
+      console.log('[AICampaignWizard] Campaign published successfully:', result.campaign_id);
+      notify('success', `Campaign created successfully! ${result.campaign_type || ''}`);
       onSuccess();
       onClose();
     } catch (err: any) {

@@ -237,6 +237,31 @@ to = "/.netlify/functions/meta-auth-callback"
 status = 200
 
 [[redirects]]
+from = "/auth/meta/callback"
+to = "/.netlify/functions/meta-auth-callback"
+status = 200
+
+[[redirects]]
+from = "/meta/callback"
+to = "/.netlify/functions/meta-auth-callback"
+status = 200
+
+[[redirects]]
+from = "/meta/oauth/callback"
+to = "/.netlify/functions/meta-auth-callback"
+status = 200
+
+[[redirects]]
+from = "/meta/connect"
+to = "/.netlify/functions/meta-auth-start"
+status = 200
+
+[[redirects]]
+from = "/api/meta/connect"
+to = "/.netlify/functions/meta-auth-start"
+status = 200
+
+[[redirects]]
 from = "/mailchimp/callback"
 to = "/.netlify/functions/mailchimp-oauth-callback"
 status = 200
