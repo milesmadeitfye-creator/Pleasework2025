@@ -225,22 +225,33 @@ function mapGoalToObjective(ad_goal: string): string {
 }
 
 /**
- * Create Meta Campaign
+ * Create Meta Campaign with Campaign Budget Optimization (CBO)
  * @throws Error with Meta Graph API error details if creation fails
  */
 async function createMetaCampaign(
   assets: MetaAssets,
   name: string,
-  objective: string
+  objective: string,
+  dailyBudgetCents: number
 ): Promise<{ id: string }> {
-  const body = {
+  const body: any = {
     name,
     objective,
     status: 'PAUSED',
     special_ad_categories: [],
+    daily_budget: dailyBudgetCents.toString(), // Campaign-level budget for CBO
   };
 
-  console.log('[createMetaCampaign] Creating campaign with objective:', objective);
+  // CBO ASSERTION: Campaign must have budget
+  if (!body.daily_budget && !body.lifetime_budget) {
+    throw new Error('CBO_ASSERT: campaign budget missing - daily_budget or lifetime_budget required');
+  }
+
+  console.log('[createMetaCampaign] Creating CBO campaign:', {
+    objective,
+    daily_budget: dailyBudgetCents,
+  });
+
   const data = await metaRequest<{ id: string }>(
     `/${assets.ad_account_id}/campaigns`,
     'POST',
@@ -248,25 +259,24 @@ async function createMetaCampaign(
     body
   );
 
-  console.log('[createMetaCampaign] ✅ Campaign created:', data.id);
+  console.log('[createMetaCampaign] ✅ CBO Campaign created:', data.id);
   return data;
 }
 
 /**
- * Create Meta Ad Set
+ * Create Meta Ad Set (CBO mode - NO budget at ad set level)
  * @throws Error with Meta Graph API error details if creation fails
  */
 async function createMetaAdSet(
   assets: MetaAssets,
   campaignId: string,
   name: string,
-  dailyBudgetCents: number,
   destinationUrl: string
 ): Promise<{ id: string }> {
   const body: any = {
     name,
     campaign_id: campaignId,
-    daily_budget: dailyBudgetCents.toString(),
+    // NO budget fields - CBO mode uses campaign-level budget
     billing_event: 'IMPRESSIONS',
     optimization_goal: 'LINK_CLICKS',
     status: 'PAUSED',
@@ -277,6 +287,16 @@ async function createMetaAdSet(
     },
   };
 
+  // CBO ASSERTION: Ad Set must NOT have budget fields
+  if (body.daily_budget || body.lifetime_budget || body.budget_remaining) {
+    throw new Error('CBO_ASSERT: adset budget field present - remove daily_budget, lifetime_budget, budget_remaining');
+  }
+
+  // CBO ASSERTION: Ad Set must NOT have budget sharing fields
+  if ('is_adset_budget_sharing_enabled' in body) {
+    throw new Error('CBO_ASSERT: is_adset_budget_sharing_enabled field present - must be removed for CBO');
+  }
+
   // Add pixel if available
   if (assets.pixel_id) {
     body.promoted_object = {
@@ -285,7 +305,7 @@ async function createMetaAdSet(
     };
   }
 
-  console.log('[createMetaAdSet] Creating adset for campaign:', campaignId);
+  console.log('[createMetaAdSet] Creating CBO adset (no budget) for campaign:', campaignId);
   const data = await metaRequest<{ id: string }>(
     `/${assets.ad_account_id}/adsets`,
     'POST',
@@ -293,7 +313,7 @@ async function createMetaAdSet(
     body
   );
 
-  console.log('[createMetaAdSet] ✅ AdSet created:', data.id);
+  console.log('[createMetaAdSet] ✅ CBO AdSet created:', data.id);
   return data;
 }
 
@@ -418,15 +438,20 @@ export async function executeMetaCampaign(
       }
     }
 
-    // Step 2: Create Campaign
-    console.log('[executeMetaCampaign] Step 2/4: Creating Meta campaign...');
+    // Step 2: Create Campaign with CBO (campaign-level budget)
+    console.log('[executeMetaCampaign] Step 2/4: Creating Meta CBO campaign...');
     const objective = mapGoalToObjective(input.ad_goal);
     const campaignName = `Ghoste Campaign ${input.campaign_id.slice(0, 8)}`;
 
     let campaign: { id: string };
     try {
-      campaign = await createMetaCampaign(assets, campaignName, objective);
-      console.log('[executeMetaCampaign] ✓ Created campaign:', campaign.id);
+      campaign = await createMetaCampaign(
+        assets,
+        campaignName,
+        objective,
+        input.daily_budget_cents // Pass budget to campaign (CBO mode)
+      );
+      console.log('[executeMetaCampaign] ✓ Created CBO campaign:', campaign.id);
     } catch (campaignErr: any) {
       console.error('[executeMetaCampaign] ❌ Campaign creation failed:', campaignErr.message);
       let meta_error: MetaGraphError | undefined;
@@ -445,8 +470,8 @@ export async function executeMetaCampaign(
       };
     }
 
-    // Step 3: Create Ad Set
-    console.log('[executeMetaCampaign] Step 3/4: Creating Meta ad set...');
+    // Step 3: Create Ad Set (NO budget - CBO mode)
+    console.log('[executeMetaCampaign] Step 3/4: Creating Meta ad set (CBO - no budget)...');
     const adsetName = `${campaignName} AdSet`;
 
     let adset: { id: string };
@@ -455,10 +480,10 @@ export async function executeMetaCampaign(
         assets,
         campaign.id,
         adsetName,
-        input.daily_budget_cents,
         input.destination_url
+        // NO dailyBudgetCents - CBO uses campaign budget
       );
-      console.log('[executeMetaCampaign] ✓ Created adset:', adset.id);
+      console.log('[executeMetaCampaign] ✓ Created CBO adset:', adset.id);
     } catch (adsetErr: any) {
       console.error('[executeMetaCampaign] ❌ AdSet creation failed:', adsetErr.message);
       let meta_error: MetaGraphError | undefined;
