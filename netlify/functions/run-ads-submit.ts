@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import { getSupabaseAdmin } from "./_supabaseAdmin";
 import { buildAndLaunchCampaign, RunAdsInput } from "./_runAdsCampaignBuilder";
+import { resolveDestination } from "./_destinationResolver";
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -43,6 +44,8 @@ export const handler: Handler = async (event) => {
       draft_id,
       total_budget_cents,
       smart_link_id,
+      smart_link_slug,
+      destination_url,
       one_click_link_id,
       platform,
       profile_url,
@@ -124,12 +127,41 @@ export const handler: Handler = async (event) => {
       };
     }
 
+    // Resolve destination URL for all campaign styles
+    const destinationResult = await resolveDestination(
+      {
+        destination_url,
+        smart_link_id,
+        smart_link_slug,
+      },
+      user.id,
+      supabase
+    );
+
+    if (!destinationResult.ok) {
+      console.error('[run-ads-submit] Destination resolution failed:', destinationResult.error, destinationResult.debug);
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          ok: false,
+          error: destinationResult.error || 'smart_link_not_found',
+          details: 'Could not resolve campaign destination URL',
+          debug: destinationResult.debug,
+        }),
+      };
+    }
+
+    const resolvedDestinationUrl = destinationResult.url!;
+    const resolvedSmartLinkId = destinationResult.smart_link_id || smart_link_id;
+
     console.log('[run-ads-submit] Building campaign:', {
       ad_goal,
       daily_budget_cents,
       automation_mode,
       creative_count: resolvedCreativeIds.length,
       draft_id: draft_id || 'none',
+      destination_url: resolvedDestinationUrl,
+      resolution_path: destinationResult.debug?.resolution_path,
     });
 
     const input: RunAdsInput = {
@@ -137,12 +169,12 @@ export const handler: Handler = async (event) => {
       ad_goal,
       daily_budget_cents,
       automation_mode,
-      creative_ids: resolvedCreativeIds, // Use resolved IDs from DB or payload
+      creative_ids: resolvedCreativeIds,
       total_budget_cents,
-      smart_link_id,
+      smart_link_id: resolvedSmartLinkId,
       one_click_link_id,
       platform,
-      profile_url,
+      profile_url: resolvedDestinationUrl,
       capture_page_url,
     };
 

@@ -266,15 +266,17 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
       }
 
       // Build payload for run-ads-submit endpoint
-      // Map goal to ad_goal, convert budget to cents, and map fields correctly
-      // Include draft_id so function can load creatives from DB
+      const smartLinkUrl = selectedSmartLink.destination_url || `https://ghoste.one/l/${selectedSmartLink.slug}`;
+
       const payload = {
-        ad_goal: goal, // streams, followers, link_clicks, leads
-        daily_budget_cents: Math.round(dailyBudget * 100), // Convert dollars to cents
-        automation_mode: 'manual', // Default automation mode
+        ad_goal: goal,
+        daily_budget_cents: Math.round(dailyBudget * 100),
+        automation_mode: 'manual',
         creative_ids: selectedCreatives.map(c => c.id),
-        draft_id: draftId, // NEW: Allow function to load creatives from DB
+        draft_id: draftId,
         smart_link_id: selectedSmartLink.id,
+        smart_link_slug: selectedSmartLink.slug,
+        destination_url: smartLinkUrl,
         total_budget_cents: duration > 0 ? Math.round(dailyBudget * duration * 100) : null,
       };
 
