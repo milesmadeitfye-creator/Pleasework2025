@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap } from 'lucide-react';
+import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug } from 'lucide-react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { uploadMedia } from '../../lib/uploadMedia';
+import { AdsDebugPanel } from '../../components/ads/AdsDebugPanel';
 
 interface Creative {
   id: string;
@@ -49,6 +50,18 @@ export default function RunAdsPage() {
   const [selectedSmartLink, setSelectedSmartLink] = useState<string>('');
 
   const [launchResult, setLaunchResult] = useState<any>(null);
+
+  // Debug panel state
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugPayload, setDebugPayload] = useState<any>(null);
+  const [debugResponse, setDebugResponse] = useState<any>(null);
+  const [debugMetaStatus, setDebugMetaStatus] = useState<any>(null);
+  const [debugTiming, setDebugTiming] = useState<{ start?: number; end?: number }>({});
+
+  const debugEnabled =
+    debugOpen ||
+    new URLSearchParams(window.location.search).get('debug')?.includes('ads') ||
+    localStorage.getItem('ghoste_debug_ads') === '1';
 
   useEffect(() => {
     if (user && selectedGoal === 'promote_song') {
@@ -167,6 +180,8 @@ export default function RunAdsPage() {
     if (!user) return;
 
     setLaunching(true);
+    const startTime = Date.now();
+    setDebugTiming({ start: startTime });
 
     try {
       const session = await supabase.auth.getSession();
@@ -178,29 +193,46 @@ export default function RunAdsPage() {
       const smartLinkObj = smartLinks.find(link => link.id === selectedSmartLink);
       const smartLinkUrl = smartLinkObj?.destination_url || (smartLinkObj?.slug ? `https://ghoste.one/l/${smartLinkObj.slug}` : undefined);
 
+      // Capture debug data BEFORE sending
+      const payload = {
+        ad_goal: selectedGoal,
+        daily_budget_cents: dailyBudget * 100,
+        automation_mode: automationMode,
+        creative_ids: creatives.map(c => c.id),
+        smart_link_id: selectedGoal === 'promote_song' ? selectedSmartLink : undefined,
+        smart_link_slug: selectedGoal === 'promote_song' && smartLinkObj ? smartLinkObj.slug : undefined,
+        destination_url: selectedGoal === 'promote_song' ? smartLinkUrl : undefined,
+        vibe_constraints: selectedVibes,
+        notification_method: notificationMethod,
+        notification_phone: notificationMethod === 'sms' ? notificationPhone : undefined,
+        notification_email: notificationMethod === 'email' ? notificationEmail : undefined,
+        manager_mode_enabled: managerModeEnabled,
+      };
+
+      setDebugPayload(payload);
+      if (smartLinkObj) {
+        setDebugMetaStatus({ selectedSmartLink: smartLinkObj });
+      }
+
       const res = await fetch('/.netlify/functions/run-ads-submit', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          ad_goal: selectedGoal,
-          daily_budget_cents: dailyBudget * 100,
-          automation_mode: automationMode,
-          creative_ids: creatives.map(c => c.id),
-          smart_link_id: selectedGoal === 'promote_song' ? selectedSmartLink : undefined,
-          smart_link_slug: selectedGoal === 'promote_song' && smartLinkObj ? smartLinkObj.slug : undefined,
-          destination_url: selectedGoal === 'promote_song' ? smartLinkUrl : undefined,
-          vibe_constraints: selectedVibes,
-          notification_method: notificationMethod,
-          notification_phone: notificationMethod === 'sms' ? notificationPhone : undefined,
-          notification_email: notificationMethod === 'email' ? notificationEmail : undefined,
-          manager_mode_enabled: managerModeEnabled,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const json = await res.json();
+      const endTime = Date.now();
+      setDebugTiming({ start: startTime, end: endTime });
+
+      // Capture debug response
+      setDebugResponse({
+        status: res.status,
+        ok: res.ok,
+        json,
+      });
 
       if (json.ok) {
         setLaunchResult(json);
@@ -219,6 +251,13 @@ export default function RunAdsPage() {
     } catch (err: any) {
       console.error('[RunAds] Submit error:', err);
       const errorMessage = err.message || 'Failed to create campaign';
+      const endTime = Date.now();
+      setDebugTiming({ start: startTime, end: endTime });
+      setDebugResponse({
+        status: 0,
+        ok: false,
+        json: { error: errorMessage, message: err.message, stack: err.stack },
+      });
       alert(errorMessage);
     } finally {
       setLaunching(false);
@@ -265,14 +304,46 @@ export default function RunAdsPage() {
     }
   };
 
+  const copyDebugBlob = () => {
+    const blob = {
+      payload: debugPayload,
+      response: debugResponse,
+      metaStatus: debugMetaStatus,
+      timing: debugTiming,
+      smartLink: smartLinks.find(link => link.id === selectedSmartLink),
+    };
+    navigator.clipboard.writeText(JSON.stringify(blob, null, 2));
+    alert('Debug data copied to clipboard');
+  };
+
   return (
     <div className="min-h-screen bg-[#0A0F29] p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Run Ads</h1>
-          <p className="text-gray-400">
-            Upload videos, select a goal, and let Ghoste AI build and manage your campaign
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-white mb-2">Run Ads</h1>
+              <p className="text-gray-400">
+                Upload videos, select a goal, and let Ghoste AI build and manage your campaign
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                const newValue = !debugOpen;
+                setDebugOpen(newValue);
+                localStorage.setItem('ghoste_debug_ads', newValue ? '1' : '0');
+              }}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2 ${
+                debugEnabled
+                  ? 'bg-yellow-500/20 text-yellow-400 border-2 border-yellow-500'
+                  : 'bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600'
+              }`}
+              title="Toggle debug panel"
+            >
+              <Bug className="w-5 h-5" />
+              Debug
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between mb-8">
@@ -706,6 +777,17 @@ export default function RunAdsPage() {
           </div>
         )}
       </div>
+
+      {debugEnabled && (
+        <AdsDebugPanel
+          metaStatus={debugMetaStatus}
+          smartLink={smartLinks.find(link => link.id === selectedSmartLink)}
+          payload={debugPayload}
+          response={debugResponse}
+          timing={debugTiming}
+          onCopy={copyDebugBlob}
+        />
+      )}
     </div>
   );
 }
