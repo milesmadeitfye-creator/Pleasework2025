@@ -526,20 +526,33 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log('[run-ads-submit] Meta status:', metaStatus);
+    console.log('[run-ads-submit] ===== META STATUS RECEIVED =====');
+    console.log('[run-ads-submit] metaStatus:', JSON.stringify(metaStatus, null, 2));
 
-    // Check if Meta is ready for publish
-    const metaReady = !!(
-      metaStatus?.auth_connected &&
-      metaStatus?.assets_configured &&
-      (metaStatus?.missing_assets?.length ?? 0) === 0
-    );
+    // Check if Meta is ready for publish (ONLY check RPC fields, no legacy checks)
+    const hasAuth = metaStatus?.auth_connected === true;
+    const hasAssets = metaStatus?.assets_configured === true;
+    const hasAdAccount = !!metaStatus?.ad_account_id;
+    const hasPage = !!metaStatus?.page_id;
+
+    console.log('[run-ads-submit] Ready checks:', {
+      hasAuth,
+      hasAssets,
+      hasAdAccount,
+      hasPage,
+      ad_account_id: metaStatus?.ad_account_id,
+      page_id: metaStatus?.page_id,
+    });
+
+    const metaReady = hasAuth && hasAssets && hasAdAccount && hasPage;
 
     if (!metaReady) {
-      console.warn('[run-ads-submit] Meta not ready for publish:', {
+      console.warn('[run-ads-submit] ❌ Meta not ready for publish:', {
         auth_connected: metaStatus?.auth_connected,
         assets_configured: metaStatus?.assets_configured,
         missing_assets: metaStatus?.missing_assets,
+        has_ad_account: hasAdAccount,
+        has_page: hasPage,
       });
 
       statusCode = 400;
@@ -579,11 +592,15 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log('[run-ads-submit] ✓ Meta ready for publish:', {
+    console.log('[run-ads-submit] ===== ✅ META READY FOR PUBLISH =====');
+    console.log('[run-ads-submit] proceeding_to_meta_publish:', {
       ad_account_id: metaStatus.ad_account_id,
       page_id: metaStatus.page_id,
       instagram_actor_id: metaStatus.instagram_actor_id,
       pixel_id: metaStatus.pixel_id,
+      destination_url: resolvedDestinationUrl,
+      daily_budget_cents,
+      ad_goal,
     });
 
     // Record publish attempt start
@@ -596,6 +613,8 @@ export const handler: Handler = async (event) => {
         meta_status: {
           ad_account_id: metaStatus.ad_account_id,
           page_id: metaStatus.page_id,
+          instagram_actor_id: metaStatus.instagram_actor_id,
+          pixel_id: metaStatus.pixel_id,
         },
       },
       status: 200,
@@ -604,6 +623,7 @@ export const handler: Handler = async (event) => {
       authHeader,
     });
 
+    console.log('[run-ads-submit] Calling executeMetaCampaign with metaStatus...');
     const metaResult = await executeMetaCampaign({
       user_id: user.id,
       campaign_id: ghosteCampaignId,
@@ -613,6 +633,14 @@ export const handler: Handler = async (event) => {
       creative_ids: resolvedCreativeIds,
       creative_urls: resolvedCreativeUrls,
       metaStatus, // Pass RPC status to executor
+    });
+
+    console.log('[run-ads-submit] executeMetaCampaign result:', {
+      success: metaResult.success,
+      meta_campaign_id: metaResult.meta_campaign_id,
+      meta_adset_id: metaResult.meta_adset_id,
+      meta_ad_id: metaResult.meta_ad_id,
+      error: metaResult.error,
     });
 
     if (!metaResult.success) {
