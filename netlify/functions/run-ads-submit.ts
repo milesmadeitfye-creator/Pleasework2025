@@ -10,6 +10,30 @@ function extractSmartLinkSlug(url: string | undefined): string | null {
   return match ? match[1] : null;
 }
 
+/**
+ * Normalize confidence value from string/number to separate score and label
+ * Handles AI responses that return "low"/"medium"/"high" strings
+ */
+function normalizeConfidence(conf: any): { score: number | null; label: string | null } {
+  // If already a valid number, use it as score
+  if (typeof conf === "number" && Number.isFinite(conf)) {
+    return { score: conf, label: null };
+  }
+
+  // If string, map to numeric score
+  const label = typeof conf === "string" ? conf.toLowerCase() : null;
+  const map: Record<string, number> = {
+    low: 0.3,
+    medium: 0.6,
+    high: 0.9,
+  };
+
+  return {
+    score: label && map[label] ? map[label] : null,
+    label: label || null,
+  };
+}
+
 export const handler: Handler = async (event) => {
   const startTime = Date.now();
   let requestBody: any = null;
@@ -341,7 +365,17 @@ export const handler: Handler = async (event) => {
     // Step: INSERT into ad_campaigns (canonical source of truth)
     const campaignStatus = mode === 'publish' ? 'publishing' : 'draft';
 
-    const insertPayload = {
+    // Normalize confidence from string ("low"/"medium"/"high") to numeric + label
+    const rawConfidence = result?.confidence;
+    const { score: confidence_score, label: confidence_label } = normalizeConfidence(rawConfidence);
+
+    console.log('[run-ads-submit] Normalized confidence:', {
+      rawConfidence,
+      confidence_score,
+      confidence_label,
+    });
+
+    const insertPayload: any = {
       user_id: user.id,
       draft_id,
       ad_goal,
@@ -355,21 +389,33 @@ export const handler: Handler = async (event) => {
       total_budget_cents,
       creative_ids: resolvedCreativeIds,
       reasoning: result.reasoning,
-      confidence: result.confidence,
+      confidence: confidence_score, // numeric column - use score, not string
+      confidence_score, // explicit numeric score column (if exists)
+      confidence_label, // explicit label column (if exists)
       guardrails_applied: result.guardrails_applied,
     };
+
+    // Defensive: ensure no string confidence values
+    if (typeof insertPayload.confidence === 'string') {
+      console.warn('[run-ads-submit] GUARD: confidence was string, converting to numeric');
+      const normalized = normalizeConfidence(insertPayload.confidence);
+      insertPayload.confidence = normalized.score;
+      insertPayload.confidence_label = normalized.label;
+    }
 
     console.log('[run-ads-submit] Inserting ad_campaigns row:', {
       user_id: user.id,
       keys: Object.keys(insertPayload),
       creative_ids_count: resolvedCreativeIds.length,
       status: campaignStatus,
+      confidence_score,
+      confidence_label,
     });
 
     const { data: campaign, error: insertError } = await supabase
       .from('ad_campaigns')
       .insert(insertPayload)
-      .select('id')
+      .select('*')
       .single();
 
     if (insertError || !campaign) {
@@ -378,6 +424,7 @@ export const handler: Handler = async (event) => {
         message: insertError?.message,
         details: insertError?.details,
         hint: insertError?.hint,
+        payload_keys: Object.keys(insertPayload),
       });
 
       return {
@@ -396,7 +443,12 @@ export const handler: Handler = async (event) => {
     }
 
     const ghosteCampaignId = campaign.id;
-    console.log('[run-ads-submit] ✅ Campaign saved to DB:', ghosteCampaignId);
+    console.log('[run-ads-submit] ✅ Campaign saved to DB:', {
+      id: ghosteCampaignId,
+      status: campaign.status,
+      confidence_score: campaign.confidence_score || campaign.confidence,
+      confidence_label: campaign.confidence_label,
+    });
 
     // If mode is draft, return immediately
     if (mode !== 'publish') {
@@ -406,7 +458,8 @@ export const handler: Handler = async (event) => {
         campaign_id: ghosteCampaignId,
         campaign_type: result.campaign_type,
         reasoning: result.reasoning,
-        confidence: result.confidence,
+        confidence: confidence_score, // Return numeric score
+        confidence_label: confidence_label, // Return label separately
         guardrails_applied: result.guardrails_applied,
         status: 'draft',
       };
@@ -514,7 +567,8 @@ export const handler: Handler = async (event) => {
       campaign_id: ghosteCampaignId,
       campaign_type: result.campaign_type,
       reasoning: result.reasoning,
-      confidence: result.confidence,
+      confidence: confidence_score, // Return numeric score
+      confidence_label: confidence_label, // Return label separately
       guardrails_applied: result.guardrails_applied,
       status: 'published',
       meta_campaign_id: metaResult.meta_campaign_id,
