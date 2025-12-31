@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { X, ChevronRight, ChevronLeft, Target, DollarSign, Image as ImageIcon, Link as LinkIcon, Check, AlertCircle, Loader2, Sparkles, Play } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, Target, DollarSign, Image as ImageIcon, Link as LinkIcon, Check, AlertCircle, Loader2, Sparkles, Play, Bug, Copy, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../../lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { notify } from '../../lib/notify';
 import { uploadCreative, getCreatives, deleteCreative } from '../../lib/uploadCreative';
+import { sanitizeForDebug, isDebugEnabled, copyToClipboard } from '../../utils/debug';
 
 type CampaignGoal = 'streams' | 'followers' | 'link_clicks' | 'leads';
 type WizardStep = 'goal' | 'budget' | 'creative' | 'destination' | 'review';
@@ -52,6 +53,14 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
   const [draftId, setDraftId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [loadingCreatives, setLoadingCreatives] = useState(false);
+
+  // Debug state
+  const [debugEnabled] = useState(() => isDebugEnabled());
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [debugPayload, setDebugPayload] = useState<any>(null);
+  const [debugResponse, setDebugResponse] = useState<any>(null);
+  const [debugMetaStatus, setDebugMetaStatus] = useState<any>(null);
+  const [debugTiming, setDebugTiming] = useState<{ startedAt?: string; endedAt?: string; ms?: number } | null>(null);
 
   const steps: { id: WizardStep; label: string; number: number }[] = [
     { id: 'goal', label: 'Goal', number: 1 },
@@ -137,6 +146,20 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         setMetaConnected(data?.auth_connected === true);
         setMetaAssetsConfigured(data?.assets_configured === true);
 
+        // Capture debug info
+        if (debugEnabled) {
+          setDebugMetaStatus(sanitizeForDebug({
+            auth_connected: data?.auth_connected,
+            assets_configured: data?.assets_configured,
+            ready_to_run_ads: data?.ready_to_run_ads,
+            ad_account_id: data?.ad_account_id,
+            page_id: data?.page_id,
+            pixel_id: data?.pixel_id,
+            checkmarks: data?.checkmarks,
+            source: data?.source,
+          }));
+        }
+
         console.log('[AICampaignWizard] Meta status:', {
           auth_connected: data?.auth_connected,
           assets_configured: data?.assets_configured,
@@ -152,7 +175,7 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         setCheckingMeta(false);
       }
     })();
-  }, [user]);
+  }, [user, debugEnabled]);
 
   // Load creatives from DB when entering creative step
   useEffect(() => {
@@ -288,7 +311,14 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         smart_link_id: payload.smart_link_id,
       });
 
+      // Capture debug payload
+      if (debugEnabled) {
+        setDebugPayload(sanitizeForDebug(payload));
+        setDebugTiming({ startedAt: new Date().toISOString() });
+      }
+
       // Call the correct endpoint for campaign creation
+      const startTime = Date.now();
       const response = await fetch('/.netlify/functions/run-ads-submit', {
         method: 'POST',
         headers: {
@@ -297,9 +327,34 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         },
         body: JSON.stringify(payload),
       });
+      const endTime = Date.now();
+
+      // Parse response
+      let result: any = null;
+      let responseText: string | null = null;
+      try {
+        result = await response.json();
+      } catch {
+        responseText = await response.text().catch(() => 'Unable to read response');
+      }
+
+      // Capture debug response
+      if (debugEnabled) {
+        setDebugResponse({
+          status: response.status,
+          ok: response.ok,
+          json: result ? sanitizeForDebug(result) : null,
+          text: responseText,
+        });
+        setDebugTiming({
+          startedAt: new Date(startTime).toISOString(),
+          endedAt: new Date(endTime).toISOString(),
+          ms: endTime - startTime,
+        });
+      }
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+        const error = result || { error: responseText || 'Unknown error' };
         console.error('[AICampaignWizard] Publish failed:', error);
 
         // Handle specific error codes
@@ -309,8 +364,6 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
 
         throw new Error(error.error || error.message || 'Failed to create campaign');
       }
-
-      const result = await response.json();
 
       if (!result.ok) {
         // Handle specific error codes in result
@@ -328,6 +381,27 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
       onClose();
     } catch (err: any) {
       console.error('[AICampaignWizard] Publish error:', err);
+
+      // Capture error in debug
+      if (debugEnabled && !debugResponse) {
+        setDebugResponse({
+          status: 0,
+          ok: false,
+          json: sanitizeForDebug({
+            error: err.message || String(err),
+            stack: err.stack?.split('\n').slice(0, 3).join('\n'),
+          }),
+          text: null,
+        });
+        if (debugTiming?.startedAt && !debugTiming.endedAt) {
+          setDebugTiming({
+            ...debugTiming,
+            endedAt: new Date().toISOString(),
+            ms: Date.now() - new Date(debugTiming.startedAt).getTime(),
+          });
+        }
+      }
+
       notify('error', 'Failed to create campaign', err.message);
     } finally {
       setSubmitting(false);
@@ -832,6 +906,131 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
             </button>
           )}
         </div>
+
+        {/* Debug Panel */}
+        {debugEnabled && (
+          <div className="px-6 pb-4">
+            <div className="border border-amber-500/30 bg-amber-500/5 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setDebugPanelOpen(!debugPanelOpen)}
+                className="w-full px-4 py-3 flex items-center justify-between text-amber-400 hover:bg-amber-500/10 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Bug className="w-4 h-4" />
+                  <span className="text-sm font-medium">Debug Panel</span>
+                  {debugResponse && (
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      debugResponse.ok ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {debugResponse.status}
+                    </span>
+                  )}
+                </div>
+                {debugPanelOpen ? (
+                  <ChevronUp className="w-4 h-4" />
+                ) : (
+                  <ChevronDown className="w-4 h-4" />
+                )}
+              </button>
+
+              {debugPanelOpen && (
+                <div className="px-4 pb-4 space-y-3 text-xs">
+                  {/* Meta Status */}
+                  {debugMetaStatus && (
+                    <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-gray-300">Meta Connection Status</span>
+                      </div>
+                      <pre className="text-gray-400 overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(debugMetaStatus, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Selected Smart Link */}
+                  {selectedSmartLink && (
+                    <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-gray-300">Selected Smart Link</span>
+                      </div>
+                      <pre className="text-gray-400 overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(sanitizeForDebug({
+                          id: selectedSmartLink.id,
+                          slug: selectedSmartLink.slug,
+                          title: selectedSmartLink.title,
+                        }), null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Submit Payload */}
+                  {debugPayload && (
+                    <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-gray-300">Submit Payload</span>
+                      </div>
+                      <pre className="text-gray-400 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        {JSON.stringify(debugPayload, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Netlify Response */}
+                  {debugResponse && (
+                    <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-gray-300">Netlify Response</span>
+                        <span className={`px-2 py-0.5 rounded ${
+                          debugResponse.ok ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                        }`}>
+                          {debugResponse.status} {debugResponse.ok ? 'OK' : 'ERROR'}
+                        </span>
+                      </div>
+                      <pre className="text-gray-400 overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        {debugResponse.json ? JSON.stringify(debugResponse.json, null, 2) : debugResponse.text}
+                      </pre>
+                    </div>
+                  )}
+
+                  {/* Timing */}
+                  {debugTiming?.ms && (
+                    <div className="bg-slate-900/50 rounded p-3 border border-slate-700">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-300">Request Timing</span>
+                        <span className="text-blue-400 font-mono">{debugTiming.ms}ms</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Copy Debug Button */}
+                  <button
+                    onClick={async () => {
+                      const success = await copyToClipboard({
+                        metaStatus: debugMetaStatus,
+                        smartLink: selectedSmartLink ? {
+                          id: selectedSmartLink.id,
+                          slug: selectedSmartLink.slug,
+                        } : null,
+                        payload: debugPayload,
+                        response: debugResponse,
+                        timing: debugTiming,
+                      });
+                      if (success) {
+                        notify('success', 'Debug info copied to clipboard');
+                      } else {
+                        notify('error', 'Failed to copy debug info');
+                      }
+                    }}
+                    className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center justify-center gap-2 transition-colors"
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy Debug Info
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
