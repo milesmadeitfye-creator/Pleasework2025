@@ -618,9 +618,10 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
 
     try {
       const url = `/.netlify/functions/meta-auth-start?user_id=${encodeURIComponent(user.id)}`;
+      console.log('[ConnectedAccounts] Opening Meta OAuth:', url);
       window.open(url, "metaConnect", "width=600,height=700");
     } catch (err) {
-      console.error('Error connecting Meta:', err);
+      console.error('[ConnectedAccounts] Error connecting Meta:', err);
       setError('Failed to connect Meta account. Please try again.');
     }
   };
@@ -1149,18 +1150,21 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
 
           {/* Meta Onboarding Checklist - Show when connected */}
           {metaRpcStatus.connected && (() => {
-            // Compute completion status from canonical RPC fields
+            // Compute completion status ONLY from canonical RPC fields
+            // DO NOT infer from meta_ad_accounts, connected_accounts, or other tables
+            // This RPC is the single source of truth
             const authConnected = metaRpcStatus.data?.auth_connected === true;
-            const hasAdAccount = !!(metaRpcStatus.data?.ad_account_id);
+            const hasAdAccount = !!(metaRpcStatus.data?.ad_account_id || metaRpcStatus.data?.ad_account_id_raw);
             const hasPage = !!(metaRpcStatus.data?.page_id);
             const hasInstagram = !!(metaRpcStatus.data?.instagram_actor_id) || (metaRpcStatus.data?.instagram_account_count ?? 0) > 0;
             const hasPixel = !!(metaRpcStatus.data?.pixel_id);
             const assetsConfigured = metaRpcStatus.data?.assets_configured === true;
 
             // Debug logging
-            console.log('[MetaSetupProgress] computed', {
+            console.log('[MetaSetupProgress] CANONICAL status from RPC:', {
               auth_connected: authConnected,
               ad_account_id: metaRpcStatus.data?.ad_account_id,
+              ad_account_id_raw: metaRpcStatus.data?.ad_account_id_raw,
               page_id: metaRpcStatus.data?.page_id,
               instagram_actor_id: metaRpcStatus.data?.instagram_actor_id,
               pixel_id: metaRpcStatus.data?.pixel_id,

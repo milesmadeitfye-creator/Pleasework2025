@@ -42,12 +42,16 @@ const handler: Handler = async (event) => {
     // Force rerequest to show permission prompt again
     authUrl.searchParams.set("auth_type", "rerequest");
 
-    console.log('[meta-auth-start] OAuth URL with ads scopes:', {
+    console.log('[meta-auth-start] Generating OAuth URL:', {
+      user_id: user_id,
       scopes: META_REQUIRED_SCOPES,
       includes_ads_management: META_REQUIRED_SCOPES.includes('ads_management'),
       includes_ads_read: META_REQUIRED_SCOPES.includes('ads_read'),
       includes_business_management: META_REQUIRED_SCOPES.includes('business_management'),
+      redirect_uri: META_REDIRECT_URI,
     });
+
+    console.log('[meta-auth-start] Redirecting to:', authUrl.toString());
 
     return {
       statusCode: 302,

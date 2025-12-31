@@ -3,16 +3,81 @@ import { getSupabaseAdmin } from "./_supabaseAdmin";
 import { logBudgetChange, validateBudgetSafety } from "./_aiManagerStrictEngine";
 
 export const handler: Handler = async (event) => {
-  const decision_id = event.queryStringParameters?.decision_id;
+  const supabase = getSupabaseAdmin();
 
-  if (!decision_id) {
-    return {
-      statusCode: 400,
-      body: JSON.stringify({ ok: false, error: "decision_id required" }),
-    };
+  // Get decision_id from query params or body
+  let decision_id = event.queryStringParameters?.decision_id;
+
+  // If no decision_id, check body for payload (Guided Campaign Wizard case)
+  let bodyPayload: any = null;
+  let user_id: string | null = null;
+
+  if (!decision_id && event.body) {
+    try {
+      bodyPayload = JSON.parse(event.body);
+      decision_id = bodyPayload.decision_id;
+    } catch (e) {
+      // Body parsing failed, continue without it
+    }
   }
 
-  const supabase = getSupabaseAdmin();
+  // If still no decision_id, we need to create one from the payload
+  if (!decision_id) {
+    // Extract user_id from auth header
+    const authHeader = event.headers.authorization || "";
+    const token = authHeader.replace("Bearer ", "");
+
+    if (!token) {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ ok: false, error: "unauthorized", details: "No auth token provided" }),
+      };
+    }
+
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+
+    if (authError || !user) {
+      return {
+        statusCode: 401,
+        body: JSON.stringify({ ok: false, error: "invalid_token", details: authError?.message }),
+      };
+    }
+
+    user_id = user.id;
+
+    // Create a new approval record for this action
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h expiry
+
+    const { data: newApproval, error: insertError } = await supabase
+      .from('ai_manager_approvals')
+      .insert([{
+        owner_user_id: user_id,
+        action_requested: bodyPayload?.action_type || 'create_campaign',
+        action_context: bodyPayload?.payload || bodyPayload || {},
+        response: 'pending',
+        created_at: now,
+        expires_at: expiresAt,
+        source: 'guided_wizard',
+      }])
+      .select()
+      .single();
+
+    if (insertError || !newApproval) {
+      console.error('[ai-approve-action] Failed to create approval:', insertError);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          ok: false,
+          error: "failed_to_create_approval",
+          details: insertError?.message
+        }),
+      };
+    }
+
+    decision_id = newApproval.id;
+    console.log('[ai-approve-action] Created new approval:', decision_id, 'for user:', user_id);
+  }
 
   try {
     const { data: approval, error } = await supabase
@@ -24,7 +89,7 @@ export const handler: Handler = async (event) => {
     if (error || !approval) {
       return {
         statusCode: 404,
-        body: JSON.stringify({ ok: false, error: "Approval not found" }),
+        body: JSON.stringify({ ok: false, error: "approval_not_found", details: error?.message }),
       };
     }
 
@@ -113,6 +178,23 @@ export const handler: Handler = async (event) => {
       console.log('[ai-approve-action] ✅ Budget updated:', campaign_id, `${old_budget_cents} → ${new_budget_cents}`);
     }
 
+    // Return JSON response (for API calls) or HTML (for email links)
+    const acceptHeader = event.headers.accept || '';
+    const isApiCall = acceptHeader.includes('application/json') || bodyPayload;
+
+    if (isApiCall) {
+      return {
+        statusCode: 200,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: true,
+          decision_id: decision_id,
+          action: action_requested,
+          message: 'Action approved and executed',
+        }),
+      };
+    }
+
     return {
       statusCode: 200,
       headers: {
@@ -146,10 +228,15 @@ export const handler: Handler = async (event) => {
       `,
     };
   } catch (e: any) {
-    console.error("[ai-approve-action] Error:", e.message);
+    console.error("[ai-approve-action] Error:", e.message, e.stack);
     return {
       statusCode: 500,
-      body: JSON.stringify({ ok: false, error: e.message || "approval_error" }),
+      body: JSON.stringify({
+        ok: false,
+        error: "approval_error",
+        details: e.message,
+        stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
+      }),
     };
   }
 };

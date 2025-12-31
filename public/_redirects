@@ -46,6 +46,13 @@
 # Auth Callback
 /auth/callback                    /index.html                                    200
 
+# SPA Fallback Routes - Prevent 404s for auth and profile routes
+# These must come BEFORE the catch-all to handle specific route patterns
+/auth/*                           /index.html                                    200
+/profile/*                        /index.html                                    200
+/settings/*                       /index.html                                    200
+/dashboard/*                      /index.html                                    200
+
 # SPA Catch-all (MUST be last)
 # This serves the React app for all unmatched routes including /s/:slug and /l/:slug
 /*                                /index.html                                    200
