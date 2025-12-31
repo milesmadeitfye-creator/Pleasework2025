@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import { getSupabaseAdmin } from "./_supabaseAdmin";
 import { buildAndLaunchCampaign, RunAdsInput } from "./_runAdsCampaignBuilder";
+import { recordAdsOperation } from "./_utils/recordAdsOperation";
 
 function extractSmartLinkSlug(url: string | undefined): string | null {
   if (!url || typeof url !== 'string') return null;
@@ -9,6 +10,12 @@ function extractSmartLinkSlug(url: string | undefined): string | null {
 }
 
 export const handler: Handler = async (event) => {
+  const startTime = Date.now();
+  let requestBody: any = null;
+  let responseData: any = null;
+  let statusCode = 500;
+  let userId: string | undefined = undefined;
+
   if (event.httpMethod !== "POST") {
     return {
       statusCode: 405,
@@ -37,8 +44,11 @@ export const handler: Handler = async (event) => {
     };
   }
 
+  userId = user.id;
+
   try {
     const body = event.body ? JSON.parse(event.body) : {};
+    requestBody = body;
 
     const {
       ad_goal,
@@ -326,22 +336,52 @@ export const handler: Handler = async (event) => {
 
     console.log('[run-ads-submit] ✅ Campaign launched:', result.campaign_id);
 
+    statusCode = 200;
+    responseData = {
+      ok: true,
+      campaign_id: result.campaign_id,
+      campaign_type: result.campaign_type,
+      reasoning: result.reasoning,
+      confidence: result.confidence,
+      guardrails_applied: result.guardrails_applied,
+    };
+
+    // Record operation
+    await recordAdsOperation({
+      label: 'publish',
+      request: requestBody,
+      response: responseData,
+      status: statusCode,
+      ok: true,
+      userId,
+      authHeader,
+    });
+
     return {
-      statusCode: 200,
-      body: JSON.stringify({
-        ok: true,
-        campaign_id: result.campaign_id,
-        campaign_type: result.campaign_type,
-        reasoning: result.reasoning,
-        confidence: result.confidence,
-        guardrails_applied: result.guardrails_applied,
-      }),
+      statusCode,
+      body: JSON.stringify(responseData),
     };
   } catch (e: any) {
     console.error("[run-ads-submit] Error:", e.message);
+
+    statusCode = 500;
+    responseData = { ok: false, error: e.message || "submit_error" };
+
+    // Record error operation
+    await recordAdsOperation({
+      label: 'publish',
+      request: requestBody,
+      response: responseData,
+      status: statusCode,
+      ok: false,
+      error: e.message || "submit_error",
+      userId,
+      authHeader,
+    });
+
     return {
-      statusCode: 500,
-      body: JSON.stringify({ ok: false, error: e.message || "submit_error" }),
+      statusCode,
+      body: JSON.stringify(responseData),
     };
   }
 };

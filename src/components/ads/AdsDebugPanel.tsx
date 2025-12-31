@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
-import { X, RefreshCw, Trash2 } from 'lucide-react';
+import { X, RefreshCw, Database } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { getAdsDebugLastRun, clearAdsDebugLastRun, type AdsDebugRun } from '../../utils/adsDebugBus';
 
 interface MetaConnectionStatus {
   auth_connected: boolean;
@@ -12,16 +11,43 @@ interface MetaConnectionStatus {
   instagram_actor_id?: string;
 }
 
+interface AdsOperation {
+  id: string;
+  created_at: string;
+  label: string;
+  status: number;
+  ok: boolean;
+  meta_campaign_id?: string;
+  meta_adset_id?: string;
+  meta_ad_id?: string;
+  error?: string;
+  request?: any;
+  response?: any;
+}
+
+interface ScanData {
+  ok: boolean;
+  now: string;
+  operations: AdsOperation[];
+  campaigns: any[];
+  drafts: any[];
+}
+
 interface AdsDebugPanelProps {
   onClose: () => void;
 }
 
 export function AdsDebugPanel({ onClose }: AdsDebugPanelProps) {
   const [metaStatus, setMetaStatus] = useState<MetaConnectionStatus | null>(null);
-  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
-  const [lastRun, setLastRun] = useState<AdsDebugRun | null>(null);
-  const [activeTab, setActiveTab] = useState<'meta' | 'lastRun'>('meta');
+
+  const [scanData, setScanData] = useState<ScanData | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<'meta' | 'operations' | 'data'>('operations');
+  const [expandedOp, setExpandedOp] = useState<string | null>(null);
 
   const loadMetaStatus = async () => {
     setMetaLoading(true);
@@ -37,41 +63,102 @@ export function AdsDebugPanel({ onClose }: AdsDebugPanelProps) {
     }
   };
 
-  const loadLastRun = () => {
-    const run = getAdsDebugLastRun();
-    setLastRun(run);
-  };
+  const loadScanData = async () => {
+    setScanLoading(true);
+    setScanError(null);
+    try {
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
 
-  const handleClearLastRun = () => {
-    clearAdsDebugLastRun();
-    setLastRun(null);
+      if (!token) throw new Error('Not authenticated');
+
+      const res = await fetch('/.netlify/functions/ads-debug-scan', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Failed to fetch scan data');
+      }
+
+      setScanData(data);
+    } catch (err) {
+      setScanError(err instanceof Error ? err.message : 'Failed to load scan data');
+    } finally {
+      setScanLoading(false);
+    }
   };
 
   useEffect(() => {
     loadMetaStatus();
-    loadLastRun();
-
-    // Poll for last run updates every 2s
-    const interval = setInterval(loadLastRun, 2000);
-    return () => clearInterval(interval);
+    loadScanData();
   }, []);
 
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffSecs < 60) return `${diffSecs}s ago`;
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleString();
+  };
+
   return (
-    <div className="fixed bottom-4 right-4 w-[min(560px,92vw)] max-h-[45vh] bg-[#0A0F29] border border-white/10 rounded-xl shadow-2xl z-[100] flex flex-col">
+    <div className="fixed bottom-4 right-4 w-[min(640px,92vw)] max-h-[50vh] bg-[#0A0F29] border border-white/10 rounded-xl shadow-2xl z-[100] flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between p-3 border-b border-white/10">
         <h3 className="text-sm font-semibold text-white">Ads Debug Panel</h3>
-        <button
-          onClick={onClose}
-          className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
-          title="Close debug panel"
-        >
-          <X className="w-4 h-4 text-white/60" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={loadScanData}
+            disabled={scanLoading}
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+            title="Refresh scan data"
+          >
+            <RefreshCw className={`w-4 h-4 text-white/60 ${scanLoading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+            title="Close debug panel"
+          >
+            <X className="w-4 h-4 text-white/60" />
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-2 px-3 pt-2 border-b border-white/10">
+        <button
+          onClick={() => setActiveTab('operations')}
+          className={[
+            'px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors',
+            activeTab === 'operations'
+              ? 'bg-white/10 text-white border-b-2 border-[#1A6CFF]'
+              : 'text-white/60 hover:text-white hover:bg-white/5'
+          ].join(' ')}
+        >
+          Operations ({scanData?.operations.length || 0})
+        </button>
+        <button
+          onClick={() => setActiveTab('data')}
+          className={[
+            'px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors',
+            activeTab === 'data'
+              ? 'bg-white/10 text-white border-b-2 border-[#1A6CFF]'
+              : 'text-white/60 hover:text-white hover:bg-white/5'
+          ].join(' ')}
+        >
+          Data
+        </button>
         <button
           onClick={() => setActiveTab('meta')}
           className={[
@@ -83,22 +170,11 @@ export function AdsDebugPanel({ onClose }: AdsDebugPanelProps) {
         >
           Meta Status
         </button>
-        <button
-          onClick={() => setActiveTab('lastRun')}
-          className={[
-            'px-3 py-1.5 text-xs font-medium rounded-t-lg transition-colors',
-            activeTab === 'lastRun'
-              ? 'bg-white/10 text-white border-b-2 border-[#1A6CFF]'
-              : 'text-white/60 hover:text-white hover:bg-white/5'
-          ].join(' ')}
-        >
-          Last Submit
-          {lastRun && <span className="ml-1.5 px-1.5 py-0.5 bg-green-500/20 text-green-300 text-[10px] rounded">NEW</span>}
-        </button>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-3 ghoste-studio-scrollbars">
+        {/* Meta Tab */}
         {activeTab === 'meta' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -166,61 +242,120 @@ export function AdsDebugPanel({ onClose }: AdsDebugPanelProps) {
           </div>
         )}
 
-        {activeTab === 'lastRun' && (
+        {/* Operations Tab */}
+        {activeTab === 'operations' && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-white/60">Last Ads Operation</span>
-              {lastRun && (
-                <button
-                  onClick={handleClearLastRun}
-                  className="p-1 hover:bg-white/10 rounded transition-colors"
-                  title="Clear last run"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-white/60" />
-                </button>
-              )}
-            </div>
-
-            {!lastRun && (
-              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
-                <p className="text-xs text-white/60 text-center">No ads operations recorded yet</p>
+            {scanError && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-2">
+                <p className="text-xs text-red-300">{scanError}</p>
               </div>
             )}
 
-            {lastRun && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between py-1.5 px-2 bg-white/5 rounded">
-                  <span className="text-xs text-white/70">Label</span>
-                  <span className="text-xs font-medium text-white/90">{lastRun.label}</span>
-                </div>
+            {!scanData?.operations.length && !scanLoading && (
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+                <p className="text-xs text-white/60 text-center">No operations recorded yet</p>
+              </div>
+            )}
 
-                <div className="flex items-center justify-between py-1.5 px-2 bg-white/5 rounded">
-                  <span className="text-xs text-white/70">Status</span>
-                  <span className={`text-xs font-medium ${lastRun.ok ? 'text-green-400' : 'text-red-400'}`}>
-                    {lastRun.status} {lastRun.ok ? 'OK' : 'ERROR'}
-                  </span>
-                </div>
+            {scanData?.operations.map((op) => (
+              <div key={op.id} className="bg-white/5 rounded-lg border border-white/10">
+                <button
+                  onClick={() => setExpandedOp(expandedOp === op.id ? null : op.id)}
+                  className="w-full p-2 text-left hover:bg-white/5 transition-colors"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-medium text-white">{op.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-white/50">{formatTimestamp(op.created_at)}</span>
+                      <span className={`text-xs font-medium ${op.ok ? 'text-green-400' : 'text-red-400'}`}>
+                        {op.status}
+                      </span>
+                    </div>
+                  </div>
+                  {op.meta_campaign_id && (
+                    <div className="text-[10px] text-white/60 font-mono">
+                      Campaign: {op.meta_campaign_id}
+                    </div>
+                  )}
+                  {op.error && (
+                    <div className="text-[10px] text-red-300 mt-1">
+                      Error: {op.error}
+                    </div>
+                  )}
+                </button>
 
-                <div className="py-1.5 px-2 bg-white/5 rounded">
-                  <span className="text-xs text-white/50 block mb-1">Timestamp</span>
-                  <span className="text-xs text-white/90 font-mono">
-                    {new Date(lastRun.at).toLocaleString()}
-                  </span>
-                </div>
+                {expandedOp === op.id && (
+                  <div className="px-2 pb-2 space-y-2 border-t border-white/10 pt-2">
+                    {op.request && (
+                      <div>
+                        <div className="text-[10px] text-white/50 mb-1">Request:</div>
+                        <pre className="text-[9px] text-white/80 font-mono overflow-x-auto whitespace-pre-wrap max-h-24 overflow-y-auto ghoste-studio-scrollbars bg-black/20 p-1.5 rounded">
+                          {JSON.stringify(op.request, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                    {op.response && (
+                      <div>
+                        <div className="text-[10px] text-white/50 mb-1">Response:</div>
+                        <pre className="text-[9px] text-white/80 font-mono overflow-x-auto whitespace-pre-wrap max-h-24 overflow-y-auto ghoste-studio-scrollbars bg-black/20 p-1.5 rounded">
+                          {JSON.stringify(op.response, null, 2)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
-                <div className="py-1.5 px-2 bg-white/5 rounded">
-                  <span className="text-xs text-white/50 block mb-1">Request</span>
-                  <pre className="text-[10px] text-white/80 font-mono overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto ghoste-studio-scrollbars">
-                    {JSON.stringify(lastRun.request, null, 2)}
-                  </pre>
+        {/* Data Tab */}
+        {activeTab === 'data' && (
+          <div className="space-y-3">
+            {scanData?.campaigns && scanData.campaigns.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Database className="w-3.5 h-3.5 text-white/60" />
+                  <span className="text-xs font-medium text-white">Campaigns ({scanData.campaigns.length})</span>
                 </div>
+                <div className="space-y-1">
+                  {scanData.campaigns.slice(0, 10).map((campaign: any) => (
+                    <div key={campaign.id} className="py-1.5 px-2 bg-white/5 rounded text-[10px]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/90">{campaign.name || campaign.id}</span>
+                        <span className="text-white/50">{formatTimestamp(campaign.created_at)}</span>
+                      </div>
+                      {campaign.meta_campaign_id && (
+                        <div className="text-white/60 font-mono">Meta: {campaign.meta_campaign_id}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
-                <div className="py-1.5 px-2 bg-white/5 rounded">
-                  <span className="text-xs text-white/50 block mb-1">Response</span>
-                  <pre className="text-[10px] text-white/80 font-mono overflow-x-auto whitespace-pre-wrap max-h-32 overflow-y-auto ghoste-studio-scrollbars">
-                    {JSON.stringify(lastRun.response, null, 2)}
-                  </pre>
+            {scanData?.drafts && scanData.drafts.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Database className="w-3.5 h-3.5 text-white/60" />
+                  <span className="text-xs font-medium text-white">Drafts ({scanData.drafts.length})</span>
                 </div>
+                <div className="space-y-1">
+                  {scanData.drafts.slice(0, 10).map((draft: any) => (
+                    <div key={draft.id} className="py-1.5 px-2 bg-white/5 rounded text-[10px]">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/90">{draft.name || draft.id}</span>
+                        <span className="text-white/50">{formatTimestamp(draft.created_at)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(!scanData?.campaigns?.length && !scanData?.drafts?.length) && (
+              <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+                <p className="text-xs text-white/60 text-center">No campaigns or drafts found</p>
               </div>
             )}
           </div>
