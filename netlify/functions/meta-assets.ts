@@ -257,13 +257,31 @@ export const handler: Handler = async (event) => {
     }
 
     // Fetch assets from Meta API
-    const items = await fetchMetaAssets(body.type, connection.access_token, {
+    let items = await fetchMetaAssets(body.type, connection.access_token, {
       business_id: body.business_id,
       page_id: body.page_id,
       ad_account_id: body.ad_account_id,
     });
 
-    console.log(`[meta-assets] Fetched ${items.length} ${body.type}`);
+    // CRITICAL: Fallback for pages - if business-scoped returns empty, try me/accounts
+    // This handles cases where:
+    // 1. Business has no owned_pages
+    // 2. User has pages but they're personal, not business-owned
+    // 3. Business ID scope is too restrictive
+    if (body.type === 'pages' && items.length === 0 && body.business_id) {
+      console.log('[meta-assets] Business-scoped pages returned empty, falling back to /me/accounts');
+      const fallbackItems = await fetchMetaAssets(body.type, connection.access_token, {});
+      console.log(`[meta-assets] Fallback fetched ${fallbackItems.length} pages from /me/accounts`);
+      items = fallbackItems;
+    }
+
+    console.log(`[meta-assets] Fetched ${items.length} ${body.type}`, {
+      user_id: user.id,
+      type: body.type,
+      count: items.length,
+      source: body.business_id && items.length > 0 ? 'business-scoped' : 'me/accounts',
+      business_id_provided: !!body.business_id,
+    });
 
     return {
       statusCode: 200,
@@ -271,7 +289,10 @@ export const handler: Handler = async (event) => {
         ...CORS_HEADERS,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ items }),
+      body: JSON.stringify({
+        items,
+        source: body.business_id && body.type !== 'pages' ? 'business' : 'me/accounts'
+      }),
     };
   } catch (error: any) {
     console.error('[meta-assets] Error:', error);

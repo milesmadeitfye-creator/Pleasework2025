@@ -160,9 +160,17 @@ export function MetaDebugPanel() {
 
           {/* RPC Info */}
           {rpcInfo && (() => {
-            // Strict boolean check - handles both 'connected' and 'is_connected' field names
-            const isConnected = rpcInfo.data?.connected === true || rpcInfo.data?.is_connected === true;
-            const isTokenValid = rpcInfo.data?.has_valid_token === true;
+            // Use auth_connected for OAuth status (new canonical field)
+            // auth_connected = true means OAuth token is valid
+            // assets_configured = true means required assets are selected
+            const authConnected = rpcInfo.data?.auth_connected === true;
+            const assetsConfigured = rpcInfo.data?.assets_configured === true;
+            const hasToken = rpcInfo.data?.has_token === true;
+            const tokenValid = rpcInfo.data?.token_valid === true;
+
+            // Legacy fallback for old RPC responses
+            const legacyConnected = rpcInfo.data?.connected === true || rpcInfo.data?.is_connected === true;
+            const isConnected = authConnected || legacyConnected;
 
             return (
             <div className="bg-slate-800/50 rounded-lg p-3">
@@ -177,6 +185,7 @@ export function MetaDebugPanel() {
                 </div>
               ) : rpcInfo.data ? (
                 <div className="space-y-2">
+                  {/* OAuth Connection Status */}
                   <div className="flex items-center gap-2">
                     <span className="text-gray-400">Connected:</span>
                     <span className={isConnected ? 'text-green-400' : 'text-yellow-400'}>
@@ -184,8 +193,25 @@ export function MetaDebugPanel() {
                     </span>
                   </div>
 
+                  {/* Assets Configuration Status */}
                   {isConnected && (
                     <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-400">Assets configured:</span>
+                        <span className={assetsConfigured ? 'text-green-400' : 'text-blue-400'}>
+                          {assetsConfigured ? 'Yes' : 'No (select in Configure Assets)'}
+                        </span>
+                      </div>
+
+                      {!assetsConfigured && rpcInfo.data.missing_assets && rpcInfo.data.missing_assets.length > 0 && (
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-400">Missing:</span>
+                          <span className="text-blue-400 text-xs">
+                            {rpcInfo.data.missing_assets.join(', ')}
+                          </span>
+                        </div>
+                      )}
+
                       {rpcInfo.data.ad_account_id && (
                         <div className="flex items-center gap-2">
                           <span className="text-gray-400">Ad Account:</span>
@@ -198,10 +224,10 @@ export function MetaDebugPanel() {
                           <span>{rpcInfo.data.page_name || rpcInfo.data.page_id}</span>
                         </div>
                       )}
-                      {rpcInfo.data.instagram_account_count !== undefined && (
+                      {rpcInfo.data.instagram_actor_id && (
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-400">Instagram:</span>
-                          <span>{rpcInfo.data.instagram_account_count} account(s)</span>
+                          <span className="text-gray-400">Instagram actor:</span>
+                          <span className="font-mono text-xs">{rpcInfo.data.instagram_actor_id}</span>
                         </div>
                       )}
                       {rpcInfo.data.pixel_id && (
@@ -212,8 +238,8 @@ export function MetaDebugPanel() {
                       )}
                       <div className="flex items-center gap-2">
                         <span className="text-gray-400">Token valid:</span>
-                        <span className={isTokenValid ? 'text-green-400' : 'text-yellow-400'}>
-                          {isTokenValid ? 'Yes' : 'No / Expired'}
+                        <span className={tokenValid ? 'text-green-400' : 'text-yellow-400'}>
+                          {hasToken ? (tokenValid ? 'Yes' : 'No / Expired') : 'No token'}
                         </span>
                       </div>
                     </>
