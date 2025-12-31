@@ -40,36 +40,44 @@ interface MetaExecutionResult {
 async function fetchMetaAssets(user_id: string, metaStatus?: any): Promise<MetaAssets | null> {
   const supabase = getSupabaseAdmin();
 
+  console.log('[fetchMetaAssets] ===== FETCHING META ASSETS =====');
+  console.log('[fetchMetaAssets] user_id:', user_id);
+  console.log('[fetchMetaAssets] Has metaStatus passed:', !!metaStatus);
+
   try {
     // If metaStatus not provided, this is a legacy call - should not happen with new code
     if (!metaStatus) {
-      console.warn('[fetchMetaAssets] Called without metaStatus - using legacy check');
+      console.warn('[fetchMetaAssets] ⚠️ Called without metaStatus - using legacy check (NOT RECOMMENDED)');
       const { data, error } = await supabase.rpc('get_meta_connection_status');
 
       if (error || !data) {
-        console.error('[fetchMetaAssets] RPC error:', error);
+        console.error('[fetchMetaAssets] ❌ RPC error:', error);
         return null;
       }
 
       metaStatus = data;
     }
 
-    console.log('[fetchMetaAssets] Using RPC status:', {
+    console.log('[fetchMetaAssets] metaStatus received:', {
       auth_connected: metaStatus.auth_connected,
       assets_configured: metaStatus.assets_configured,
       ad_account_id: metaStatus.ad_account_id,
       page_id: metaStatus.page_id,
+      instagram_actor_id: metaStatus.instagram_actor_id,
+      pixel_id: metaStatus.pixel_id,
     });
 
-    // Verify Meta is ready
+    // Verify Meta is ready (ONLY check RPC fields)
     if (!metaStatus.auth_connected || !metaStatus.assets_configured) {
-      console.warn('[fetchMetaAssets] Meta not ready:', {
+      console.error('[fetchMetaAssets] ❌ Meta not ready per RPC:', {
         auth_connected: metaStatus.auth_connected,
         assets_configured: metaStatus.assets_configured,
         missing_assets: metaStatus.missing_assets,
       });
       return null;
     }
+
+    console.log('[fetchMetaAssets] ✅ RPC validation passed - fetching access_token...');
 
     // Fetch ONLY access_token from meta_credentials (RPC provides everything else)
     const { data: creds, error: credsError } = await supabase
@@ -78,10 +86,17 @@ async function fetchMetaAssets(user_id: string, metaStatus?: any): Promise<MetaA
       .eq('user_id', user_id)
       .maybeSingle();
 
-    if (credsError || !creds || !creds.access_token) {
-      console.error('[fetchMetaAssets] No access token found:', credsError);
+    if (credsError) {
+      console.error('[fetchMetaAssets] ❌ Database error fetching token:', credsError);
       return null;
     }
+
+    if (!creds || !creds.access_token) {
+      console.error('[fetchMetaAssets] ❌ No access token found in meta_credentials for user:', user_id);
+      return null;
+    }
+
+    console.log('[fetchMetaAssets] ✅ Access token fetched successfully');
 
     // Build MetaAssets using RPC data + access_token
     const assets: MetaAssets = {
@@ -92,8 +107,10 @@ async function fetchMetaAssets(user_id: string, metaStatus?: any): Promise<MetaA
       pixel_id: metaStatus.pixel_id || undefined,
     };
 
-    console.log('[fetchMetaAssets] ✓ Assets built from RPC:', {
+    console.log('[fetchMetaAssets] ===== ✅ ASSETS BUILT SUCCESSFULLY =====');
+    console.log('[fetchMetaAssets] Final assets:', {
       has_token: !!assets.access_token,
+      token_length: assets.access_token?.length,
       ad_account_id: assets.ad_account_id,
       page_id: assets.page_id,
       instagram_actor_id: assets.instagram_actor_id,
@@ -102,7 +119,7 @@ async function fetchMetaAssets(user_id: string, metaStatus?: any): Promise<MetaA
 
     return assets;
   } catch (err: any) {
-    console.error('[fetchMetaAssets] Exception:', err.message);
+    console.error('[fetchMetaAssets] ❌ Exception:', err.message, err.stack);
     return null;
   }
 }
@@ -289,22 +306,29 @@ async function createMetaAd(
 export async function executeMetaCampaign(
   input: CreateCampaignInput
 ): Promise<MetaExecutionResult> {
-  console.log('[executeMetaCampaign] Starting for campaign:', input.campaign_id);
+  console.log('[executeMetaCampaign] ===== STARTING META CAMPAIGN EXECUTION =====');
+  console.log('[executeMetaCampaign] campaign_id:', input.campaign_id);
+  console.log('[executeMetaCampaign] Has metaStatus:', !!input.metaStatus);
 
   try {
     // Step 1: Fetch Meta assets using RPC status
     console.log('[executeMetaCampaign] Step 1/4: Fetching Meta assets...');
     const assets = await fetchMetaAssets(input.user_id, input.metaStatus);
     if (!assets) {
+      console.error('[executeMetaCampaign] ❌ fetchMetaAssets returned null');
       return {
         success: false,
         error: 'Meta assets not configured. Connect Meta in Profile → Connected Accounts.',
       };
     }
 
-    console.log('[executeMetaCampaign] ✓ Assets loaded for user:', input.user_id, {
+    console.log('[executeMetaCampaign] ✅ Assets loaded successfully:', {
+      user_id: input.user_id,
+      has_token: !!assets.access_token,
       ad_account_id: assets.ad_account_id,
       page_id: assets.page_id,
+      instagram_actor_id: assets.instagram_actor_id,
+      pixel_id: assets.pixel_id,
     });
 
     // Step 2: Create Campaign
