@@ -301,12 +301,23 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Unknown error' }));
         console.error('[AICampaignWizard] Publish failed:', error);
+
+        // Handle specific error codes
+        if (error.code === 'SMART_LINK_NOT_FOUND' || error.error?.includes('Smart link')) {
+          throw new Error('Select a valid Smart Link before publishing.');
+        }
+
         throw new Error(error.error || error.message || 'Failed to create campaign');
       }
 
       const result = await response.json();
 
       if (!result.ok) {
+        // Handle specific error codes in result
+        if (result.code === 'SMART_LINK_NOT_FOUND' || result.error?.includes('Smart link')) {
+          throw new Error('Select a valid Smart Link before publishing.');
+        }
+
         throw new Error(result.error || 'Failed to create campaign');
       }
 

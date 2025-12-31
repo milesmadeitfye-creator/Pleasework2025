@@ -174,6 +174,10 @@ export default function RunAdsPage() {
 
       if (!token) throw new Error('Not authenticated');
 
+      // Find the full smart link object for payload
+      const smartLinkObj = smartLinks.find(link => link.id === selectedSmartLink);
+      const smartLinkUrl = smartLinkObj?.destination_url || (smartLinkObj?.slug ? `https://ghoste.one/l/${smartLinkObj.slug}` : undefined);
+
       const res = await fetch('/.netlify/functions/run-ads-submit', {
         method: 'POST',
         headers: {
@@ -186,6 +190,8 @@ export default function RunAdsPage() {
           automation_mode: automationMode,
           creative_ids: creatives.map(c => c.id),
           smart_link_id: selectedGoal === 'promote_song' ? selectedSmartLink : undefined,
+          smart_link_slug: selectedGoal === 'promote_song' && smartLinkObj ? smartLinkObj.slug : undefined,
+          destination_url: selectedGoal === 'promote_song' ? smartLinkUrl : undefined,
           vibe_constraints: selectedVibes,
           notification_method: notificationMethod,
           notification_phone: notificationMethod === 'sms' ? notificationPhone : undefined,
@@ -199,9 +205,21 @@ export default function RunAdsPage() {
       if (json.ok) {
         setLaunchResult(json);
         setStep(5);
+      } else {
+        // Handle specific error codes
+        let errorMessage = json.error || 'Failed to create campaign';
+
+        if (json.code === 'SMART_LINK_NOT_FOUND' || json.error?.includes('Smart link')) {
+          errorMessage = 'Select a valid Smart Link before publishing.';
+        }
+
+        console.error('[RunAds] Submit failed:', errorMessage);
+        alert(errorMessage); // Simple error display
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('[RunAds] Submit error:', err);
+      const errorMessage = err.message || 'Failed to create campaign';
+      alert(errorMessage);
     } finally {
       setLaunching(false);
     }

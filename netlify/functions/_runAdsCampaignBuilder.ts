@@ -23,6 +23,7 @@ export interface CampaignBuildResult {
   confidence: 'low' | 'medium' | 'high';
   guardrails_applied: string[];
   error?: string;
+  error_code?: string;
 }
 
 export async function selectCampaignType(
@@ -85,23 +86,64 @@ export async function buildCampaignConfig(
 
   switch (campaign_type) {
     case 'smart_link_probe':
+      console.log('[buildCampaignConfig] Building smart_link_probe campaign:', {
+        has_smart_link_id: !!input.smart_link_id,
+        has_profile_url: !!input.profile_url,
+        user_id: input.user_id,
+      });
+
       if (!input.smart_link_id) {
-        throw new Error('Smart link ID required for smart_link_probe campaign');
+        console.warn('[buildCampaignConfig] No smart_link_id provided for smart_link_probe, using profile_url as fallback');
+        if (input.profile_url) {
+          config.smart_link_url = input.profile_url;
+          console.log('[buildCampaignConfig] Using profile_url as destination:', config.smart_link_url);
+        } else {
+          const error: any = new Error('Smart link ID or profile URL required for smart_link_probe campaign');
+          error.code = 'SMART_LINK_NOT_FOUND';
+          throw error;
+        }
+        break;
       }
 
-      const { data: smartLink } = await supabase
+      // Attempt to resolve smart link (optional - may have been resolved earlier)
+      const { data: smartLink, error: linkError } = await supabase
         .from('smart_links')
         .select('slug')
         .eq('id', input.smart_link_id)
         .eq('owner_user_id', input.user_id)
-        .single();
+        .maybeSingle();
 
-      if (!smartLink) {
-        throw new Error('Smart link not found');
+      if (linkError) {
+        console.error('[buildCampaignConfig] Error looking up smart link:', {
+          error: linkError.message,
+          code: linkError.code,
+          smart_link_id: input.smart_link_id,
+        });
       }
 
-      config.smart_link_id = input.smart_link_id;
-      config.smart_link_url = `${process.env.VITE_APP_URL || 'https://ghoste.one'}/l/${smartLink.slug}`;
+      if (smartLink?.slug) {
+        // Smart link found - use canonical URL
+        config.smart_link_id = input.smart_link_id;
+        config.smart_link_url = `${process.env.VITE_APP_URL || 'https://ghoste.one'}/l/${smartLink.slug}`;
+        console.log('[buildCampaignConfig] ✓ Smart link resolved:', {
+          id: config.smart_link_id,
+          url: config.smart_link_url,
+        });
+      } else if (input.profile_url) {
+        // Fallback: use profile_url from run-ads-submit (which computed resolvedDestinationUrl)
+        console.warn('[buildCampaignConfig] Smart link not found in DB, using pre-resolved destination URL');
+        config.smart_link_id = input.smart_link_id;
+        config.smart_link_url = input.profile_url;
+        console.log('[buildCampaignConfig] Using fallback destination:', config.smart_link_url);
+      } else {
+        console.error('[buildCampaignConfig] Smart link resolution failed completely', {
+          smart_link_id: input.smart_link_id,
+          has_profile_url: !!input.profile_url,
+        });
+        const error: any = new Error('Smart link not found and no destination URL available');
+        error.code = 'SMART_LINK_NOT_FOUND';
+        throw error;
+      }
       break;
 
     case 'one_click_sound':
@@ -109,15 +151,19 @@ export async function buildCampaignConfig(
         throw new Error('One-click link ID and platform required for one_click_sound campaign');
       }
 
-      const { data: oneClickLink } = await supabase
+      const { data: oneClickLink, error: oneClickError } = await supabase
         .from('one_click_links')
         .select('slug')
         .eq('id', input.one_click_link_id)
         .eq('owner_user_id', input.user_id)
-        .single();
+        .maybeSingle();
+
+      if (oneClickError) {
+        console.error('[buildCampaignConfig] Error looking up one-click link:', oneClickError.message);
+      }
 
       if (!oneClickLink) {
-        throw new Error('One-click link not found');
+        throw new Error('One-click link not found. Create a one-click link first.');
       }
 
       config.one_click_link_id = input.one_click_link_id;
@@ -274,13 +320,18 @@ export async function buildAndLaunchCampaign(input: RunAdsInput): Promise<Campai
       guardrails_applied: guardrails,
     };
   } catch (error: any) {
-    console.error('[buildAndLaunchCampaign] Error:', error);
+    console.error('[buildAndLaunchCampaign] Error:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack?.split('\n')[0],
+    });
     return {
       success: false,
       reasoning: 'Failed to build campaign',
       confidence: 'low',
       guardrails_applied: [],
       error: error.message || 'Unknown error',
+      error_code: error.code,
     };
   }
 }

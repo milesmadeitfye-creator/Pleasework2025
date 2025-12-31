@@ -309,11 +309,17 @@ export const handler: Handler = async (event) => {
     const result = await buildAndLaunchCampaign(input);
 
     if (!result.success) {
+      console.error('[run-ads-submit] Campaign build failed:', {
+        error: result.error,
+        error_code: result.error_code,
+      });
+
       return {
         statusCode: 400,
         body: JSON.stringify({
           ok: false,
           error: result.error || 'campaign_build_failed',
+          code: result.error_code,
         }),
       };
     }
