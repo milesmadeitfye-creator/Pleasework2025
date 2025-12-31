@@ -93,56 +93,19 @@ export function MetaConnectWizard({ onComplete }: MetaConnectWizardProps) {
         setLoadingBusinesses(true);
         setBusinessError(null);
 
-        // Load saved configuration from meta_credentials (canonical source)
-        const { data: assets } = await supabase
-          .from('meta_credentials')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
-
-        if (assets) {
-          if (assets.business_id && assets.business_name) {
-            setSelectedBusiness({ id: assets.business_id, name: assets.business_name });
-          }
-          if (assets.meta_profile_id && assets.meta_profile_name) {
-            setSelectedProfile({
-              id: assets.meta_profile_id,
-              name: assets.meta_profile_name,
-              pictureUrl: assets.meta_profile_picture_url || null,
-            });
-          }
-          if (assets.page_id && assets.page_name) {
-            setSelectedPage({ id: assets.page_id, name: assets.page_name });
-          }
-          if (assets.instagram_id && assets.instagram_username) {
-            setSelectedInstagram({ id: assets.instagram_id, username: assets.instagram_username });
-          }
-          if (assets.ad_account_id && assets.ad_account_name) {
-            setSelectedAdAccount({ id: assets.ad_account_id, name: assets.ad_account_name });
-          }
-        }
-
-        // Load pixel and CAPI settings from meta_credentials
+        // Pre-populate from RPC data (already loaded via useMetaCredentials hook)
+        // The hook uses get_meta_connection_status RPC which is the canonical source
         if (meta) {
-          setPixelId(meta.pixel_id || '');
-          setConversionApiToken(meta.conversion_api_token || '');
-          setCapiEnabled(!!meta.capi_enabled);
-          setPagePostingEnabled(!!meta.page_posting_enabled);
-          setInstagramPostingEnabled(!!meta.instagram_posting_enabled);
+          // Pre-fill pixel from RPC
+          if (meta.pixel_id) {
+            setPixelId(meta.pixel_id);
+          }
         }
 
-        // Load saved settings from meta-get-settings (overrides above if present)
+        // Load saved settings from meta-get-settings API
         try {
           const savedSettings = await metaGetSettings(user.id);
           if (savedSettings.pixel_id) setPixelId(savedSettings.pixel_id);
-          if (savedSettings.page_id) {
-            const page = pages.find(p => p.id === savedSettings.page_id);
-            if (page) setSelectedPage(page);
-          }
-          if (savedSettings.instagram_actor_id) {
-            const ig = instagrams.find(i => i.id === savedSettings.instagram_actor_id);
-            if (ig) setSelectedInstagram(ig);
-          }
           if (savedSettings.use_page_for_posting !== undefined) {
             setPagePostingEnabled(!!savedSettings.use_page_for_posting);
           }
