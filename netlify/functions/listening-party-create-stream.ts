@@ -39,10 +39,22 @@ export const handler: Handler = async (event) => {
 
     const body = event.body ? JSON.parse(event.body) : {};
     const partyId = String(body.partyId || "").trim();
-    const micDeviceId = String(body.micDeviceId || "default").trim();
-    const camDeviceId = String(body.camDeviceId || "default").trim();
+    const rawMicId = String(body.micDeviceId || "default");
+    const rawCamId = String(body.camDeviceId || "default");
+    const micDeviceId = rawMicId.trim() || "default";
+    const camDeviceId = rawCamId.trim() || "default";
     const width = Math.max(240, parseInt(body.width) || 1280);
     const height = Math.max(240, parseInt(body.height) || 720);
+
+    console.log('[listening-party-create-stream] Received request:', {
+      partyId,
+      rawMicId,
+      rawCamId,
+      normalizedMicId: micDeviceId,
+      normalizedCamId: camDeviceId,
+      width,
+      height,
+    });
 
     if (!partyId) {
       return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Missing partyId" }) };
@@ -185,18 +197,39 @@ export const handler: Handler = async (event) => {
       };
     } catch (streamErr: any) {
       console.error('[listening-party-create-stream] Stream call creation failed:', streamErr);
+
+      // Determine if this is a user error (400) or server error (500)
+      const isUserError = streamErr.message && (
+        streamErr.message.includes('device') ||
+        streamErr.message.includes('microphone') ||
+        streamErr.message.includes('camera') ||
+        streamErr.message.includes('permission') ||
+        streamErr.message.includes('resolution')
+      );
+
       return {
-        statusCode: 500,
+        statusCode: isUserError ? 400 : 500,
         body: JSON.stringify({
           ok: false,
-          error: `Failed to create video stream: ${streamErr.message}`,
+          error: isUserError
+            ? `Select a microphone to go live.`
+            : `Failed to create video stream: ${streamErr.message}`,
         }),
       };
     }
   } catch (e: any) {
     console.error('[listening-party-create-stream] Error:', e);
+
+    // Return 400 for validation/user errors, 500 for server errors
+    const isUserError = e?.message && (
+      e.message.includes('Missing') ||
+      e.message.includes('Invalid') ||
+      e.message.includes('not found') ||
+      e.message.includes('not authorized')
+    );
+
     return {
-      statusCode: 500,
+      statusCode: isUserError ? 400 : 500,
       body: JSON.stringify({ ok: false, error: e?.message || "Server error" }),
     };
   }

@@ -267,16 +267,6 @@ export default function ListeningPartyHostPage() {
       return;
     }
 
-    if (!selectedMicId) {
-      setError('Select a microphone to go live.');
-      return;
-    }
-
-    if (!selectedCamId) {
-      setError('Select a camera to go live.');
-      return;
-    }
-
     if (!stream) {
       setError('Preview stream not started. Enable camera and mic first.');
       return;
@@ -291,9 +281,15 @@ export default function ListeningPartyHostPage() {
       setUpdating(true);
       setError(null);
 
+      // Ensure valid device IDs (use 'default' if empty or invalid)
+      const micId = selectedMicId && selectedMicId.trim() !== '' ? selectedMicId : 'default';
+      const camId = selectedCamId && selectedCamId.trim() !== '' ? selectedCamId : 'default';
+
       console.log('[ListeningPartyHostPage] Creating video stream with devices:', {
-        mic: selectedMicId,
-        cam: selectedCamId,
+        mic: micId,
+        cam: camId,
+        selectedMicId,
+        selectedCamId,
       });
 
       // Get auth session
@@ -317,8 +313,8 @@ export default function ListeningPartyHostPage() {
         },
         body: JSON.stringify({
           partyId: party.id,
-          micDeviceId: selectedMicId,
-          camDeviceId: selectedCamId,
+          micDeviceId: micId,
+          camDeviceId: camId,
           width,
           height,
         }),

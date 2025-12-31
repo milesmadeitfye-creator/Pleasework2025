@@ -290,6 +290,8 @@ export const handler: Handler = async (event) => {
       destination_url: resolvedDestinationUrl,
     });
 
+    console.log('[run-ads-submit] Final destination URL computed:', resolvedDestinationUrl);
+
     const input: RunAdsInput = {
       user_id: user.id,
       ad_goal,
