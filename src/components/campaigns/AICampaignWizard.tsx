@@ -284,9 +284,17 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
       }
 
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
+      if (!session?.access_token) {
+        console.error('[AICampaignWizard] Missing session or access_token', {
+          hasSession: !!session,
+          hasAccessToken: !!session?.access_token,
+        });
+        throw new Error('Not authenticated - please sign in again');
       }
+
+      console.log('[AICampaignWizard] Auth session obtained', {
+        hasAccessToken: !!session.access_token,
+      });
 
       // Build payload for run-ads-submit endpoint
       const smartLinkUrl = selectedSmartLink.destination_url || `https://ghoste.one/l/${selectedSmartLink.slug}`;
@@ -355,20 +363,37 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
 
       if (!response.ok) {
         const error = result || { error: responseText || 'Unknown error' };
-        console.error('[AICampaignWizard] Publish failed:', error);
+        console.error('[AICampaignWizard] Publish failed (HTTP error):', {
+          status: response.status,
+          error,
+        });
 
         // Handle specific error codes
         if (error.code === 'SMART_LINK_NOT_FOUND' || error.error?.includes('Smart link')) {
           throw new Error('Select a valid Smart Link before publishing.');
         }
 
+        // If detail exists, log it for debugging
+        if (error.detail) {
+          console.error('[AICampaignWizard] Database error detail:', error.detail);
+        }
+
         throw new Error(error.error || error.message || 'Failed to create campaign');
       }
 
       if (!result.ok) {
+        console.error('[AICampaignWizard] Publish failed (result.ok=false):', {
+          result,
+        });
+
         // Handle specific error codes in result
         if (result.code === 'SMART_LINK_NOT_FOUND' || result.error?.includes('Smart link')) {
           throw new Error('Select a valid Smart Link before publishing.');
+        }
+
+        // If detail exists, log it for debugging
+        if (result.detail) {
+          console.error('[AICampaignWizard] Database error detail:', result.detail);
         }
 
         throw new Error(result.error || 'Failed to create campaign');

@@ -341,35 +341,56 @@ export const handler: Handler = async (event) => {
     // Step: INSERT into ad_campaigns (canonical source of truth)
     const campaignStatus = mode === 'publish' ? 'publishing' : 'draft';
 
+    const insertPayload = {
+      user_id: user.id,
+      draft_id,
+      ad_goal,
+      campaign_type: result.campaign_type,
+      automation_mode,
+      status: campaignStatus,
+      smart_link_id: smartLink?.id,
+      smart_link_slug: smartLink?.slug,
+      destination_url: resolvedDestinationUrl,
+      daily_budget_cents,
+      total_budget_cents,
+      creative_ids: resolvedCreativeIds,
+      reasoning: result.reasoning,
+      confidence: result.confidence,
+      guardrails_applied: result.guardrails_applied,
+    };
+
+    console.log('[run-ads-submit] Inserting ad_campaigns row:', {
+      user_id: user.id,
+      keys: Object.keys(insertPayload),
+      creative_ids_count: resolvedCreativeIds.length,
+      status: campaignStatus,
+    });
+
     const { data: campaign, error: insertError } = await supabase
       .from('ad_campaigns')
-      .insert({
-        user_id: user.id,
-        draft_id,
-        ad_goal,
-        campaign_type: result.campaign_type,
-        automation_mode,
-        status: campaignStatus,
-        smart_link_id: smartLink?.id,
-        smart_link_slug: smartLink?.slug,
-        destination_url: resolvedDestinationUrl,
-        daily_budget_cents,
-        total_budget_cents,
-        creative_ids: resolvedCreativeIds,
-        reasoning: result.reasoning,
-        confidence: result.confidence,
-        guardrails_applied: result.guardrails_applied,
-      })
+      .insert(insertPayload)
       .select('id')
       .single();
 
     if (insertError || !campaign) {
-      console.error('[run-ads-submit] Failed to insert campaign:', insertError);
+      console.error('[run-ads-submit] Failed to insert campaign:', {
+        code: insertError?.code,
+        message: insertError?.message,
+        details: insertError?.details,
+        hint: insertError?.hint,
+      });
+
       return {
         statusCode: 500,
         body: JSON.stringify({
           ok: false,
           error: 'Failed to create campaign record',
+          detail: {
+            code: insertError?.code,
+            message: insertError?.message,
+            details: insertError?.details,
+            hint: insertError?.hint,
+          },
         }),
       };
     }
