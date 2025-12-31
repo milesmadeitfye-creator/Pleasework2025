@@ -48,20 +48,6 @@ interface MetaExecutionResult {
   adset_payload_preview?: any;
   ad_goal?: string;
   objective?: string;
-  meta_request_summary?: {
-    campaign?: {
-      objective: string;
-      has_budget: boolean;
-      is_adset_budget_sharing_enabled: boolean;
-    };
-    adset?: {
-      optimization_goal: string;
-      billing_event: string;
-      destination_type?: string;
-      has_promoted_object: boolean;
-      promoted_object_type?: string;
-    };
-  };
 }
 
 /**
@@ -295,66 +281,6 @@ function mapGoalToObjective(ad_goal: string): string {
 }
 
 /**
- * Sanitize campaign payload before sending to Meta
- * Ensures required fields are present and valid
- */
-function sanitizeCampaignPayload(payload: any): any {
-  const sanitized = { ...payload };
-
-  // Meta requires is_adset_budget_sharing_enabled to be explicitly set
-  // For CBO mode (budget at campaign level), set to false
-  if (!('is_adset_budget_sharing_enabled' in sanitized)) {
-    sanitized.is_adset_budget_sharing_enabled = false;
-  }
-
-  // Ensure it's a boolean
-  if (typeof sanitized.is_adset_budget_sharing_enabled !== 'boolean') {
-    sanitized.is_adset_budget_sharing_enabled = false;
-  }
-
-  return sanitized;
-}
-
-/**
- * Sanitize adset payload before sending to Meta
- * Removes invalid fields based on ad_goal and campaign type
- */
-function sanitizeAdsetPayload(payload: any, ad_goal: string): any {
-  const sanitized = { ...payload };
-  const goal = ad_goal.toLowerCase();
-
-  // For traffic/link clicks goals: remove promoted_object entirely
-  if (goal === 'link_clicks' || goal === 'traffic' || goal === 'streams' || goal === 'smart_link_probe') {
-    delete sanitized.promoted_object;
-
-    // Set correct optimization and billing for link clicks
-    sanitized.optimization_goal = 'LINK_CLICKS';
-    sanitized.billing_event = 'LINK_CLICKS';
-    sanitized.destination_type = 'WEBSITE';
-
-    console.log('[sanitizeAdsetPayload] Traffic goal - removed promoted_object, set LINK_CLICKS optimization');
-  }
-
-  // Remove legacy conversion fields if present
-  if (sanitized.promoted_object) {
-    delete sanitized.promoted_object.event_type;
-    delete sanitized.promoted_object.custom_conversion_id;
-
-    // Validate custom_event_type if present
-    if (sanitized.promoted_object.custom_event_type) {
-      if (!VALID_CUSTOM_EVENT_TYPES.includes(sanitized.promoted_object.custom_event_type)) {
-        console.warn(
-          `[sanitizeAdsetPayload] Invalid custom_event_type: ${sanitized.promoted_object.custom_event_type}, removing promoted_object`
-        );
-        delete sanitized.promoted_object;
-      }
-    }
-  }
-
-  return sanitized;
-}
-
-/**
  * Create Meta Campaign with Campaign Budget Optimization (CBO)
  * @throws Error with Meta Graph API error details if creation fails
  */
@@ -364,7 +290,7 @@ async function createMetaCampaign(
   objective: string,
   dailyBudgetCents: number
 ): Promise<{ id: string }> {
-  let body: any = {
+  const body: any = {
     name,
     objective,
     status: 'PAUSED',
@@ -377,13 +303,9 @@ async function createMetaCampaign(
     throw new Error('CBO_ASSERT: campaign budget missing - daily_budget or lifetime_budget required');
   }
 
-  // Sanitize campaign payload
-  body = sanitizeCampaignPayload(body);
-
   console.log('[createMetaCampaign] Creating CBO campaign:', {
     objective,
     daily_budget: dailyBudgetCents,
-    is_adset_budget_sharing_enabled: body.is_adset_budget_sharing_enabled,
   });
 
   const data = await metaRequest<{ id: string }>(
@@ -409,16 +331,11 @@ async function createMetaAdSet(
   ad_goal: string,
   meta_status?: any
 ): Promise<{ id: string }> {
-  const goal = ad_goal.toLowerCase();
-
-  // Set billing_event and optimization_goal based on ad_goal
-  const isLinkClicksGoal = goal === 'link_clicks' || goal === 'traffic' || goal === 'streams' || goal === 'smart_link_probe';
-
-  let body: any = {
+  const body: any = {
     name,
     campaign_id: campaignId,
     // NO budget fields - CBO mode uses campaign-level budget
-    billing_event: isLinkClicksGoal ? 'LINK_CLICKS' : 'IMPRESSIONS',
+    billing_event: 'IMPRESSIONS',
     optimization_goal: 'LINK_CLICKS',
     status: 'PAUSED',
     targeting: {
@@ -427,11 +344,6 @@ async function createMetaAdSet(
       age_max: 65,
     },
   };
-
-  // Add destination_type for link clicks
-  if (isLinkClicksGoal) {
-    body.destination_type = 'WEBSITE';
-  }
 
   // CBO ASSERTION: Ad Set must NOT have budget fields
   if (body.daily_budget || body.lifetime_budget || body.budget_remaining) {
@@ -443,19 +355,22 @@ async function createMetaAdSet(
     throw new Error('CBO_ASSERT: is_adset_budget_sharing_enabled field present - must be removed for CBO');
   }
 
-  // Build promoted_object based on ad goal (only for non-traffic goals)
-  if (!isLinkClicksGoal) {
-    const promoted = buildPromotedObject(ad_goal, meta_status);
-    if (promoted) {
-      body.promoted_object = promoted;
-    }
+  // Build promoted_object based on ad goal
+  const promoted = buildPromotedObject(ad_goal, meta_status);
+  if (promoted) {
+    body.promoted_object = promoted;
   }
 
-  // Sanitize the payload
-  body = sanitizeAdsetPayload(body, ad_goal);
+  // Explicitly delete any legacy promoted_object fields
+  if (body.promoted_object) {
+    delete body.promoted_object.event_type;
+    delete body.promoted_object.custom_conversion_id;
+    // Only keep custom_event_type if it's in the body from buildPromotedObject
+  }
 
   // PROMOTED_OBJECT ASSERTION: Traffic goals should NOT have promoted_object
-  if (isLinkClicksGoal && body.promoted_object) {
+  const goal = ad_goal.toLowerCase();
+  if ((goal === 'link_clicks' || goal === 'traffic' || goal === 'streams') && body.promoted_object) {
     throw new Error('PROMOTED_OBJECT_ASSERT: should not send promoted_object for traffic/link_clicks/streams');
   }
 
@@ -472,9 +387,6 @@ async function createMetaAdSet(
   console.log('[createMetaAdSet] Creating CBO adset:', {
     campaign_id: campaignId,
     ad_goal,
-    billing_event: body.billing_event,
-    optimization_goal: body.optimization_goal,
-    destination_type: body.destination_type || 'none',
     has_promoted_object: !!body.promoted_object,
     promoted_object: body.promoted_object || 'none',
   });
@@ -616,27 +528,6 @@ export async function executeMetaCampaign(
     const objective = mapGoalToObjective(input.ad_goal);
     const campaignName = `Ghoste Campaign ${input.campaign_id.slice(0, 8)}`;
 
-    // Build meta request summary for debugging
-    const goal = input.ad_goal.toLowerCase();
-    const isLinkClicksGoal = goal === 'link_clicks' || goal === 'traffic' || goal === 'streams' || goal === 'smart_link_probe';
-
-    const meta_request_summary = {
-      campaign: {
-        objective,
-        has_budget: true,
-        is_adset_budget_sharing_enabled: false, // CBO mode
-      },
-      adset: {
-        optimization_goal: 'LINK_CLICKS',
-        billing_event: isLinkClicksGoal ? 'LINK_CLICKS' : 'IMPRESSIONS',
-        destination_type: isLinkClicksGoal ? 'WEBSITE' : undefined,
-        has_promoted_object: !isLinkClicksGoal,
-        promoted_object_type: !isLinkClicksGoal ? 'pixel' : undefined,
-      },
-    };
-
-    console.log('[executeMetaCampaign] Meta Request Summary:', JSON.stringify(meta_request_summary, null, 2));
-
     let campaign: { id: string };
     try {
       campaign = await createMetaCampaign(
@@ -663,7 +554,6 @@ export async function executeMetaCampaign(
         ad_account_info,
         ad_goal: input.ad_goal,
         objective,
-        meta_request_summary,
       };
     }
 
@@ -716,7 +606,6 @@ export async function executeMetaCampaign(
         adset_payload_preview,
         ad_goal: input.ad_goal,
         objective,
-        meta_request_summary,
       };
     }
 
@@ -754,7 +643,6 @@ export async function executeMetaCampaign(
         adset_payload_preview,
         ad_goal: input.ad_goal,
         objective,
-        meta_request_summary,
       };
     }
 
@@ -774,7 +662,6 @@ export async function executeMetaCampaign(
       adset_payload_preview,
       ad_goal: input.ad_goal,
       objective,
-      meta_request_summary,
     };
   } catch (err: any) {
     console.error('[executeMetaCampaign] ❌ Unexpected error:', err.message, err.stack);
