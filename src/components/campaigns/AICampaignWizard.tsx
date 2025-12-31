@@ -42,6 +42,7 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
   const [smartLinks, setSmartLinks] = useState<SmartLink[]>([]);
   const [loadingSmartLinks, setLoadingSmartLinks] = useState(false);
   const [metaConnected, setMetaConnected] = useState<boolean>(false);
+  const [metaAssetsConfigured, setMetaAssetsConfigured] = useState<boolean>(false);
   const [checkingMeta, setCheckingMeta] = useState(false);
 
   // Submission state
@@ -67,10 +68,19 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
       setCheckingMeta(true);
       try {
         const { data } = await supabase.rpc('get_meta_connection_status');
-        setMetaConnected(data?.is_connected === true);
+        // Use auth_connected to unlock Configure Assets wizard
+        setMetaConnected(data?.auth_connected === true);
+        setMetaAssetsConfigured(data?.assets_configured === true);
+
+        console.log('[AICampaignWizard] Meta status:', {
+          auth_connected: data?.auth_connected,
+          assets_configured: data?.assets_configured,
+          missing_assets: data?.missing_assets,
+        });
       } catch (err) {
         console.error('[AICampaignWizard] Failed to check Meta status:', err);
         setMetaConnected(false);
+        setMetaAssetsConfigured(false);
       } finally {
         setCheckingMeta(false);
       }

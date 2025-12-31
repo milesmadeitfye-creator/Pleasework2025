@@ -396,17 +396,27 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
         setMetaStatus({ connected: false });
         setMetaAssets(null);
       } else {
-        // Strict boolean check - handles both 'connected' and 'is_connected' field names
-        const isConnected = rpcData?.connected === true || rpcData?.is_connected === true;
+        // Use auth_connected for OAuth status (new field from updated RPC)
+        // auth_connected = true means OAuth is connected (token valid)
+        // assets_configured = true means required assets are selected
+        const authConnected = rpcData?.auth_connected === true;
+        const assetsConfigured = rpcData?.assets_configured === true;
+
+        console.log('[ConnectedAccounts] Meta status:', {
+          auth_connected: authConnected,
+          assets_configured: assetsConfigured,
+          missing_assets: rpcData?.missing_assets,
+        });
+
         setMetaRpcStatus({
-          connected: isConnected,
+          connected: authConnected,
           data: rpcData,
           lastChecked: now,
         });
-        setMetaStatus({ connected: isConnected });
+        setMetaStatus({ connected: authConnected });
 
-        // Set assets if available
-        if (isConnected && rpcData) {
+        // Set assets if auth connected (regardless of whether they're configured)
+        if (authConnected && rpcData) {
           setMetaAssets({
             connected: true,
             adAccounts: rpcData.ad_account_id ? [{ id: rpcData.ad_account_id, name: rpcData.ad_account_name || '', account_status: 1 }] : [],
