@@ -190,55 +190,95 @@ export const handler: Handler = async (event) => {
       }
     }
 
-    // Check if we found a smart link
-    if (!smartLink) {
-      console.error('[run-ads-submit] Smart link not found', {
-        smart_link_id,
-        smart_link_slug,
-        extracted_slug: extractedSlug,
-        destination_url,
-      });
+    // Priority 4: Create smart link if not found (never block ad submission)
+    if (!smartLink && destination_url) {
+      console.log('[run-ads-submit] Smart link not found, attempting to create...');
 
+      try {
+        const newSlug = smart_link_slug || extractedSlug || `campaign-${Date.now()}`;
+        const newId = smart_link_id || crypto.randomUUID();
+
+        const insertPayload = {
+          id: newId,
+          slug: newSlug,
+          destination_url: destination_url,
+          owner_user_id: user.id,
+          title: 'Campaign Link',
+          created_at: new Date().toISOString(),
+        };
+
+        // Try smart_links table first
+        let { data: created, error: createError } = await supabase
+          .from('smart_links')
+          .insert(insertPayload)
+          .select('id, slug, destination_url, owner_user_id')
+          .maybeSingle();
+
+        // Try smartlinks table if smart_links fails
+        if (createError && createError.code === '42P01') {
+          const result = await supabase
+            .from('smartlinks')
+            .insert(insertPayload)
+            .select('id, slug, destination_url, owner_user_id')
+            .maybeSingle();
+          created = result.data;
+          createError = result.error;
+        }
+
+        if (!createError && created) {
+          smartLink = created;
+          resolutionMethod = 'created';
+          console.log('[run-ads-submit] ✓ Smart link created:', { id: created.id, slug: created.slug });
+        } else {
+          console.warn('[run-ads-submit] Failed to create smart link, continuing with destination_url only:', createError?.message);
+          resolutionMethod = 'fallback_destination_url';
+        }
+      } catch (createErr: any) {
+        console.warn('[run-ads-submit] Exception creating smart link, continuing:', createErr.message);
+        resolutionMethod = 'fallback_destination_url';
+      }
+    }
+
+    // Verify ownership if smart link was found/created
+    if (smartLink) {
+      const linkOwner = smartLink.owner_user_id || smartLink.user_id;
+      if (linkOwner && linkOwner !== user.id) {
+        console.error('[run-ads-submit] Smart link ownership mismatch', {
+          link_owner: linkOwner,
+          user_id: user.id,
+        });
+
+        return {
+          statusCode: 403,
+          body: JSON.stringify({
+            ok: false,
+            error: 'Smart link does not belong to user',
+          }),
+        };
+      }
+    }
+
+    // Build destination URL (handle fallback case)
+    const resolvedDestinationUrl = smartLink?.slug
+      ? `https://ghoste.one/l/${smartLink.slug}`
+      : (destination_url || smartLink?.destination_url || '');
+
+    if (!resolvedDestinationUrl) {
       return {
         statusCode: 400,
         body: JSON.stringify({
           ok: false,
-          error: 'Smart link not found',
-          smart_link_id,
-          smart_link_slug,
-          extracted_slug: extractedSlug,
-          destination_url,
-          received_keys: Object.keys(body),
+          error: 'Missing destination URL',
+          details: 'No destination_url provided and smart link resolution failed',
         }),
       };
     }
-
-    // Verify ownership (check both owner_user_id and user_id for compatibility)
-    const linkOwner = smartLink.owner_user_id || smartLink.user_id;
-    if (linkOwner && linkOwner !== user.id) {
-      console.error('[run-ads-submit] Smart link ownership mismatch', {
-        link_owner: linkOwner,
-        user_id: user.id,
-      });
-
-      return {
-        statusCode: 403,
-        body: JSON.stringify({
-          ok: false,
-          error: 'Smart link does not belong to user',
-        }),
-      };
-    }
-
-    // Build destination URL
-    const resolvedDestinationUrl = smartLink.slug
-      ? `https://ghoste.one/l/${smartLink.slug}`
-      : (destination_url || smartLink.destination_url);
 
     console.log('[run-ads-submit] ✓ Smart link resolved:', {
       method: resolutionMethod,
-      slug: smartLink.slug,
+      slug: smartLink?.slug || 'none',
       destination: resolvedDestinationUrl,
+      smart_link_id: smartLink?.id || 'null',
     });
 
     console.log('[run-ads-submit] Building campaign:', {
@@ -257,7 +297,7 @@ export const handler: Handler = async (event) => {
       automation_mode,
       creative_ids: resolvedCreativeIds,
       total_budget_cents,
-      smart_link_id: smartLink.id,
+      smart_link_id: smartLink?.id,
       one_click_link_id,
       platform,
       profile_url: resolvedDestinationUrl,
