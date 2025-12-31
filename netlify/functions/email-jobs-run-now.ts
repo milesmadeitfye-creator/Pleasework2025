@@ -2,21 +2,28 @@
  * Email Jobs Run Now - Manual Trigger
  *
  * Manually processes up to 50 pending email jobs from public.email_jobs.
+ * Supports both static templates and AI-generated content.
  * Protected by X-Admin-Key header or Authorization bearer token for owner email.
  */
 
 import { Handler } from '@netlify/functions';
 import { createClient } from '@supabase/supabase-js';
+import OpenAI from 'openai';
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY!;
 const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN!;
 const MAILGUN_FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL || `Ghoste One <no-reply@${MAILGUN_DOMAIN}>`;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 const ADMIN_TASK_KEY = process.env.ADMIN_TASK_KEY;
 const OWNER_EMAIL = 'milesdorre5@gmail.com';
 
 const BATCH_SIZE = 50;
+
+const openai = new OpenAI({
+  apiKey: OPENAI_API_KEY,
+});
 
 interface EmailJob {
   id: string;
@@ -107,6 +114,91 @@ function finalizeRenderedContent(content: string): string {
   return finalized;
 }
 
+async function generateEmailFromPrompts(params: {
+  subjectPrompt: string;
+  bodyPrompt: string;
+  userContext: Record<string, any>;
+}): Promise<{ subject: string; text: string; html: string } | null> {
+  try {
+    const contextStr = JSON.stringify(params.userContext, null, 2);
+
+    const systemPrompt = `You are Ghoste AI, an expert email copywriter for music artists. Generate compelling, personalized email content.
+
+User Context:
+${contextStr}
+
+Generate a professional email following these requirements:
+1. Subject line must be concise and compelling (max 60 chars)
+2. Body must be warm, personalized, and action-oriented
+3. Use the user's first name naturally
+4. Include a clear call-to-action
+5. Keep tone friendly but professional
+6. Body should be 2-4 short paragraphs`;
+
+    const userPrompt = `Subject Requirement: ${params.subjectPrompt}
+
+Body Requirement: ${params.bodyPrompt}
+
+Generate the email content as JSON:
+{
+  "subject": "...",
+  "body": "..."
+}`;
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
+    });
+
+    const content = completion.choices[0]?.message?.content;
+    if (!content) {
+      return null;
+    }
+
+    const parsed = JSON.parse(content);
+    if (!parsed.subject || !parsed.body) {
+      return null;
+    }
+
+    const text = parsed.body;
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
+    p { margin-bottom: 16px; }
+    a { color: #4F46E5; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .cta { display: inline-block; padding: 12px 24px; background: #4F46E5; color: white; border-radius: 6px; text-decoration: none; margin-top: 16px; }
+    .cta:hover { background: #4338CA; text-decoration: none; }
+  </style>
+</head>
+<body>
+  ${parsed.body.split('\n\n').map((para: string) => `<p>${para}</p>`).join('\n  ')}
+</body>
+</html>
+`.trim();
+
+    return {
+      subject: parsed.subject,
+      text,
+      html,
+    };
+  } catch (err: any) {
+    console.error('[generateEmailFromPrompts] Error:', err?.message || err);
+    return null;
+  }
+}
+
 async function sendViaMailgun(params: {
   to: string;
   subject: string;
@@ -194,42 +286,80 @@ async function processEmailJobs(): Promise<WorkerResult> {
           .eq('enabled', true)
           .maybeSingle();
 
-        if (templateError || !template) {
-          console.error('[EmailJobsRunNow] Template not found: ' + job.template_key);
+        let finalSubject = '';
+        let finalText = '';
+        let finalHtml = '';
 
-          await supabase
-            .from('email_jobs')
-            .update({
-              status: 'failed',
-              last_error: 'Template not found: ' + job.template_key,
-              attempts: job.attempts + 1,
-              updated_at: now,
-            })
-            .eq('id', job.id);
+        if (template) {
+          console.log('[EmailJobsRunNow] Using static template: ' + job.template_key);
 
-          result.failed++;
-          continue;
+          const safePayload = createSafePayload(job.payload, job.to_email);
+          const baseSubject = job.subject ?? template.subject ?? 'Ghoste One Update';
+          const baseText = template.body_text ?? '';
+          const baseHtml = template.body_html ?? '';
+
+          const renderedSubject = renderTemplate(baseSubject, safePayload);
+          const renderedText = renderTemplate(baseText, safePayload);
+          const renderedHtml = renderTemplate(baseHtml, safePayload);
+
+          finalSubject = finalizeRenderedContent(renderedSubject);
+          finalText = finalizeRenderedContent(renderedText);
+          finalHtml = finalizeRenderedContent(renderedHtml);
+        } else {
+          console.log('[EmailJobsRunNow] No static template, checking for prompts: ' + job.template_key);
+
+          const subjectPrompt = job.payload?.subject_prompt;
+          const bodyPrompt = job.payload?.body_prompt;
+
+          if (subjectPrompt && bodyPrompt) {
+            console.log('[EmailJobsRunNow] Using AI prompts for: ' + job.template_key);
+
+            const userContext = {
+              first_name: job.payload?.first_name || job.to_email.split('@')[0],
+              email: job.to_email,
+              ...job.payload,
+            };
+
+            const generated = await generateEmailFromPrompts({
+              subjectPrompt,
+              bodyPrompt,
+              userContext,
+            });
+
+            if (!generated) {
+              await supabase
+                .from('email_jobs')
+                .update({
+                  status: 'failed',
+                  last_error: 'AI generation failed for template: ' + job.template_key,
+                  attempts: job.attempts + 1,
+                  updated_at: now,
+                })
+                .eq('id', job.id);
+
+              result.failed++;
+              continue;
+            }
+
+            finalSubject = generated.subject;
+            finalText = generated.text;
+            finalHtml = generated.html;
+          } else {
+            await supabase
+              .from('email_jobs')
+              .update({
+                status: 'failed',
+                last_error: 'Template not found and no prompts available for: ' + job.template_key,
+                attempts: job.attempts + 1,
+                updated_at: now,
+              })
+              .eq('id', job.id);
+
+            result.failed++;
+            continue;
+          }
         }
 
-        // Create safe payload with guaranteed first_name fallback
-        const safePayload = createSafePayload(job.payload, job.to_email);
-
-        // Choose subject: job.subject takes priority, otherwise use template.subject, fallback to default
-        const baseSubject = job.subject ?? template.subject ?? 'Ghoste One Update';
-        const baseText = template.body_text ?? '';
-        const baseHtml = template.body_html ?? '';
-
-        // Render templates with payload
-        const renderedSubject = renderTemplate(baseSubject, safePayload);
-        const renderedText = renderTemplate(baseText, safePayload);
-        const renderedHtml = renderTemplate(baseHtml, safePayload);
-
-        // Finalize: replace leftover {{first_name}} with "there" and strip remaining tokens
-        const finalSubject = finalizeRenderedContent(renderedSubject);
-        const finalText = finalizeRenderedContent(renderedText);
-        const finalHtml = finalizeRenderedContent(renderedHtml);
-
-        // Log job details for debugging (check if subject still contains "{{")
         const hasUnresolvedTokens = finalSubject.includes('{{');
         console.log('[EmailJobsRunNow] Job ' + job.id + ' | To: ' + job.to_email + ' | Template: ' + job.template_key + ' | Subject: ' + finalSubject.substring(0, 80) + (hasUnresolvedTokens ? ' [WARN: unresolved tokens]' : ''));
 
