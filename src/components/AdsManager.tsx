@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle } from 'lucide-react';
+import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle, Copy, Edit3, ExternalLink } from 'lucide-react';
 import { safeToFixed, safeNumber } from '../utils/numbers';
 import { AICampaignWizard } from './campaigns/AICampaignWizard';
 
@@ -69,6 +69,12 @@ export default function AdsManager() {
     start_date: '',
     end_date: '',
   });
+  const [editingBudget, setEditingBudget] = useState<string | null>(null);
+  const [budgetFormData, setBudgetFormData] = useState({
+    budget_type: 'daily' as 'daily' | 'lifetime',
+    amount: '',
+  });
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -220,12 +226,150 @@ export default function AdsManager() {
   };
 
   const toggleCampaignStatus = async (campaign: Campaign) => {
-    const newStatus = campaign.status === 'active' ? 'paused' : 'active';
-    await supabase
-      .from('ad_campaigns')
-      .update({ status: newStatus })
-      .eq('id', campaign.id);
-    fetchCampaigns();
+    const enabled = campaign.status === 'paused' || campaign.status === 'draft';
+    setActionLoading(campaign.id);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('Please log in to manage campaigns');
+        return;
+      }
+
+      const response = await fetch('/api/meta/toggle', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          level: 'campaign',
+          id: campaign.id,
+          enabled,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(`Failed to ${enabled ? 'activate' : 'pause'} campaign: ${data.error || 'Unknown error'}`);
+      } else {
+        // Refresh campaigns to show updated status
+        fetchCampaigns();
+
+        if (data.draftOnly) {
+          alert(`Campaign ${enabled ? 'activated' : 'paused'} (draft only - will sync when published to Meta)`);
+        }
+      }
+    } catch (error: any) {
+      console.error('[toggleCampaignStatus] Error:', error);
+      alert(`Failed to toggle campaign: ${error.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const duplicateCampaign = async (campaign: Campaign) => {
+    setActionLoading(campaign.id);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('Please log in to duplicate campaigns');
+        return;
+      }
+
+      const response = await fetch('/api/meta/duplicate', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          campaign_id: campaign.id,
+          mode: 'draft', // Always create draft for now
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(`Failed to duplicate campaign: ${data.error || 'Unknown error'}`);
+      } else {
+        fetchCampaigns();
+        alert(`Campaign duplicated successfully as "${data.campaign.name}"`);
+      }
+    } catch (error: any) {
+      console.error('[duplicateCampaign] Error:', error);
+      alert(`Failed to duplicate campaign: ${error.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const openBudgetEditor = (campaign: Campaign) => {
+    setEditingBudget(campaign.id);
+    setBudgetFormData({
+      budget_type: campaign.daily_budget_cents ? 'daily' : 'lifetime',
+      amount: campaign.daily_budget_cents
+        ? (campaign.daily_budget_cents / 100).toFixed(2)
+        : campaign.lifetime_budget_cents
+          ? (campaign.lifetime_budget_cents / 100).toFixed(2)
+          : '',
+    });
+  };
+
+  const handleBudgetUpdate = async (campaignId: string) => {
+    setActionLoading(campaignId);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        alert('Please log in to update budget');
+        return;
+      }
+
+      const amountCents = Math.round(parseFloat(budgetFormData.amount) * 100);
+
+      if (isNaN(amountCents) || amountCents <= 0) {
+        alert('Please enter a valid budget amount');
+        return;
+      }
+
+      const response = await fetch('/api/meta/budget', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          level: 'campaign',
+          id: campaignId,
+          budget_type: budgetFormData.budget_type,
+          amount: amountCents,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        alert(`Failed to update budget: ${data.error || 'Unknown error'}`);
+      } else {
+        fetchCampaigns();
+        setEditingBudget(null);
+
+        if (data.draftOnly) {
+          alert('Budget updated (draft only - will sync when published to Meta)');
+        } else {
+          alert('Budget updated and synced to Meta successfully');
+        }
+      }
+    } catch (error: any) {
+      console.error('[handleBudgetUpdate] Error:', error);
+      alert(`Failed to update budget: ${error.message}`);
+    } finally {
+      setActionLoading(null);
+    }
   };
 
   const calculateCTR = (campaign: Campaign) => {
@@ -421,6 +565,9 @@ export default function AdsManager() {
                     {campaign.daily_budget_cents && (
                       <div>Daily Budget: ${(campaign.daily_budget_cents / 100).toFixed(2)}</div>
                     )}
+                    {campaign.lifetime_budget_cents && (
+                      <div>Lifetime Budget: ${(campaign.lifetime_budget_cents / 100).toFixed(2)}</div>
+                    )}
                     {campaign.budget && (
                       <div>Budget: ${safeToFixed(campaign.budget, 2)} | Spend: ${safeToFixed(campaign?.spend, 2)}</div>
                     )}
@@ -429,11 +576,29 @@ export default function AdsManager() {
                         Destination: {campaign.destination_url}
                       </div>
                     )}
-                    {campaign.meta_campaign_id && (
-                      <div className="text-xs font-mono text-blue-300">
-                        Meta Campaign: {campaign.meta_campaign_id}
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2 flex-wrap mt-2">
+                      {campaign.meta_campaign_id ? (
+                        <>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-600/20 border border-blue-500/30 rounded text-xs text-blue-300 font-mono">
+                            Meta: ...{campaign.meta_campaign_id.slice(-6)}
+                          </span>
+                          <a
+                            href={`https://business.facebook.com/adsmanager/manage/campaigns?act=${selectedAdAccountId || ''}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/20 hover:border-blue-500/40 rounded text-xs text-blue-400 transition-colors"
+                            title="View in Meta Ads Manager"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View in Meta
+                          </a>
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-600/20 border border-gray-500/30 rounded text-xs text-gray-400">
+                          Draft Only
+                        </span>
+                      )}
+                    </div>
                     {campaign.last_error && (
                       <div className="text-xs text-red-400 mt-1">
                         Error: {campaign.last_error}
@@ -445,7 +610,8 @@ export default function AdsManager() {
                   {(campaign.status === 'draft' || campaign.status === 'paused') && (
                     <button
                       onClick={() => toggleCampaignStatus(campaign)}
-                      className="p-2 text-gray-400 hover:text-green-400 hover:bg-gray-800 rounded-lg transition-colors"
+                      disabled={actionLoading === campaign.id}
+                      className="p-2 text-gray-400 hover:text-green-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Activate"
                     >
                       <Play className="w-5 h-5" />
@@ -454,15 +620,33 @@ export default function AdsManager() {
                   {campaign.status === 'active' && (
                     <button
                       onClick={() => toggleCampaignStatus(campaign)}
-                      className="p-2 text-gray-400 hover:text-yellow-400 hover:bg-gray-800 rounded-lg transition-colors"
+                      disabled={actionLoading === campaign.id}
+                      className="p-2 text-gray-400 hover:text-yellow-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Pause"
                     >
                       <Pause className="w-5 h-5" />
                     </button>
                   )}
                   <button
+                    onClick={() => duplicateCampaign(campaign)}
+                    disabled={actionLoading === campaign.id}
+                    className="p-2 text-gray-400 hover:text-blue-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Duplicate"
+                  >
+                    <Copy className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => openBudgetEditor(campaign)}
+                    disabled={actionLoading === campaign.id}
+                    className="p-2 text-gray-400 hover:text-purple-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Edit Budget"
+                  >
+                    <Edit3 className="w-5 h-5" />
+                  </button>
+                  <button
                     onClick={() => handleDelete(campaign.id)}
-                    className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors"
+                    disabled={actionLoading === campaign.id}
+                    className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-800 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Delete"
                   >
                     <Trash2 className="w-5 h-5" />
@@ -505,6 +689,63 @@ export default function AdsManager() {
             setShowModal(false);
           }}
         />
+      )}
+
+      {/* Budget Edit Modal */}
+      {editingBudget && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-xl font-semibold mb-4">Edit Budget</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Budget Type
+                </label>
+                <select
+                  value={budgetFormData.budget_type}
+                  onChange={(e) => setBudgetFormData({ ...budgetFormData, budget_type: e.target.value as 'daily' | 'lifetime' })}
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="daily">Daily Budget</option>
+                  <option value="lifetime">Lifetime Budget</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-2">
+                  Amount (USD)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={budgetFormData.amount}
+                  onChange={(e) => setBudgetFormData({ ...budgetFormData, amount: e.target.value })}
+                  className="w-full px-4 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => handleBudgetUpdate(editingBudget)}
+                disabled={actionLoading === editingBudget}
+                className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {actionLoading === editingBudget ? 'Updating...' : 'Update Budget'}
+              </button>
+              <button
+                onClick={() => setEditingBudget(null)}
+                disabled={actionLoading === editingBudget}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

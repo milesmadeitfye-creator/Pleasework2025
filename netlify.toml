@@ -101,6 +101,21 @@ to = "/.netlify/functions/meta-audiences"
 status = 200
 
 [[redirects]]
+from = "/api/meta/toggle"
+to = "/.netlify/functions/meta-campaign-toggle"
+status = 200
+
+[[redirects]]
+from = "/api/meta/duplicate"
+to = "/.netlify/functions/meta-campaign-duplicate"
+status = 200
+
+[[redirects]]
+from = "/api/meta/budget"
+to = "/.netlify/functions/meta-budget-update"
+status = 200
+
+[[redirects]]
 from = "/api/song-resolve"
 to = "/.netlify/functions/song-resolve"
 status = 200
