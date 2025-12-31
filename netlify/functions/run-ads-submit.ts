@@ -675,6 +675,10 @@ export const handler: Handler = async (event) => {
         meta_adset_id: metaResult.meta_adset_id,
         meta_permissions: metaResult.meta_permissions,
         ad_account_info: metaResult.ad_account_info,
+        meta_request_summary: metaResult.meta_request_summary,
+        adset_payload_preview: metaResult.adset_payload_preview,
+        ad_goal: metaResult.ad_goal,
+        objective: metaResult.objective,
       };
 
       await recordAdsOperation({
@@ -726,6 +730,7 @@ export const handler: Handler = async (event) => {
       meta_campaign_id: metaResult.meta_campaign_id,
       meta_adset_id: metaResult.meta_adset_id,
       meta_ad_id: metaResult.meta_ad_id,
+      meta_request_summary: metaResult.meta_request_summary, // Debug info
     };
 
     // Record successful publish operation
