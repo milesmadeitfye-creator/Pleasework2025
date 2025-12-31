@@ -89,34 +89,61 @@ interface MetaExecutionResult {
 }
 
 /**
- * Map ad_goal to Meta objective (backwards compatibility)
+ * Map ad_goal to Meta objective
  */
 function mapGoalToObjective(ad_goal: string): string {
-  const goal = ad_goal.toLowerCase();
+  const g = (ad_goal || "").toLowerCase().trim();
 
-  if (goal === 'link_clicks' || goal === 'traffic' || goal === 'streams') {
-    return 'OUTCOME_TRAFFIC';
+  // Normalize common aliases
+  const goal = g.replace(/\s+/g, "_").replace(/-/g, "_");
+
+  // Meta "Outcome" objectives (modern)
+  // If the rest of this function expects legacy objectives, we can adjust after build passes.
+  switch (goal) {
+    // Traffic / clicks
+    case "link_clicks":
+    case "traffic":
+    case "website_traffic":
+    case "landing_page_views":
+      return "OUTCOME_TRAFFIC";
+
+    // Awareness
+    case "awareness":
+    case "brand_awareness":
+    case "reach":
+      return "OUTCOME_AWARENESS";
+
+    // Engagement
+    case "engagement":
+    case "post_engagement":
+    case "page_likes":
+    case "video_views":
+    case "messages":
+      return "OUTCOME_ENGAGEMENT";
+
+    // Leads
+    case "leads":
+    case "lead_generation":
+    case "instant_forms":
+      return "OUTCOME_LEADS";
+
+    // Sales / conversions
+    case "conversions":
+    case "purchases":
+    case "sales":
+    case "website_purchases":
+      return "OUTCOME_SALES";
+
+    // App
+    case "app_installs":
+    case "app":
+    case "app_promotion":
+      return "OUTCOME_APP_PROMOTION";
+
+    default:
+      // Safe fallback so we never crash campaign creation
+      return "OUTCOME_TRAFFIC";
   }
-
-  if (goal === 'conversions' || goal === 'sales') {
-    return 'OUTCOME_SALES';
-  }
-
-  if (goal === 'leads' || goal === 'lead_generation') {
-    return 'OUTCOME_LEADS';
-  }
-
-  if (goal === 'awareness' || goal === 'reach') {
-    return 'OUTCOME_AWARENESS';
-  }
-
-  if (goal === 'engagement') {
-    return 'OUTCOME_ENGAGEMENT';
-  }
-
-  // Default to traffic for unknown goals
-  console.warn('[mapGoalToObjective] Unknown ad_goal, defaulting to OUTCOME_TRAFFIC:', ad_goal);
-  return 'OUTCOME_TRAFFIC';
 }
 
 /**
@@ -279,21 +306,6 @@ async function fetchMetaAssets(user_id: string, metaStatus?: any): Promise<MetaA
     console.error('[fetchMetaAssets] ❌ Exception:', err.message, err.stack);
     return null;
   }
-}
-
-/**
- * Map ad_goal to Meta objective
- */
-function mapGoalToObjective(ad_goal: string): string {
-  const goalMap: Record<string, string> = {
-    'link_clicks': 'OUTCOME_TRAFFIC',
-    'conversions': 'OUTCOME_LEADS',
-    'brand_awareness': 'OUTCOME_AWARENESS',
-    'reach': 'OUTCOME_AWARENESS',
-    'engagement': 'OUTCOME_ENGAGEMENT',
-  };
-
-  return goalMap[ad_goal.toLowerCase()] || 'OUTCOME_TRAFFIC';
 }
 
 /**
