@@ -4,6 +4,8 @@ import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { uploadMedia } from '../../lib/uploadMedia';
 import { AdsDebugPanel } from '../../components/ads/AdsDebugPanel';
+import { setAdsDebugLastRun } from '../../utils/adsDebugBus';
+import { sanitizeForDebug } from '../../utils/sanitizeForDebug';
 
 interface Creative {
   id: string;
@@ -234,6 +236,16 @@ export default function RunAdsPage() {
         json,
       });
 
+      // Push to debug bus (sanitized)
+      setAdsDebugLastRun({
+        at: new Date().toISOString(),
+        label: 'publish',
+        request: sanitizeForDebug(payload),
+        response: sanitizeForDebug(json),
+        status: res.status,
+        ok: res.ok,
+      });
+
       if (json.ok) {
         setLaunchResult(json);
         setStep(5);
@@ -253,11 +265,23 @@ export default function RunAdsPage() {
       const errorMessage = err.message || 'Failed to create campaign';
       const endTime = Date.now();
       setDebugTiming({ start: startTime, end: endTime });
+      const errorResponse = { error: errorMessage, message: err.message, stack: err.stack };
       setDebugResponse({
         status: 0,
         ok: false,
-        json: { error: errorMessage, message: err.message, stack: err.stack },
+        json: errorResponse,
       });
+
+      // Push error to debug bus (sanitized)
+      setAdsDebugLastRun({
+        at: new Date().toISOString(),
+        label: 'publish',
+        request: sanitizeForDebug(debugPayload || {}),
+        response: sanitizeForDebug(errorResponse),
+        status: 0,
+        ok: false,
+      });
+
       alert(errorMessage);
     } finally {
       setLaunching(false);
