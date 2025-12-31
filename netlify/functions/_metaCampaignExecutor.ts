@@ -265,80 +265,92 @@ export async function executeMetaCampaign(
 ): Promise<MetaExecutionResult> {
   console.log('[executeMetaCampaign] Starting for campaign:', input.campaign_id);
 
-  // Step 1: Fetch Meta assets
-  const assets = await fetchMetaAssets(input.user_id);
-  if (!assets) {
+  try {
+    // Step 1: Fetch Meta assets
+    console.log('[executeMetaCampaign] Step 1/4: Fetching Meta assets...');
+    const assets = await fetchMetaAssets(input.user_id);
+    if (!assets) {
+      return {
+        success: false,
+        error: 'Meta assets not configured. Connect Meta in Profile → Connected Accounts.',
+      };
+    }
+
+    console.log('[executeMetaCampaign] ✓ Assets loaded for user:', input.user_id);
+
+    // Step 2: Create Campaign
+    console.log('[executeMetaCampaign] Step 2/4: Creating Meta campaign...');
+    const objective = mapGoalToObjective(input.ad_goal);
+    const campaignName = `Ghoste Campaign ${input.campaign_id.slice(0, 8)}`;
+
+    const campaign = await createMetaCampaign(assets, campaignName, objective);
+    if (!campaign) {
+      return {
+        success: false,
+        error: 'Failed to create Meta campaign. Check ad account permissions.',
+      };
+    }
+
+    console.log('[executeMetaCampaign] ✓ Created campaign:', campaign.id);
+
+    // Step 3: Create Ad Set
+    console.log('[executeMetaCampaign] Step 3/4: Creating Meta ad set...');
+    const adsetName = `${campaignName} AdSet`;
+    const adset = await createMetaAdSet(
+      assets,
+      campaign.id,
+      adsetName,
+      input.daily_budget_cents,
+      input.destination_url
+    );
+
+    if (!adset) {
+      return {
+        success: false,
+        error: 'Failed to create Meta ad set. Campaign created but incomplete.',
+        meta_campaign_id: campaign.id,
+      };
+    }
+
+    console.log('[executeMetaCampaign] ✓ Created adset:', adset.id);
+
+    // Step 4: Create Ad
+    console.log('[executeMetaCampaign] Step 4/4: Creating Meta ad...');
+    const adName = `${campaignName} Ad`;
+    const ad = await createMetaAd(
+      assets,
+      adset.id,
+      adName,
+      input.destination_url,
+      input.creative_urls || []
+    );
+
+    if (!ad) {
+      return {
+        success: false,
+        error: 'Failed to create Meta ad. Campaign and ad set created but incomplete.',
+        meta_campaign_id: campaign.id,
+        meta_adset_id: adset.id,
+      };
+    }
+
+    console.log('[executeMetaCampaign] ✅ Full campaign published to Meta:', {
+      campaign: campaign.id,
+      adset: adset.id,
+      ad: ad.id,
+    });
+
     return {
-      success: false,
-      error: 'Meta assets not configured or not connected',
-    };
-  }
-
-  console.log('[executeMetaCampaign] Assets loaded for user:', input.user_id);
-
-  // Step 2: Create Campaign
-  const objective = mapGoalToObjective(input.ad_goal);
-  const campaignName = `Ghoste Campaign ${input.campaign_id.slice(0, 8)}`;
-
-  const campaign = await createMetaCampaign(assets, campaignName, objective);
-  if (!campaign) {
-    return {
-      success: false,
-      error: 'Failed to create Meta campaign',
-    };
-  }
-
-  console.log('[executeMetaCampaign] Created campaign:', campaign.id);
-
-  // Step 3: Create Ad Set
-  const adsetName = `${campaignName} AdSet`;
-  const adset = await createMetaAdSet(
-    assets,
-    campaign.id,
-    adsetName,
-    input.daily_budget_cents,
-    input.destination_url
-  );
-
-  if (!adset) {
-    return {
-      success: false,
-      error: 'Failed to create Meta ad set',
-      meta_campaign_id: campaign.id,
-    };
-  }
-
-  console.log('[executeMetaCampaign] Created adset:', adset.id);
-
-  // Step 4: Create Ad
-  const adName = `${campaignName} Ad`;
-  const ad = await createMetaAd(
-    assets,
-    adset.id,
-    adName,
-    input.destination_url,
-    input.creative_urls || []
-  );
-
-  if (!ad) {
-    return {
-      success: false,
-      error: 'Failed to create Meta ad',
+      success: true,
       meta_campaign_id: campaign.id,
       meta_adset_id: adset.id,
+      meta_ad_id: ad.id,
+    };
+  } catch (err: any) {
+    console.error('[executeMetaCampaign] Unexpected error:', err.message);
+    return {
+      success: false,
+      error: `Meta publish failed: ${err.message || 'Unknown error'}`,
     };
   }
-
-  console.log('[executeMetaCampaign] ✅ Full campaign created:', {
-    campaign: campaign.id,
-    adset: adset.id,
-    ad: ad.id,
-  });
-
-  return {
-    success: true,
-    meta_campaign_id: campaign.id,
-    meta_adset_id: adset.id,
-    meta_ad_id: ad.id,
-  };
 }

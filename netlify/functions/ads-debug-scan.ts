@@ -43,6 +43,13 @@ export const handler: Handler = async (event) => {
       operations: [],
       campaigns: [],
       drafts: [],
+      summary: {
+        total_campaigns: 0,
+        draft_count: 0,
+        published_count: 0,
+        failed_count: 0,
+        last_publish_attempt: null,
+      },
     };
 
     // Fetch recent operations for this user
@@ -51,12 +58,25 @@ export const handler: Handler = async (event) => {
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
-      .limit(25);
+      .limit(50);
 
     if (opsError) {
       console.error('[ads-debug-scan] Failed to fetch operations:', opsError);
     } else {
       result.operations = operations || [];
+
+      // Find last publish attempt
+      const publishOps = (operations || []).filter((op: any) =>
+        op.label?.includes('publish') || op.label === 'saveDraft'
+      );
+      if (publishOps.length > 0) {
+        result.summary.last_publish_attempt = {
+          label: publishOps[0].label,
+          created_at: publishOps[0].created_at,
+          ok: publishOps[0].ok,
+          error: publishOps[0].error,
+        };
+      }
     }
 
     // Try to fetch campaigns from various possible tables (gracefully handle missing tables)
@@ -65,13 +85,19 @@ export const handler: Handler = async (event) => {
     try {
       const { data: adCampaigns, error: campaignsError } = await supabase
         .from('ad_campaigns')
-        .select('id, created_at, status, name, meta_campaign_id, error, ad_goal, daily_budget_cents')
+        .select('id, created_at, updated_at, status, name, meta_campaign_id, meta_adset_id, meta_ad_id, last_error, ad_goal, daily_budget_cents, campaign_type')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(25);
 
       if (!campaignsError && adCampaigns) {
         result.campaigns = adCampaigns;
+
+        // Update summary
+        result.summary.total_campaigns = adCampaigns.length;
+        result.summary.draft_count = adCampaigns.filter((c: any) => c.status === 'draft').length;
+        result.summary.published_count = adCampaigns.filter((c: any) => c.status === 'published').length;
+        result.summary.failed_count = adCampaigns.filter((c: any) => c.status === 'failed').length;
       }
     } catch (e) {
       // Table doesn't exist, skip

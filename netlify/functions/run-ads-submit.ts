@@ -430,6 +430,17 @@ export const handler: Handler = async (event) => {
     // Mode is "publish" - execute Meta campaign creation
     console.log('[run-ads-submit] Mode is publish, executing Meta campaign...');
 
+    // Record publish attempt start
+    await recordAdsOperation({
+      label: 'publish_start',
+      request: requestBody,
+      response: { campaign_id: ghosteCampaignId, stage: 'starting_meta_publish' },
+      status: 200,
+      ok: true,
+      userId,
+      authHeader,
+    });
+
     const metaResult = await executeMetaCampaign({
       user_id: user.id,
       campaign_id: ghosteCampaignId,
@@ -458,10 +469,11 @@ export const handler: Handler = async (event) => {
         campaign_id: ghosteCampaignId,
         error: metaResult.error || 'Meta execution failed',
         meta_campaign_id: metaResult.meta_campaign_id,
+        stage: 'publish_failed',
       };
 
       await recordAdsOperation({
-        label: 'publish',
+        label: 'publish_failed',
         request: requestBody,
         response: responseData,
         status: statusCode,
@@ -510,9 +522,9 @@ export const handler: Handler = async (event) => {
       meta_ad_id: metaResult.meta_ad_id,
     };
 
-    // Record operation
+    // Record successful publish operation
     await recordAdsOperation({
-      label: 'publish',
+      label: 'publish_success',
       request: requestBody,
       response: responseData,
       status: statusCode,

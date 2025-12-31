@@ -311,7 +311,7 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         smart_link_slug: selectedSmartLink.slug,
         destination_url: smartLinkUrl,
         total_budget_cents: duration > 0 ? Math.round(dailyBudget * duration * 100) : null,
-        mode: 'draft', // Explicitly set mode to draft (server defaults to draft anyway)
+        mode: metaConnected ? 'publish' : 'draft', // Publish to Meta if connected, otherwise save as draft
       };
 
       console.log('[AICampaignWizard] Publishing campaign:', {
@@ -409,7 +409,13 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         status: result.status,
       });
 
-      notify('success', `Campaign created successfully! ${result.campaign_type || ''}`);
+      // Show appropriate success message
+      const wasPublished = result.status === 'published' && result.meta_campaign_id;
+      const successMessage = wasPublished
+        ? `Campaign published to Meta! ${result.campaign_type || ''}`
+        : `Campaign created! ${result.campaign_type || ''}`;
+
+      notify('success', successMessage);
 
       // Call onSuccess callback (triggers refetch in parent)
       onSuccess();
