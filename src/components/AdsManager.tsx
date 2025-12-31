@@ -7,17 +7,28 @@ import { AICampaignWizard } from './campaigns/AICampaignWizard';
 
 interface Campaign {
   id: string;
-  name: string;
-  platform: 'meta' | 'tiktok' | 'youtube';
-  status: 'draft' | 'active' | 'paused' | 'completed';
-  budget: number;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  start_date: string | null;
-  end_date: string | null;
+  name?: string;
+  ad_goal?: string;
+  campaign_type?: string;
+  platform?: 'meta' | 'tiktok' | 'youtube';
+  status: 'draft' | 'publishing' | 'published' | 'failed' | 'active' | 'paused' | 'completed';
+  budget?: number;
+  daily_budget_cents?: number;
+  total_budget_cents?: number;
+  spend?: number;
+  impressions?: number;
+  clicks?: number;
+  conversions?: number;
+  start_date?: string | null;
+  end_date?: string | null;
+  meta_campaign_id?: string;
+  meta_adset_id?: string;
+  meta_ad_id?: string;
+  destination_url?: string;
+  smart_link_slug?: string;
+  last_error?: string;
   created_at: string;
+  updated_at?: string;
 }
 
 const platformColors = {
@@ -28,6 +39,9 @@ const platformColors = {
 
 const statusColors = {
   draft: 'bg-gray-500/20 text-gray-400',
+  publishing: 'bg-blue-500/20 text-blue-400 animate-pulse',
+  published: 'bg-green-500/20 text-green-400',
+  failed: 'bg-red-500/20 text-red-400',
   active: 'bg-green-500/20 text-green-400',
   paused: 'bg-yellow-500/20 text-yellow-400',
   completed: 'bg-blue-500/20 text-blue-400',
@@ -381,21 +395,50 @@ export default function AdsManager() {
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    <h3 className="text-xl font-semibold">{campaign.name}</h3>
-                    <span
-                      className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                        platformColors[campaign.platform]
-                      }`}
-                    >
-                      {campaign.platform.toUpperCase()}
-                    </span>
+                  <div className="flex items-center gap-3 mb-2 flex-wrap">
+                    <h3 className="text-xl font-semibold">
+                      {campaign.name || campaign.campaign_type || campaign.ad_goal || 'Untitled Campaign'}
+                    </h3>
+                    {campaign.platform && (
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-medium border ${
+                          platformColors[campaign.platform]
+                        }`}
+                      >
+                        {campaign.platform.toUpperCase()}
+                      </span>
+                    )}
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusColors[campaign.status]}`}>
                       {campaign.status.toUpperCase()}
                     </span>
+                    {campaign.ad_goal && (
+                      <span className="px-2 py-1 bg-white/5 rounded text-xs text-white/70">
+                        {campaign.ad_goal}
+                      </span>
+                    )}
                   </div>
-                  <div className="text-sm text-gray-400">
-                    Budget: ${safeToFixed(campaign?.budget, 2)} | Spend: ${safeToFixed(campaign?.spend, 2)}
+                  <div className="text-sm text-gray-400 space-y-1">
+                    {campaign.daily_budget_cents && (
+                      <div>Daily Budget: ${(campaign.daily_budget_cents / 100).toFixed(2)}</div>
+                    )}
+                    {campaign.budget && (
+                      <div>Budget: ${safeToFixed(campaign.budget, 2)} | Spend: ${safeToFixed(campaign?.spend, 2)}</div>
+                    )}
+                    {campaign.destination_url && (
+                      <div className="text-xs truncate max-w-md">
+                        Destination: {campaign.destination_url}
+                      </div>
+                    )}
+                    {campaign.meta_campaign_id && (
+                      <div className="text-xs font-mono text-blue-300">
+                        Meta Campaign: {campaign.meta_campaign_id}
+                      </div>
+                    )}
+                    {campaign.last_error && (
+                      <div className="text-xs text-red-400 mt-1">
+                        Error: {campaign.last_error}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2">

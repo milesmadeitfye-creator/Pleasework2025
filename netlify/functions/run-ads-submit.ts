@@ -2,6 +2,7 @@ import type { Handler } from "@netlify/functions";
 import { getSupabaseAdmin } from "./_supabaseAdmin";
 import { buildAndLaunchCampaign, RunAdsInput } from "./_runAdsCampaignBuilder";
 import { recordAdsOperation } from "./_utils/recordAdsOperation";
+import { executeMetaCampaign } from "./_metaCampaignExecutor";
 
 function extractSmartLinkSlug(url: string | undefined): string | null {
   if (!url || typeof url !== 'string') return null;
@@ -65,6 +66,7 @@ export const handler: Handler = async (event) => {
       platform,
       profile_url,
       capture_page_url,
+      mode = 'draft',
     } = body;
 
     if (!ad_goal || !daily_budget_cents || !automation_mode) {
@@ -334,16 +336,157 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log('[run-ads-submit] ✅ Campaign launched:', result.campaign_id);
+    console.log('[run-ads-submit] ✅ Campaign analysis complete:', result.campaign_id);
+
+    // Step: INSERT into ad_campaigns (canonical source of truth)
+    const campaignStatus = mode === 'publish' ? 'publishing' : 'draft';
+
+    const { data: campaign, error: insertError } = await supabase
+      .from('ad_campaigns')
+      .insert({
+        user_id: user.id,
+        draft_id,
+        ad_goal,
+        campaign_type: result.campaign_type,
+        automation_mode,
+        status: campaignStatus,
+        smart_link_id: smartLink?.id,
+        smart_link_slug: smartLink?.slug,
+        destination_url: resolvedDestinationUrl,
+        daily_budget_cents,
+        total_budget_cents,
+        creative_ids: resolvedCreativeIds,
+        reasoning: result.reasoning,
+        confidence: result.confidence,
+        guardrails_applied: result.guardrails_applied,
+      })
+      .select('id')
+      .single();
+
+    if (insertError || !campaign) {
+      console.error('[run-ads-submit] Failed to insert campaign:', insertError);
+      return {
+        statusCode: 500,
+        body: JSON.stringify({
+          ok: false,
+          error: 'Failed to create campaign record',
+        }),
+      };
+    }
+
+    const ghosteCampaignId = campaign.id;
+    console.log('[run-ads-submit] ✅ Campaign saved to DB:', ghosteCampaignId);
+
+    // If mode is draft, return immediately
+    if (mode !== 'publish') {
+      statusCode = 200;
+      responseData = {
+        ok: true,
+        campaign_id: ghosteCampaignId,
+        campaign_type: result.campaign_type,
+        reasoning: result.reasoning,
+        confidence: result.confidence,
+        guardrails_applied: result.guardrails_applied,
+        status: 'draft',
+      };
+
+      await recordAdsOperation({
+        label: 'saveDraft',
+        request: requestBody,
+        response: responseData,
+        status: statusCode,
+        ok: true,
+        userId,
+        authHeader,
+      });
+
+      return {
+        statusCode,
+        body: JSON.stringify(responseData),
+      };
+    }
+
+    // Mode is "publish" - execute Meta campaign creation
+    console.log('[run-ads-submit] Mode is publish, executing Meta campaign...');
+
+    const metaResult = await executeMetaCampaign({
+      user_id: user.id,
+      campaign_id: ghosteCampaignId,
+      ad_goal,
+      daily_budget_cents,
+      destination_url: resolvedDestinationUrl,
+      creative_ids: resolvedCreativeIds,
+      creative_urls: resolvedCreativeUrls,
+    });
+
+    if (!metaResult.success) {
+      // Update campaign status to failed
+      await supabase
+        .from('ad_campaigns')
+        .update({
+          status: 'failed',
+          last_error: metaResult.error || 'Meta execution failed',
+          meta_campaign_id: metaResult.meta_campaign_id || null,
+          meta_adset_id: metaResult.meta_adset_id || null,
+        })
+        .eq('id', ghosteCampaignId);
+
+      statusCode = 400;
+      responseData = {
+        ok: false,
+        campaign_id: ghosteCampaignId,
+        error: metaResult.error || 'Meta execution failed',
+        meta_campaign_id: metaResult.meta_campaign_id,
+      };
+
+      await recordAdsOperation({
+        label: 'publish',
+        request: requestBody,
+        response: responseData,
+        status: statusCode,
+        ok: false,
+        error: metaResult.error,
+        userId,
+        authHeader,
+      });
+
+      return {
+        statusCode,
+        body: JSON.stringify(responseData),
+      };
+    }
+
+    // Success - update campaign with Meta IDs
+    await supabase
+      .from('ad_campaigns')
+      .update({
+        status: 'published',
+        meta_campaign_id: metaResult.meta_campaign_id,
+        meta_adset_id: metaResult.meta_adset_id,
+        meta_ad_id: metaResult.meta_ad_id,
+        last_error: null,
+      })
+      .eq('id', ghosteCampaignId);
+
+    console.log('[run-ads-submit] ✅ Campaign published to Meta:', {
+      ghoste_id: ghosteCampaignId,
+      meta_campaign_id: metaResult.meta_campaign_id,
+      meta_adset_id: metaResult.meta_adset_id,
+      meta_ad_id: metaResult.meta_ad_id,
+    });
 
     statusCode = 200;
     responseData = {
       ok: true,
-      campaign_id: result.campaign_id,
+      campaign_id: ghosteCampaignId,
       campaign_type: result.campaign_type,
       reasoning: result.reasoning,
       confidence: result.confidence,
       guardrails_applied: result.guardrails_applied,
+      status: 'published',
+      meta_campaign_id: metaResult.meta_campaign_id,
+      meta_adset_id: metaResult.meta_adset_id,
+      meta_ad_id: metaResult.meta_ad_id,
     };
 
     // Record operation
