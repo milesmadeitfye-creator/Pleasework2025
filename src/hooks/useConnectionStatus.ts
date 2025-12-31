@@ -2,12 +2,6 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 
-type ConnectedAccountRow = {
-  provider: string;
-  last_connected_at?: string;
-  data?: Record<string, any>;
-};
-
 export interface ConnectionStatus {
   loading: boolean;
   status: 'connected' | 'disconnected';
@@ -18,13 +12,6 @@ export interface ConnectionStatus {
   refresh: () => void;
 }
 
-/**
- * Hook to check if a specific provider is connected
- * Reads from the unified connected_accounts table
- *
- * @param provider - The provider to check ('meta', 'google_calendar', 'mailchimp', 'tiktok', etc.)
- * @returns Connection status with loading state
- */
 export function useConnectionStatus(provider: string): ConnectionStatus {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -45,71 +32,69 @@ export function useConnectionStatus(provider: string): ConnectionStatus {
       setLoading(true);
       setError(undefined);
 
-      // Special handling for Meta - use safe RPC instead of Netlify function or direct table query
       if (provider === 'meta') {
         try {
-          const { data: rpcData, error: rpcError } = await supabase.rpc('get_meta_connection_status');
-
-          if (rpcError) {
-            console.warn(`[useConnectionStatus] Meta RPC failed:`, rpcError);
-            setError(rpcError.message || 'Failed to check Meta connection');
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) {
+            console.warn('[useConnectionStatus] No session for Meta status check');
             setStatus('disconnected');
             setLastConnectedAt(undefined);
             setData(undefined);
             return;
           }
 
-          if (rpcData && rpcData.ok === false) {
-            console.warn(`[useConnectionStatus] Meta RPC returned error:`, rpcData.error);
-            setError(rpcData.error || 'Failed to check Meta connection');
-            setStatus('disconnected');
-            setLastConnectedAt(undefined);
-            setData(undefined);
-            return;
-          }
+          const response = await fetch('/.netlify/functions/meta-status', {
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+          });
 
-          // Use auth_connected for connection status (not assets_configured)
-          // auth_connected = true means OAuth token is valid
-          // assets_configured = true means required assets are selected
-          const authConnected = rpcData?.auth_connected === true;
-          const assetsConfigured = rpcData?.assets_configured === true;
+          const metaData = await response.json();
+
+          const authConnected = metaData?.auth_connected === true;
+          const assetsConfigured = metaData?.assets_configured === true;
 
           console.log('[useConnectionStatus] Meta status:', {
             auth_connected: authConnected,
             assets_configured: assetsConfigured,
-            missing_assets: rpcData?.missing_assets,
+            checkmarks: metaData?.checkmarks,
+            source: metaData?.source,
           });
 
           if (authConnected) {
             setStatus('connected');
-            setLastConnectedAt(rpcData.last_updated || undefined);
+            setLastConnectedAt(undefined);
             setData({
               auth_connected: authConnected,
               assets_configured: assetsConfigured,
-              missing_assets: rpcData.missing_assets || [],
-              ad_account_id: rpcData.ad_account_id,
-              ad_account_name: rpcData.ad_account_name,
-              page_id: rpcData.page_id,
-              page_name: rpcData.page_name,
-              instagram_actor_id: rpcData.instagram_actor_id,
-              instagram_account_count: rpcData.instagram_account_count || 0,
-              pixel_id: rpcData.pixel_id,
-              has_valid_token: rpcData.has_token && rpcData.token_valid,
+              ready_to_run_ads: metaData.ready_to_run_ads,
+              missing_required: metaData.missing_required || [],
+              ad_account_id: metaData.ad_account_id,
+              ad_account_name: metaData.ad_account_name,
+              page_id: metaData.page_id,
+              page_name: metaData.page_name,
+              instagram_actor_id: metaData.instagram_actor_id,
+              instagram_username: metaData.instagram_username,
+              pixel_id: metaData.pixel_id,
+              checkmarks: metaData.checkmarks,
+              optional: metaData.optional,
             });
           } else {
             setStatus('disconnected');
             setLastConnectedAt(undefined);
-            setData(undefined);
+            setData({
+              checkmarks: metaData.checkmarks,
+              needs_reconnect: metaData.needs_reconnect,
+            });
           }
         } catch (fetchErr: any) {
-          console.error(`[useConnectionStatus] Error calling Meta RPC:`, fetchErr);
+          console.error('[useConnectionStatus] Error calling meta-status:', fetchErr);
           setError(fetchErr?.message || 'Network error');
           setStatus('disconnected');
         }
         return;
       }
 
-      // For other providers (mailchimp, tiktok, google_calendar), use connected_accounts table
       const { data: row, error: queryError } = await supabase
         .from('connected_accounts')
         .select('provider, last_connected_at, data')
@@ -122,7 +107,6 @@ export function useConnectionStatus(provider: string): ConnectionStatus {
         setError(queryError.message);
         setStatus('disconnected');
       } else if (row && (row.last_connected_at || row.data)) {
-        // Connected if row exists and has either last_connected_at or data with tokens
         setStatus('connected');
         setLastConnectedAt(row.last_connected_at || undefined);
         setData(row.data || undefined);

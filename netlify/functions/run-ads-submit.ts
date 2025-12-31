@@ -39,6 +39,7 @@ export const handler: Handler = async (event) => {
       daily_budget_cents,
       automation_mode,
       creative_ids,
+      creatives,
       draft_id,
       total_budget_cents,
       smart_link_id,
@@ -48,7 +49,6 @@ export const handler: Handler = async (event) => {
       capture_page_url,
     } = body;
 
-    // Validate required fields
     if (!ad_goal || !daily_budget_cents || !automation_mode) {
       return {
         statusCode: 400,
@@ -60,10 +60,26 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Load creatives from DB if draft_id provided OR if creative_ids not provided
-    let resolvedCreativeIds = creative_ids || [];
+    let resolvedCreativeIds: string[] = [];
+    let resolvedCreativeUrls: string[] = [];
 
-    if (draft_id && (!creative_ids || creative_ids.length === 0)) {
+    if (creative_ids && creative_ids.length > 0) {
+      resolvedCreativeIds = creative_ids;
+      console.log('[run-ads-submit] Using creative_ids from body:', resolvedCreativeIds.length);
+    } else if (creatives && Array.isArray(creatives) && creatives.length > 0) {
+      resolvedCreativeIds = creatives
+        .filter((c: any) => c.id)
+        .map((c: any) => c.id);
+      resolvedCreativeUrls = creatives
+        .filter((c: any) => c.url || c.public_url)
+        .map((c: any) => c.url || c.public_url);
+      console.log('[run-ads-submit] Using creatives array from body:', {
+        ids: resolvedCreativeIds.length,
+        urls: resolvedCreativeUrls.length,
+      });
+    }
+
+    if (resolvedCreativeIds.length === 0 && draft_id) {
       console.log('[run-ads-submit] Loading creatives from DB for draft:', draft_id);
 
       const { data: dbCreatives, error: creativesError } = await supabase
@@ -75,45 +91,35 @@ export const handler: Handler = async (event) => {
 
       if (creativesError) {
         console.error('[run-ads-submit] Failed to load creatives from DB:', creativesError);
-        return {
-          statusCode: 400,
-          body: JSON.stringify({
-            ok: false,
-            error: "failed_to_load_creatives",
-            details: creativesError.message,
-          }),
-        };
+      } else if (dbCreatives && dbCreatives.length > 0) {
+        resolvedCreativeIds = dbCreatives.map(c => c.id);
+        resolvedCreativeUrls = dbCreatives.map(c => c.public_url).filter(Boolean);
+        console.log('[run-ads-submit] Loaded creatives from DB:', resolvedCreativeIds.length);
+      } else {
+        console.warn('[run-ads-submit] No creatives found in DB for draft:', draft_id);
       }
-
-      if (!dbCreatives || dbCreatives.length === 0) {
-        console.error('[run-ads-submit] No creatives found for draft:', draft_id);
-        return {
-          statusCode: 400,
-          body: JSON.stringify({
-            ok: false,
-            error: "no_creatives_found",
-            details: `No creatives found for draft_id: ${draft_id}. User must upload creatives first.`,
-            debug: {
-              draft_id,
-              user_id: user.id,
-              checked_table: 'ad_creatives',
-            },
-          }),
-        };
-      }
-
-      resolvedCreativeIds = dbCreatives.map(c => c.id);
-      console.log('[run-ads-submit] Loaded creatives from DB:', resolvedCreativeIds.length);
     }
 
-    // Final validation: must have at least one creative
-    if (!resolvedCreativeIds || resolvedCreativeIds.length === 0) {
+    if (resolvedCreativeIds.length === 0 && resolvedCreativeUrls.length === 0) {
+      console.error('[run-ads-submit] No creatives provided', {
+        creative_ids_provided: !!creative_ids,
+        creatives_provided: !!creatives,
+        draft_id_provided: !!draft_id,
+        user_id: user.id,
+      });
+
       return {
         statusCode: 400,
         body: JSON.stringify({
           ok: false,
-          error: "no_creatives",
-          details: "At least one creative is required. Provide creative_ids or draft_id with uploaded creatives.",
+          error: "no_creatives_selected",
+          details: "At least one creative is required. Upload creatives or provide creative_ids/creatives array.",
+          debug: {
+            creative_ids_count: creative_ids?.length || 0,
+            creatives_count: creatives?.length || 0,
+            draft_id,
+            user_id: user.id,
+          },
         }),
       };
     }

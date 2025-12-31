@@ -112,21 +112,37 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
     })();
   }, [user]);
 
-  // Check Meta connection status
+  // Check Meta connection status via canonical endpoint
   useEffect(() => {
     (async () => {
       if (!user) return;
       setCheckingMeta(true);
       try {
-        const { data } = await supabase.rpc('get_meta_connection_status');
-        // Use auth_connected to unlock Configure Assets wizard
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) {
+          console.warn('[AICampaignWizard] No session for Meta status check');
+          setMetaConnected(false);
+          setMetaAssetsConfigured(false);
+          return;
+        }
+
+        const response = await fetch('/.netlify/functions/meta-status', {
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        });
+
+        const data = await response.json();
+
         setMetaConnected(data?.auth_connected === true);
         setMetaAssetsConfigured(data?.assets_configured === true);
 
         console.log('[AICampaignWizard] Meta status:', {
           auth_connected: data?.auth_connected,
           assets_configured: data?.assets_configured,
-          missing_assets: data?.missing_assets,
+          ready_to_run_ads: data?.ready_to_run_ads,
+          checkmarks: data?.checkmarks,
+          source: data?.source,
         });
       } catch (err) {
         console.error('[AICampaignWizard] Failed to check Meta status:', err);

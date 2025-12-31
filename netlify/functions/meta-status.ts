@@ -15,11 +15,18 @@ const supabase = createClient(
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Content-Type': 'application/json',
 };
 
-/**
- * Lightweight check to validate Meta access token
- */
+function normalizeAdAccountId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('act_')) return trimmed;
+  if (/^\d+$/.test(trimmed)) return `act_${trimmed}`;
+  return trimmed;
+}
+
 async function validateMetaToken(accessToken: string): Promise<{ valid: boolean; error?: any }> {
   try {
     const res = await fetch('https://graph.facebook.com/v20.0/me?fields=id', {
@@ -45,16 +52,27 @@ export const handler: Handler = async (event: HandlerEvent) => {
   const functionName = 'meta-status';
 
   try {
-    // 1. Authenticate user from JWT
     const authHeader = event.headers.authorization;
     if (!authHeader) {
       console.log(`[${functionName}] Missing authorization header`);
       return {
-        statusCode: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        statusCode: 200,
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Missing authorization header',
-          debug: { token_present: false }
+          auth_connected: false,
+          assets_configured: false,
+          ready_to_run_ads: false,
+          missing_required: ['authentication'],
+          optional: { pixel_set: false, instagram_set: false },
+          checkmarks: {
+            step1_auth: false,
+            step2_ad_account: false,
+            step3_page: false,
+            step4_instagram: false,
+            step5_pixel: false,
+          },
+          connected: false,
+          source: 'no_auth',
         }),
       };
     }
@@ -65,179 +83,292 @@ export const handler: Handler = async (event: HandlerEvent) => {
     if (userError || !user) {
       console.error(`[${functionName}] User lookup failed:`, userError);
       return {
-        statusCode: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        statusCode: 200,
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Unauthorized',
-          debug: { token_present: false }
+          auth_connected: false,
+          assets_configured: false,
+          ready_to_run_ads: false,
+          missing_required: ['authentication'],
+          optional: { pixel_set: false, instagram_set: false },
+          checkmarks: {
+            step1_auth: false,
+            step2_ad_account: false,
+            step3_page: false,
+            step4_instagram: false,
+            step5_pixel: false,
+          },
+          connected: false,
+          source: 'invalid_token',
         }),
       };
     }
 
     console.log(`[${functionName}] Checking status for user:`, user.id);
 
-    // 2. Query meta_credentials (SOURCE OF TRUTH)
     const { data: creds, error: credsError } = await supabase
       .from('meta_credentials')
       .select('*')
       .eq('user_id', user.id)
       .maybeSingle();
 
-    const debugInfo = {
-      user_id: user.id,
-      row_found: !!creds,
-      token_present: !!creds?.access_token,
-      token_len: creds?.access_token?.length || 0,
-      token_field: 'access_token',
-      ad_account_id: !!creds?.ad_account_id,
-      page_id: !!creds?.page_id,
-      setup_completed_at: !!creds?.setup_completed_at,
-      is_active: creds?.is_active !== false,
-    };
-
-    console.log(`[${functionName}] Query result:`, debugInfo);
-
     if (credsError) {
       console.error(`[${functionName}] Database error:`, credsError);
       return {
-        statusCode: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        statusCode: 200,
+        headers: corsHeaders,
         body: JSON.stringify({
-          error: 'Database error',
-          debug: debugInfo
+          auth_connected: false,
+          assets_configured: false,
+          ready_to_run_ads: false,
+          missing_required: ['database_error'],
+          optional: { pixel_set: false, instagram_set: false },
+          checkmarks: {
+            step1_auth: false,
+            step2_ad_account: false,
+            step3_page: false,
+            step4_instagram: false,
+            step5_pixel: false,
+          },
+          connected: false,
+          source: 'error',
+          error: credsError.message,
         }),
       };
     }
 
-    // 3. If no credentials or no token = not connected
     if (!creds || !creds.access_token) {
+      console.log(`[${functionName}] No meta_credentials found, checking connected_accounts...`);
+
+      const { data: connectedAccount } = await supabase
+        .from('connected_accounts')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('provider', 'meta')
+        .maybeSingle();
+
+      if (connectedAccount && connectedAccount.access_token) {
+        const metadata = connectedAccount.metadata || {};
+        const adAccountId = normalizeAdAccountId(metadata.ad_account_id);
+        const pageId = metadata.page_id || metadata.facebook_page_id;
+        const pixelId = metadata.pixel_id;
+        const instagramActorId = metadata.instagram_actor_id || metadata.instagram_id;
+
+        let tokenValid = true;
+        if (connectedAccount.expires_at) {
+          tokenValid = new Date(connectedAccount.expires_at) > new Date();
+        }
+
+        const missingRequired: string[] = [];
+        if (!tokenValid) missingRequired.push('access_token');
+        if (!adAccountId) missingRequired.push('ad_account_id');
+        if (!pageId) missingRequired.push('page_id');
+
+        const authConnected = tokenValid;
+        const assetsConfigured = !!(adAccountId && pageId);
+
+        console.log(`[${functionName}] Using connected_accounts fallback:`, {
+          auth_connected: authConnected,
+          assets_configured: assetsConfigured,
+        });
+
+        return {
+          statusCode: 200,
+          headers: corsHeaders,
+          body: JSON.stringify({
+            auth_connected: authConnected,
+            assets_configured: assetsConfigured,
+            ready_to_run_ads: authConnected && assetsConfigured,
+            ad_account_id: adAccountId,
+            page_id: pageId,
+            pixel_id: pixelId,
+            instagram_actor_id: instagramActorId,
+            missing_required: missingRequired,
+            optional: {
+              pixel_set: !!pixelId,
+              instagram_set: !!instagramActorId,
+            },
+            checkmarks: {
+              step1_auth: authConnected,
+              step2_ad_account: !!adAccountId,
+              step3_page: !!pageId,
+              step4_instagram: !!instagramActorId,
+              step5_pixel: !!pixelId,
+            },
+            connected: authConnected,
+            canPostFB: !!pageId,
+            canPostIG: !!instagramActorId,
+            source: 'connected_accounts',
+          }),
+        };
+      }
+
       console.log(`[${functionName}] No Meta connection found`);
       return {
         statusCode: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: corsHeaders,
         body: JSON.stringify({
+          auth_connected: false,
+          assets_configured: false,
+          ready_to_run_ads: false,
+          ad_account_id: null,
+          page_id: null,
+          pixel_id: null,
+          instagram_actor_id: null,
+          missing_required: ['access_token', 'ad_account_id', 'page_id'],
+          optional: { pixel_set: false, instagram_set: false },
+          checkmarks: {
+            step1_auth: false,
+            step2_ad_account: false,
+            step3_page: false,
+            step4_instagram: false,
+            step5_pixel: false,
+          },
           connected: false,
           needs_reconnect: false,
           setup_complete: false,
-          selected: {
-            ad_account_id: null,
-            ad_account_name: null,
-            page_id: null,
-            page_name: null,
-            instagram_account_id: null,
-            instagram_username: null,
-            pixel_id: null,
-            pixel_name: null,
-          },
-          debug: debugInfo
+          source: 'none',
         }),
       };
     }
 
-    // 4. Validate token with Meta API (lightweight check)
     const tokenCheck = await validateMetaToken(creds.access_token);
 
     if (!tokenCheck.valid) {
       const error = tokenCheck.error;
       const errorCode = error?.error?.code;
-      const errorSubcode = error?.error?.error_subcode;
 
       console.log(`[${functionName}] Token validation failed:`, {
         code: errorCode,
-        subcode: errorSubcode,
         message: error?.error?.message?.substring(0, 100)
       });
 
-      // OAuth error 190 = token invalid/expired
       if (errorCode === 190) {
-        console.log(`[${functionName}] OAuth 190 detected, clearing token`);
+        console.log(`[${functionName}] OAuth 190 detected, marking needs_reconnect`);
 
-        // Clear the invalid token
         await supabase
           .from('meta_credentials')
           .update({
-            access_token: null,
-            token_expires_at: null,
             is_active: false
           })
           .eq('user_id', user.id);
 
         return {
           statusCode: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: corsHeaders,
           body: JSON.stringify({
-            connected: false,
+            auth_connected: false,
+            assets_configured: false,
+            ready_to_run_ads: false,
             needs_reconnect: true,
-            setup_complete: false,
-            selected: {
-              ad_account_id: null,
-              ad_account_name: null,
-              page_id: null,
-              page_name: null,
-              instagram_account_id: null,
-              instagram_username: null,
-              pixel_id: null,
-              pixel_name: null,
+            missing_required: ['access_token'],
+            optional: { pixel_set: false, instagram_set: false },
+            checkmarks: {
+              step1_auth: false,
+              step2_ad_account: false,
+              step3_page: false,
+              step4_instagram: false,
+              step5_pixel: false,
             },
-            debug: {
-              ...debugInfo,
-              meta_error_code: errorCode,
-              meta_error_subcode: errorSubcode,
-              token_cleared: true
-            }
+            connected: false,
+            setup_complete: false,
+            source: 'meta_credentials',
+            token_invalid: true,
           }),
         };
       }
     }
 
-    // 5. Token is valid - determine connection state
-    const connected = true;
-    const needsReconnect = !creds.is_active;
+    const adAccountId = normalizeAdAccountId(creds.ad_account_id || creds.default_ad_account_id);
+    const pageId = creds.page_id || creds.default_page_id || creds.facebook_page_id;
+    const pixelId = creds.pixel_id || creds.default_pixel_id;
+    const instagramActorId = creds.instagram_actor_id || creds.instagram_id || creds.default_instagram_id;
 
-    // setup_complete = ad_account_id AND page_id present (business_id NOT required, pixel optional)
-    const setupComplete = connected &&
-                          !!creds.ad_account_id &&
-                          !!creds.page_id &&
-                          !!creds.setup_completed_at;
+    const missingRequired: string[] = [];
+    if (!adAccountId) missingRequired.push('ad_account_id');
+    if (!pageId) missingRequired.push('page_id');
+
+    const authConnected = true;
+    const assetsConfigured = !!(adAccountId && pageId);
+    const readyToRunAds = authConnected && assetsConfigured;
+    const setupComplete = assetsConfigured && !!creds.setup_completed_at;
 
     console.log(`[${functionName}] Status determined:`, {
-      connected,
-      needs_reconnect: needsReconnect,
-      setup_complete: setupComplete,
+      auth_connected: authConnected,
+      assets_configured: assetsConfigured,
+      ready_to_run_ads: readyToRunAds,
+      ad_account_id: adAccountId,
+      page_id: pageId,
+      pixel_id: pixelId,
+      instagram_actor_id: instagramActorId,
     });
 
     return {
       statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: corsHeaders,
       body: JSON.stringify({
-        connected,
-        needs_reconnect: needsReconnect,
+        auth_connected: authConnected,
+        assets_configured: assetsConfigured,
+        ready_to_run_ads: readyToRunAds,
+        ad_account_id: adAccountId,
+        ad_account_name: creds.ad_account_name,
+        page_id: pageId,
+        page_name: creds.facebook_page_name || creds.page_name,
+        pixel_id: pixelId,
+        pixel_name: creds.pixel_name,
+        instagram_actor_id: instagramActorId,
+        instagram_username: creds.instagram_username,
+        meta_user_id: creds.meta_user_id,
+        meta_user_name: creds.meta_user_name,
+        business_id: creds.business_id,
+        missing_required: missingRequired,
+        optional: {
+          pixel_set: !!pixelId,
+          instagram_set: !!instagramActorId,
+        },
+        checkmarks: {
+          step1_auth: authConnected,
+          step2_ad_account: !!adAccountId,
+          step3_page: !!pageId,
+          step4_instagram: !!instagramActorId,
+          step5_pixel: !!pixelId,
+        },
+        connected: authConnected,
+        needs_reconnect: creds.is_active === false,
         setup_complete: setupComplete,
+        canPostFB: !!pageId && (creds.page_posting_enabled !== false),
+        canPostIG: !!instagramActorId && (creds.instagram_posting_enabled !== false),
         selected: {
-          ad_account_id: creds.ad_account_id,
+          ad_account_id: adAccountId,
           ad_account_name: creds.ad_account_name,
-          page_id: creds.page_id || creds.facebook_page_id,
+          page_id: pageId,
           page_name: creds.facebook_page_name,
-          instagram_account_id: creds.instagram_id || creds.default_instagram_id,
+          instagram_account_id: instagramActorId,
           instagram_username: creds.instagram_username,
-          pixel_id: creds.pixel_id,
+          pixel_id: pixelId,
           pixel_name: creds.pixel_name,
         },
-        debug: {
-          ...debugInfo,
-          meta_api_check: tokenCheck.valid ? 'passed' : 'failed',
-        }
+        source: 'meta_credentials',
       }),
     };
   } catch (error: any) {
     console.error(`[${functionName}] Fatal error:`, error);
     return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      statusCode: 200,
+      headers: corsHeaders,
       body: JSON.stringify({
-        error: 'Internal server error',
-        message: error?.message,
-        debug: { fatal_error: true }
+        auth_connected: false,
+        assets_configured: false,
+        ready_to_run_ads: false,
+        error: error.message,
+        source: 'error',
+        checkmarks: {
+          step1_auth: false,
+          step2_ad_account: false,
+          step3_page: false,
+          step4_instagram: false,
+          step5_pixel: false,
+        },
       }),
     };
   }

@@ -70,6 +70,10 @@ const PublicSplitNegotiation = lazyWithRecovery(() => import('./pages/PublicSpli
 const SplitInviteResponsePage = lazyWithRecovery(() => import('./pages/SplitInviteResponsePage'));
 const ListeningPartyHostPage = lazyWithRecovery(() => import('./pages/ListeningPartyHostPage'));
 
+// OAuth Callback Pages
+const MetaOAuthComplete = lazyWithRecovery(() => import('./pages/auth/MetaOAuthComplete'));
+const GoogleCalendarOAuthComplete = lazyWithRecovery(() => import('./pages/auth/GoogleCalendarOAuthComplete'));
+
 // Success pages
 const CheckoutSuccessPage = lazyWithRecovery(() => import('./pages/CheckoutSuccessPage'));
 const CheckoutSuccess = lazyWithRecovery(() => import('./pages/CheckoutSuccess'));
@@ -609,6 +613,10 @@ function App() {
           <Route path="/live/:slug" element={<PublicListeningPartyWebRTC />} />
           <Route path="/split/:token" element={<PublicSplitNegotiation />} />
           <Route path="/splits/invite/:token" element={<SplitInviteResponsePage />} />
+
+          {/* OAuth Callback Routes - Must be before catch-all */}
+          <Route path="/oauth-complete/meta" element={<MetaOAuthComplete />} />
+          <Route path="/oauth-complete/google-calendar" element={<GoogleCalendarOAuthComplete />} />
 
           {/* Catch-all 404 - In-app 404 for unknown routes */}
           <Route

@@ -52,6 +52,7 @@
 /profile/*                        /index.html                                    200
 /settings/*                       /index.html                                    200
 /dashboard/*                      /index.html                                    200
+/oauth-complete/*                 /index.html                                    200
 
 # SPA Catch-all (MUST be last)
 # This serves the React app for all unmatched routes including /s/:slug and /l/:slug
