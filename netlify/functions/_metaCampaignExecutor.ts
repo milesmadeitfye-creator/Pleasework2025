@@ -1,9 +1,17 @@
 /**
  * Meta Campaign Executor
  * Creates real Meta campaigns/adsets/ads via Marketing API
+ * Mode: ABO (Ad Set Budget Optimization)
  */
 
 import { getSupabaseAdmin } from "./_supabaseAdmin";
+import {
+  buildMetaCampaignPayload,
+  buildMetaAdSetPayload,
+  sanitizeAdSetPayload,
+  sanitizeCampaignPayload,
+  getPayloadDebugInfo,
+} from "./_metaPayloadBuilders";
 
 interface MetaAssets {
   access_token: string;
@@ -46,6 +54,17 @@ interface MetaExecutionResult {
   meta_permissions?: any;
   ad_account_info?: any;
   adset_payload_preview?: any;
+  adset_payload_debug?: {
+    has_bid_amount: boolean;
+    has_cost_cap: boolean;
+    has_target_cost: boolean;
+    has_bid_constraints: boolean;
+    has_promoted_object: boolean;
+    has_custom_event_type: boolean;
+    bid_strategy: string;
+    optimization_goal: string;
+    billing_event: string;
+  };
   ad_goal?: string;
   objective?: string;
   meta_request_summary?: {
@@ -53,69 +72,51 @@ interface MetaExecutionResult {
       objective: string;
       has_budget: boolean;
       is_adset_budget_sharing_enabled: boolean;
+      mode: string;
     };
     adset?: {
       optimization_goal: string;
       billing_event: string;
       bid_strategy: string;
+      has_daily_budget: boolean;
+      daily_budget_cents?: number;
       destination_type?: string;
       has_promoted_object: boolean;
       promoted_object_type?: string;
+      mode: string;
     };
   };
 }
 
 /**
- * Valid Meta custom_event_type values per Meta Ads API documentation
+ * Map ad_goal to Meta objective (backwards compatibility)
  */
-const VALID_CUSTOM_EVENT_TYPES = [
-  'RATE', 'TUTORIAL_COMPLETION', 'CONTACT', 'CUSTOMIZE_PRODUCT', 'DONATE',
-  'FIND_LOCATION', 'SCHEDULE', 'START_TRIAL', 'SUBMIT_APPLICATION', 'SUBSCRIBE',
-  'ADD_TO_CART', 'ADD_TO_WISHLIST', 'INITIATED_CHECKOUT', 'ADD_PAYMENT_INFO',
-  'PURCHASE', 'LEAD', 'COMPLETE_REGISTRATION', 'CONTENT_VIEW', 'SEARCH',
-  'SERVICE_BOOKING_REQUEST', 'MESSAGING_CONVERSATION_STARTED_7D',
-  'LEVEL_ACHIEVED', 'ACHIEVEMENT_UNLOCKED', 'SPENT_CREDITS'
-];
-
-/**
- * Build promoted_object for ad set based on ad goal
- * Returns undefined for traffic/link clicks (no promoted_object needed)
- * Returns valid promoted_object for conversion/lead goals
- */
-function buildPromotedObject(ad_goal: string, meta_status?: any): any | undefined {
+function mapGoalToObjective(ad_goal: string): string {
   const goal = ad_goal.toLowerCase();
 
-  // Traffic/link clicks: NO promoted_object
   if (goal === 'link_clicks' || goal === 'traffic' || goal === 'streams') {
-    console.log('[buildPromotedObject] Traffic goal - no promoted_object needed');
-    return undefined;
+    return 'OUTCOME_TRAFFIC';
   }
 
-  // Conversions: Use pixel_id with valid custom_event_type
   if (goal === 'conversions' || goal === 'sales') {
-    if (meta_status?.pixel_id) {
-      console.log('[buildPromotedObject] Conversion goal - using pixel_id');
-      return {
-        pixel_id: meta_status.pixel_id,
-        custom_event_type: 'PURCHASE', // Valid for conversion goals
-      };
-    }
+    return 'OUTCOME_SALES';
   }
 
-  // Leads: Use page_id
   if (goal === 'leads' || goal === 'lead_generation') {
-    if (meta_status?.page_id) {
-      console.log('[buildPromotedObject] Lead goal - using page_id');
-      return {
-        page_id: meta_status.page_id,
-        // No custom_event_type for lead forms
-      };
-    }
+    return 'OUTCOME_LEADS';
   }
 
-  // Default: no promoted_object
-  console.log('[buildPromotedObject] No promoted_object for goal:', goal);
-  return undefined;
+  if (goal === 'awareness' || goal === 'reach') {
+    return 'OUTCOME_AWARENESS';
+  }
+
+  if (goal === 'engagement') {
+    return 'OUTCOME_ENGAGEMENT';
+  }
+
+  // Default to traffic for unknown goals
+  console.warn('[mapGoalToObjective] Unknown ad_goal, defaulting to OUTCOME_TRAFFIC:', ad_goal);
+  return 'OUTCOME_TRAFFIC';
 }
 
 /**
@@ -365,35 +366,28 @@ function sanitizeAdsetPayload(payload: any, ad_goal: string): any {
 }
 
 /**
- * Create Meta Campaign with Campaign Budget Optimization (CBO)
+ * Create Meta Campaign with Ad Set Budget Optimization (ABO)
  * @throws Error with Meta Graph API error details if creation fails
  */
 async function createMetaCampaign(
   assets: MetaAssets,
   name: string,
-  objective: string,
-  dailyBudgetCents: number
+  ad_goal: string
 ): Promise<{ id: string }> {
-  let body: any = {
+  // Build payload using single source of truth builder
+  let body = buildMetaCampaignPayload({
     name,
-    objective,
-    status: 'PAUSED',
-    special_ad_categories: [],
-    daily_budget: dailyBudgetCents.toString(), // Campaign-level budget for CBO
-  };
+    ad_goal,
+  });
 
-  // CBO ASSERTION: Campaign must have budget
-  if (!body.daily_budget && !body.lifetime_budget) {
-    throw new Error('CBO_ASSERT: campaign budget missing - daily_budget or lifetime_budget required');
-  }
-
-  // Sanitize campaign payload
+  // Final sanitization
   body = sanitizeCampaignPayload(body);
 
-  console.log('[createMetaCampaign] Creating CBO campaign:', {
-    objective,
-    daily_budget: dailyBudgetCents,
+  console.log('[createMetaCampaign] Creating ABO campaign:', {
+    objective: body.objective,
     is_adset_budget_sharing_enabled: body.is_adset_budget_sharing_enabled,
+    has_budget: !!body.daily_budget || !!body.lifetime_budget,
+    mode: 'ABO',
   });
 
   const data = await metaRequest<{ id: string }>(
@@ -403,12 +397,12 @@ async function createMetaCampaign(
     body
   );
 
-  console.log('[createMetaCampaign] ✅ CBO Campaign created:', data.id);
+  console.log('[createMetaCampaign] ✅ ABO Campaign created:', data.id);
   return data;
 }
 
 /**
- * Create Meta Ad Set (CBO mode - NO budget at ad set level)
+ * Create Meta Ad Set (ABO mode - budget at ad set level)
  * @throws Error with Meta Graph API error details if creation fails
  */
 async function createMetaAdSet(
@@ -417,80 +411,38 @@ async function createMetaAdSet(
   name: string,
   destinationUrl: string,
   ad_goal: string,
+  daily_budget_cents: number,
   meta_status?: any
 ): Promise<{ id: string }> {
-  const goal = ad_goal.toLowerCase();
-
-  // Set billing_event and optimization_goal based on ad_goal
-  const isLinkClicksGoal = goal === 'link_clicks' || goal === 'traffic' || goal === 'streams' || goal === 'smart_link_probe';
-
-  let body: any = {
+  // Build payload using single source of truth builder
+  let body = buildMetaAdSetPayload({
     name,
     campaign_id: campaignId,
-    // NO budget fields - CBO mode uses campaign-level budget
-    // Meta standard: billing_event should be IMPRESSIONS for LINK_CLICKS optimization
-    billing_event: 'IMPRESSIONS',
-    optimization_goal: 'LINK_CLICKS',
-    // Bid strategy: use LOWEST_COST_WITHOUT_CAP (no bid_amount required)
-    bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-    status: 'PAUSED',
-    targeting: {
-      geo_locations: { countries: ['US'] },
-      age_min: 18,
-      age_max: 65,
-    },
-  };
+    ad_goal,
+    daily_budget_cents,
+    destination_url: destinationUrl,
+    pixel_id: meta_status?.pixel_id,
+    page_id: meta_status?.page_id,
+  });
 
-  // Add destination_type for link clicks
-  if (isLinkClicksGoal) {
-    body.destination_type = 'WEBSITE';
-  }
-
-  // CBO ASSERTION: Ad Set must NOT have budget fields
-  if (body.daily_budget || body.lifetime_budget || body.budget_remaining) {
-    throw new Error('CBO_ASSERT: adset budget field present - remove daily_budget, lifetime_budget, budget_remaining');
-  }
-
-  // CBO ASSERTION: Ad Set must NOT have budget sharing fields
-  if ('is_adset_budget_sharing_enabled' in body) {
-    throw new Error('CBO_ASSERT: is_adset_budget_sharing_enabled field present - must be removed for CBO');
-  }
-
-  // Build promoted_object based on ad goal (only for non-traffic goals)
-  if (!isLinkClicksGoal) {
-    const promoted = buildPromotedObject(ad_goal, meta_status);
-    if (promoted) {
-      body.promoted_object = promoted;
-    }
-  }
-
-  // Sanitize the payload
+  // Final sanitization
   body = sanitizeAdsetPayload(body, ad_goal);
 
-  // PROMOTED_OBJECT ASSERTION: Traffic goals should NOT have promoted_object
-  if (isLinkClicksGoal && body.promoted_object) {
-    throw new Error('PROMOTED_OBJECT_ASSERT: should not send promoted_object for traffic/link_clicks/streams');
-  }
+  // Generate debug info for error reporting
+  const debugInfo = getPayloadDebugInfo(body);
 
-  // PROMOTED_OBJECT ASSERTION: Validate custom_event_type if present
-  if (body.promoted_object?.custom_event_type) {
-    if (!VALID_CUSTOM_EVENT_TYPES.includes(body.promoted_object.custom_event_type)) {
-      throw new Error(
-        `PROMOTED_OBJECT_ASSERT: invalid custom_event_type "${body.promoted_object.custom_event_type}". ` +
-        `Must be one of: ${VALID_CUSTOM_EVENT_TYPES.join(', ')}`
-      );
-    }
-  }
-
-  console.log('[createMetaAdSet] Creating CBO adset:', {
+  console.log('[createMetaAdSet] Creating ABO adset:', {
     campaign_id: campaignId,
     ad_goal,
+    daily_budget: body.daily_budget,
     billing_event: body.billing_event,
     optimization_goal: body.optimization_goal,
     bid_strategy: body.bid_strategy,
     destination_type: body.destination_type || 'none',
     has_promoted_object: !!body.promoted_object,
     promoted_object: body.promoted_object || 'none',
+    mode: 'ABO',
+    debug: debugInfo,
   });
 
   const data = await metaRequest<{ id: string }>(
@@ -500,7 +452,7 @@ async function createMetaAdSet(
     body
   );
 
-  console.log('[createMetaAdSet] ✅ CBO AdSet created:', data.id);
+  console.log('[createMetaAdSet] ✅ ABO AdSet created:', data.id);
   return data;
 }
 
@@ -625,8 +577,8 @@ export async function executeMetaCampaign(
       }
     }
 
-    // Step 2: Create Campaign with CBO (campaign-level budget)
-    console.log('[executeMetaCampaign] Step 2/4: Creating Meta CBO campaign...');
+    // Step 2: Create Campaign with ABO (budget at ad set level)
+    console.log('[executeMetaCampaign] Step 2/4: Creating Meta ABO campaign...');
     const objective = mapGoalToObjective(input.ad_goal);
     const campaignName = `Ghoste Campaign ${input.campaign_id.slice(0, 8)}`;
 
@@ -637,16 +589,20 @@ export async function executeMetaCampaign(
     const meta_request_summary = {
       campaign: {
         objective,
-        has_budget: true,
-        is_adset_budget_sharing_enabled: false, // CBO mode
+        has_budget: false, // ABO mode - budget at ad set level
+        is_adset_budget_sharing_enabled: false,
+        mode: 'ABO',
       },
       adset: {
         optimization_goal: 'LINK_CLICKS',
         billing_event: 'IMPRESSIONS', // Meta standard for LINK_CLICKS optimization
         bid_strategy: 'LOWEST_COST_WITHOUT_CAP', // No bid_amount required
+        has_daily_budget: true, // ABO mode - budget at ad set level
+        daily_budget_cents: input.daily_budget_cents,
         destination_type: isLinkClicksGoal ? 'WEBSITE' : undefined,
         has_promoted_object: !isLinkClicksGoal,
         promoted_object_type: !isLinkClicksGoal ? 'pixel' : undefined,
+        mode: 'ABO',
       },
     };
 
@@ -657,10 +613,9 @@ export async function executeMetaCampaign(
       campaign = await createMetaCampaign(
         assets,
         campaignName,
-        objective,
-        input.daily_budget_cents // Pass budget to campaign (CBO mode)
+        input.ad_goal // ABO mode - pass ad_goal instead of objective
       );
-      console.log('[executeMetaCampaign] ✓ Created CBO campaign:', campaign.id);
+      console.log('[executeMetaCampaign] ✓ Created ABO campaign:', campaign.id);
     } catch (campaignErr: any) {
       console.error('[executeMetaCampaign] ❌ Campaign creation failed:', campaignErr.message);
       let meta_error: MetaGraphError | undefined;
@@ -682,26 +637,42 @@ export async function executeMetaCampaign(
       };
     }
 
-    // Step 3: Create Ad Set (NO budget - CBO mode)
-    console.log('[executeMetaCampaign] Step 3/4: Creating Meta ad set (CBO - no budget)...');
+    // Step 3: Create Ad Set (ABO mode - budget at ad set level)
+    console.log('[executeMetaCampaign] Step 3/4: Creating Meta ad set (ABO - with budget)...');
     const adsetName = `${campaignName} AdSet`;
 
     let adset: { id: string };
     let adset_payload_preview: any;
+    let adset_payload_debug: any;
     try {
       // Build adset payload preview for debugging (before calling Meta)
-      const promoted = buildPromotedObject(input.ad_goal, input.metaStatus);
+      const previewPayload = buildMetaAdSetPayload({
+        name: adsetName,
+        campaign_id: campaign.id,
+        ad_goal: input.ad_goal,
+        daily_budget_cents: input.daily_budget_cents,
+        destination_url: input.destination_url,
+        pixel_id: input.metaStatus?.pixel_id,
+        page_id: input.metaStatus?.page_id,
+      });
+
       adset_payload_preview = {
         name: adsetName,
         campaign_id: campaign.id,
-        billing_event: 'IMPRESSIONS',
-        optimization_goal: 'LINK_CLICKS',
+        daily_budget: String(input.daily_budget_cents),
+        billing_event: previewPayload.billing_event,
+        optimization_goal: previewPayload.optimization_goal,
+        bid_strategy: previewPayload.bid_strategy,
         status: 'PAUSED',
-        targeting: { countries: ['US'], age_min: 18, age_max: 65 },
-        promoted_object: promoted || 'none',
-        has_budget: false,
+        targeting: previewPayload.targeting,
+        promoted_object: previewPayload.promoted_object || 'none',
+        has_budget: true,
         ad_goal: input.ad_goal,
+        mode: 'ABO',
       };
+
+      // Generate debug info
+      adset_payload_debug = getPayloadDebugInfo(previewPayload);
 
       adset = await createMetaAdSet(
         assets,
@@ -709,9 +680,10 @@ export async function executeMetaCampaign(
         adsetName,
         input.destination_url,
         input.ad_goal,
+        input.daily_budget_cents, // ABO mode - pass budget to ad set
         input.metaStatus
       );
-      console.log('[executeMetaCampaign] ✓ Created CBO adset:', adset.id);
+      console.log('[executeMetaCampaign] ✓ Created ABO adset:', adset.id);
     } catch (adsetErr: any) {
       console.error('[executeMetaCampaign] ❌ AdSet creation failed:', adsetErr.message);
       let meta_error: MetaGraphError | undefined;
@@ -729,6 +701,7 @@ export async function executeMetaCampaign(
         meta_permissions,
         ad_account_info,
         adset_payload_preview,
+        adset_payload_debug,
         ad_goal: input.ad_goal,
         objective,
         meta_request_summary,
