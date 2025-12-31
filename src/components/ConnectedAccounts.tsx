@@ -78,7 +78,7 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
   const googleCalConn = useConnectionStatus('google_calendar');
 
   // Check meta_credentials table directly (single source of truth)
-  const { meta, isMetaConnected, isMetaConfigured, loading: metaLoading, error: metaError } = useMetaCredentials(user?.id);
+  const { meta, isMetaConnected, isMetaConfigured, loading: metaLoading, error: metaError, refetch: refetchMetaCredentials } = useMetaCredentials(user?.id);
 
   // 🔒 HARD SAFETY: ensure metaCredentials always exists (prevents ReferenceError)
   const metaCredentials = meta ?? null;
@@ -522,6 +522,9 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
         setSuccessMessage('Meta assets refreshed successfully!');
         // Refresh connection status after fetching assets (counts may have updated)
         metaConn.refresh();
+        // Refetch RPC status to update checkmarks
+        fetchIntegrationsStatus();
+        refetchMetaCredentials();
       } else if (data.warning === 'refresh_failed') {
         // Refresh failed but account is still connected
         console.warn('[Meta Refresh] Refresh failed but connection is still active:', data.error);
@@ -1145,41 +1148,60 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
           )}
 
           {/* Meta Onboarding Checklist - Show when connected */}
-          {metaRpcStatus.connected && (
-            <div className="mb-4 p-4 bg-ghoste-bg rounded-lg border border-ghoste-border">
-              <h4 className="text-sm font-semibold text-white mb-3">Meta Setup Progress</h4>
+          {metaRpcStatus.connected && (() => {
+            // Compute completion status from canonical RPC fields
+            const authConnected = metaRpcStatus.data?.auth_connected === true;
+            const hasAdAccount = !!(metaRpcStatus.data?.ad_account_id);
+            const hasPage = !!(metaRpcStatus.data?.page_id);
+            const hasInstagram = !!(metaRpcStatus.data?.instagram_actor_id) || (metaRpcStatus.data?.instagram_account_count ?? 0) > 0;
+            const hasPixel = !!(metaRpcStatus.data?.pixel_id);
+            const assetsConfigured = metaRpcStatus.data?.assets_configured === true;
 
-              {/* Setup Steps (Required for configuration) */}
-              <div className="mb-3">
-                <p className="text-xs font-medium text-gray-500 uppercase mb-2">Setup</p>
-                <ul className="space-y-2">
-                  {[
-                    {
-                      id: 1,
-                      label: 'Connect Meta account',
-                      completed: metaRpcStatus.connected
-                    },
-                    {
-                      id: 2,
-                      label: 'Select primary ad account',
-                      completed: !!(metaRpcStatus.data?.ad_account_id)
-                    },
-                    {
-                      id: 3,
-                      label: 'Select Facebook page',
-                      completed: !!(metaRpcStatus.data?.page_id)
-                    },
-                    {
-                      id: 4,
-                      label: 'Select Instagram account (optional)',
-                      completed: (metaRpcStatus.data?.instagram_account_count ?? 0) > 0
-                    },
-                    {
-                      id: 5,
-                      label: 'Select Meta Pixel (optional)',
-                      completed: !!(metaRpcStatus.data?.pixel_id)
-                    },
-                  ].map((step) => (
+            // Debug logging
+            console.log('[MetaSetupProgress] computed', {
+              auth_connected: authConnected,
+              ad_account_id: metaRpcStatus.data?.ad_account_id,
+              page_id: metaRpcStatus.data?.page_id,
+              instagram_actor_id: metaRpcStatus.data?.instagram_actor_id,
+              pixel_id: metaRpcStatus.data?.pixel_id,
+              assets_configured: assetsConfigured,
+            });
+
+            return (
+              <div className="mb-4 p-4 bg-ghoste-bg rounded-lg border border-ghoste-border">
+                <h4 className="text-sm font-semibold text-white mb-3">Meta Setup Progress</h4>
+
+                {/* Setup Steps (Required for configuration) */}
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-500 uppercase mb-2">Setup</p>
+                  <ul className="space-y-2">
+                    {[
+                      {
+                        id: 1,
+                        label: 'Connect Meta account',
+                        completed: authConnected
+                      },
+                      {
+                        id: 2,
+                        label: 'Select primary ad account',
+                        completed: hasAdAccount
+                      },
+                      {
+                        id: 3,
+                        label: 'Select Facebook page',
+                        completed: hasPage
+                      },
+                      {
+                        id: 4,
+                        label: 'Select Instagram account (optional)',
+                        completed: hasInstagram
+                      },
+                      {
+                        id: 5,
+                        label: 'Select Meta Pixel (optional)',
+                        completed: hasPixel
+                      },
+                    ].map((step) => (
                     <li key={step.id} className="flex items-center gap-3 text-sm">
                       <span className={`flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0 ${
                         step.completed
@@ -1233,10 +1255,11 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
                       </span>
                     </li>
                   ))}
-                </ul>
+                  </ul>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Meta Debug Panel - Collapsible, always available */}
           <details className="mb-4 bg-slate-800/30 border border-slate-700 rounded-lg">
@@ -1647,9 +1670,12 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
                 console.log('[ConnectedAccounts] Meta wizard completed:', result);
                 setSuccessMessage('Meta configuration saved! Your account is ready for campaigns.');
 
-                // Refresh Meta connection status
+                // Refresh Meta connection status from all sources
+                console.log('[ConnectedAccounts] Refetching Meta status after wizard save...');
                 metaConn.refresh();
                 fetchMetaAssets();
+                fetchIntegrationsStatus(); // Refetch RPC status
+                refetchMetaCredentials(); // Refetch credentials hook
 
                 // Close wizard
                 setShowMetaWizard(false);

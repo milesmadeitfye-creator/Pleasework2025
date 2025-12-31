@@ -20,6 +20,12 @@ export function useMetaCredentials(userId?: string) {
   const [meta, setMeta] = useState<MetaCredentials | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<any>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Refetch function that can be called from outside
+  const refetch = () => {
+    setRefreshTrigger(prev => prev + 1);
+  };
 
   useEffect(() => {
     if (!userId) {
@@ -80,7 +86,7 @@ export function useMetaCredentials(userId?: string) {
     return () => {
       mounted = false;
     };
-  }, [userId]);
+  }, [userId, refreshTrigger]);
 
   const flags = useMemo(() => {
     const isMetaConnected = Boolean(meta?.access_token);
@@ -90,5 +96,5 @@ export function useMetaCredentials(userId?: string) {
     return { isMetaConnected, isMetaConfigured, isMetaReady };
   }, [meta]);
 
-  return { meta, ...flags, loading, error };
+  return { meta, ...flags, loading, error, refetch };
 }
