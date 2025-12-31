@@ -63,7 +63,7 @@ export function StudioToolbar({
       </div>
 
       {/* Filters, Sort, and View toggle */}
-      <div className="flex items-center gap-3 overflow-x-auto scrollbar-none pb-1">
+      <div className="flex items-center gap-3 overflow-x-auto ghoste-studio-scrollbars pb-1">
         {/* Filter chips */}
         <div className="flex gap-2">
           {filters.map((filter) => (

@@ -25,7 +25,7 @@ export function StudioTabs() {
   };
 
   return (
-    <div className="mb-4 overflow-x-auto scrollbar-none">
+    <div className="mb-4 overflow-x-auto ghoste-studio-scrollbars">
       <div className="inline-flex gap-2 rounded-full bg-white/5 p-1 min-w-min">
         {studioTabs.map((tab) => {
           const active = isActive(tab.href);
