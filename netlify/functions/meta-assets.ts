@@ -263,11 +263,12 @@ export const handler: Handler = async (event) => {
       ad_account_id: body.ad_account_id,
     });
 
-    // CRITICAL: Fallback for pages - if business-scoped returns empty, try me/accounts
+    // CRITICAL: Fallback for pages/ad_accounts - if business-scoped returns empty, try /me endpoints
     // This handles cases where:
-    // 1. Business has no owned_pages
-    // 2. User has pages but they're personal, not business-owned
+    // 1. Business has no owned_pages / owned_ad_accounts
+    // 2. User has pages/accounts but they're personal, not business-owned
     // 3. Business ID scope is too restrictive
+    // 4. No business ID provided (user skipped business selection)
     if (body.type === 'pages' && items.length === 0 && body.business_id) {
       console.log('[meta-assets] Business-scoped pages returned empty, falling back to /me/accounts');
       const fallbackItems = await fetchMetaAssets(body.type, connection.access_token, {});
@@ -275,11 +276,28 @@ export const handler: Handler = async (event) => {
       items = fallbackItems;
     }
 
+    if (body.type === 'ad_accounts' && items.length === 0 && body.business_id) {
+      console.log('[meta-assets] Business-scoped ad accounts returned empty, falling back to /me/adaccounts');
+      const fallbackItems = await fetchMetaAssets(body.type, connection.access_token, {});
+      console.log(`[meta-assets] Fallback fetched ${fallbackItems.length} ad accounts from /me/adaccounts`);
+      items = fallbackItems;
+    }
+
+    // Determine source for logging
+    let source = 'unknown';
+    if (!body.business_id) {
+      source = body.type === 'pages' ? 'me/accounts' : body.type === 'ad_accounts' ? 'me/adaccounts' : 'me';
+    } else if (items.length > 0) {
+      source = 'business-scoped';
+    } else {
+      source = body.type === 'pages' ? 'me/accounts' : body.type === 'ad_accounts' ? 'me/adaccounts' : 'fallback';
+    }
+
     console.log(`[meta-assets] Fetched ${items.length} ${body.type}`, {
       user_id: user.id,
       type: body.type,
       count: items.length,
-      source: body.business_id && items.length > 0 ? 'business-scoped' : 'me/accounts',
+      source,
       business_id_provided: !!body.business_id,
     });
 
@@ -291,7 +309,7 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         items,
-        source: body.business_id && body.type !== 'pages' ? 'business' : 'me/accounts'
+        source
       }),
     };
   } catch (error: any) {

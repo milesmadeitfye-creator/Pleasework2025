@@ -161,18 +161,19 @@ export function MetaConnectWizard({ onComplete }: MetaConnectWizardProps) {
     })();
   }, [user, isMetaConnected]);
 
-  // Load pages when business is selected
+  // Load pages when page step becomes active
   useEffect(() => {
-    if (!selectedBusiness) return;
+    if (currentStep !== 'page') return;
 
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const fetchedPages = await fetchMetaAssets<{ id: string; name: string }>('pages', {
-          business_id: selectedBusiness.id,
-        });
+        // Pass business_id only if business was selected (optional)
+        const params = selectedBusiness ? { business_id: selectedBusiness.id } : {};
+        const fetchedPages = await fetchMetaAssets<{ id: string; name: string }>('pages', params);
         setPages(fetchedPages);
+        console.log('[MetaConnectWizard] Loaded pages:', fetchedPages.length, selectedBusiness ? `(business: ${selectedBusiness.id})` : '(no business - using /me/accounts)');
       } catch (err: any) {
         console.error('[MetaConnectWizard] Pages error:', err);
         setError(err.message || 'Failed to load pages');
@@ -180,7 +181,7 @@ export function MetaConnectWizard({ onComplete }: MetaConnectWizardProps) {
         setLoading(false);
       }
     })();
-  }, [selectedBusiness]);
+  }, [currentStep, selectedBusiness]);
 
   // Load Instagram when page is selected
   useEffect(() => {
@@ -203,18 +204,19 @@ export function MetaConnectWizard({ onComplete }: MetaConnectWizardProps) {
     })();
   }, [selectedPage]);
 
-  // Load ad accounts when business is selected
+  // Load ad accounts when ad account step becomes active
   useEffect(() => {
-    if (!selectedBusiness) return;
+    if (currentStep !== 'adAccount') return;
 
     (async () => {
       try {
         setLoading(true);
         setError(null);
-        const fetchedAdAccounts = await fetchMetaAssets<{ id: string; name: string }>('ad_accounts', {
-          business_id: selectedBusiness.id,
-        });
+        // Pass business_id only if business was selected (optional)
+        const params = selectedBusiness ? { business_id: selectedBusiness.id } : {};
+        const fetchedAdAccounts = await fetchMetaAssets<{ id: string; name: string }>('ad_accounts', params);
         setAdAccounts(fetchedAdAccounts);
+        console.log('[MetaConnectWizard] Loaded ad accounts:', fetchedAdAccounts.length, selectedBusiness ? `(business: ${selectedBusiness.id})` : '(no business - using /me/adaccounts)');
       } catch (err: any) {
         console.error('[MetaConnectWizard] Ad accounts error:', err);
         setError(err.message || 'Failed to load ad accounts');
@@ -222,7 +224,7 @@ export function MetaConnectWizard({ onComplete }: MetaConnectWizardProps) {
         setLoading(false);
       }
     })();
-  }, [selectedBusiness]);
+  }, [currentStep, selectedBusiness]);
 
   // Load pixels when ad account is selected
   useEffect(() => {
