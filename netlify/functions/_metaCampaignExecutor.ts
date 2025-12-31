@@ -45,6 +45,62 @@ interface MetaExecutionResult {
   stage?: string;
   meta_permissions?: any;
   ad_account_info?: any;
+  adset_payload_preview?: any;
+  ad_goal?: string;
+  objective?: string;
+}
+
+/**
+ * Valid Meta custom_event_type values per Meta Ads API documentation
+ */
+const VALID_CUSTOM_EVENT_TYPES = [
+  'RATE', 'TUTORIAL_COMPLETION', 'CONTACT', 'CUSTOMIZE_PRODUCT', 'DONATE',
+  'FIND_LOCATION', 'SCHEDULE', 'START_TRIAL', 'SUBMIT_APPLICATION', 'SUBSCRIBE',
+  'ADD_TO_CART', 'ADD_TO_WISHLIST', 'INITIATED_CHECKOUT', 'ADD_PAYMENT_INFO',
+  'PURCHASE', 'LEAD', 'COMPLETE_REGISTRATION', 'CONTENT_VIEW', 'SEARCH',
+  'SERVICE_BOOKING_REQUEST', 'MESSAGING_CONVERSATION_STARTED_7D',
+  'LEVEL_ACHIEVED', 'ACHIEVEMENT_UNLOCKED', 'SPENT_CREDITS'
+];
+
+/**
+ * Build promoted_object for ad set based on ad goal
+ * Returns undefined for traffic/link clicks (no promoted_object needed)
+ * Returns valid promoted_object for conversion/lead goals
+ */
+function buildPromotedObject(ad_goal: string, meta_status?: any): any | undefined {
+  const goal = ad_goal.toLowerCase();
+
+  // Traffic/link clicks: NO promoted_object
+  if (goal === 'link_clicks' || goal === 'traffic' || goal === 'streams') {
+    console.log('[buildPromotedObject] Traffic goal - no promoted_object needed');
+    return undefined;
+  }
+
+  // Conversions: Use pixel_id with valid custom_event_type
+  if (goal === 'conversions' || goal === 'sales') {
+    if (meta_status?.pixel_id) {
+      console.log('[buildPromotedObject] Conversion goal - using pixel_id');
+      return {
+        pixel_id: meta_status.pixel_id,
+        custom_event_type: 'PURCHASE', // Valid for conversion goals
+      };
+    }
+  }
+
+  // Leads: Use page_id
+  if (goal === 'leads' || goal === 'lead_generation') {
+    if (meta_status?.page_id) {
+      console.log('[buildPromotedObject] Lead goal - using page_id');
+      return {
+        page_id: meta_status.page_id,
+        // No custom_event_type for lead forms
+      };
+    }
+  }
+
+  // Default: no promoted_object
+  console.log('[buildPromotedObject] No promoted_object for goal:', goal);
+  return undefined;
 }
 
 /**
@@ -271,7 +327,9 @@ async function createMetaAdSet(
   assets: MetaAssets,
   campaignId: string,
   name: string,
-  destinationUrl: string
+  destinationUrl: string,
+  ad_goal: string,
+  meta_status?: any
 ): Promise<{ id: string }> {
   const body: any = {
     name,
@@ -297,15 +355,42 @@ async function createMetaAdSet(
     throw new Error('CBO_ASSERT: is_adset_budget_sharing_enabled field present - must be removed for CBO');
   }
 
-  // Add pixel if available
-  if (assets.pixel_id) {
-    body.promoted_object = {
-      pixel_id: assets.pixel_id,
-      custom_event_type: 'LINK_CLICK',
-    };
+  // Build promoted_object based on ad goal
+  const promoted = buildPromotedObject(ad_goal, meta_status);
+  if (promoted) {
+    body.promoted_object = promoted;
   }
 
-  console.log('[createMetaAdSet] Creating CBO adset (no budget) for campaign:', campaignId);
+  // Explicitly delete any legacy promoted_object fields
+  if (body.promoted_object) {
+    delete body.promoted_object.event_type;
+    delete body.promoted_object.custom_conversion_id;
+    // Only keep custom_event_type if it's in the body from buildPromotedObject
+  }
+
+  // PROMOTED_OBJECT ASSERTION: Traffic goals should NOT have promoted_object
+  const goal = ad_goal.toLowerCase();
+  if ((goal === 'link_clicks' || goal === 'traffic' || goal === 'streams') && body.promoted_object) {
+    throw new Error('PROMOTED_OBJECT_ASSERT: should not send promoted_object for traffic/link_clicks/streams');
+  }
+
+  // PROMOTED_OBJECT ASSERTION: Validate custom_event_type if present
+  if (body.promoted_object?.custom_event_type) {
+    if (!VALID_CUSTOM_EVENT_TYPES.includes(body.promoted_object.custom_event_type)) {
+      throw new Error(
+        `PROMOTED_OBJECT_ASSERT: invalid custom_event_type "${body.promoted_object.custom_event_type}". ` +
+        `Must be one of: ${VALID_CUSTOM_EVENT_TYPES.join(', ')}`
+      );
+    }
+  }
+
+  console.log('[createMetaAdSet] Creating CBO adset:', {
+    campaign_id: campaignId,
+    ad_goal,
+    has_promoted_object: !!body.promoted_object,
+    promoted_object: body.promoted_object || 'none',
+  });
+
   const data = await metaRequest<{ id: string }>(
     `/${assets.ad_account_id}/adsets`,
     'POST',
@@ -467,6 +552,8 @@ export async function executeMetaCampaign(
         stage: 'create_campaign',
         meta_permissions,
         ad_account_info,
+        ad_goal: input.ad_goal,
+        objective,
       };
     }
 
@@ -475,13 +562,29 @@ export async function executeMetaCampaign(
     const adsetName = `${campaignName} AdSet`;
 
     let adset: { id: string };
+    let adset_payload_preview: any;
     try {
+      // Build adset payload preview for debugging (before calling Meta)
+      const promoted = buildPromotedObject(input.ad_goal, input.metaStatus);
+      adset_payload_preview = {
+        name: adsetName,
+        campaign_id: campaign.id,
+        billing_event: 'IMPRESSIONS',
+        optimization_goal: 'LINK_CLICKS',
+        status: 'PAUSED',
+        targeting: { countries: ['US'], age_min: 18, age_max: 65 },
+        promoted_object: promoted || 'none',
+        has_budget: false,
+        ad_goal: input.ad_goal,
+      };
+
       adset = await createMetaAdSet(
         assets,
         campaign.id,
         adsetName,
-        input.destination_url
-        // NO dailyBudgetCents - CBO uses campaign budget
+        input.destination_url,
+        input.ad_goal,
+        input.metaStatus
       );
       console.log('[executeMetaCampaign] ✓ Created CBO adset:', adset.id);
     } catch (adsetErr: any) {
@@ -500,6 +603,9 @@ export async function executeMetaCampaign(
         meta_campaign_id: campaign.id,
         meta_permissions,
         ad_account_info,
+        adset_payload_preview,
+        ad_goal: input.ad_goal,
+        objective,
       };
     }
 
@@ -534,6 +640,9 @@ export async function executeMetaCampaign(
         meta_adset_id: adset.id,
         meta_permissions,
         ad_account_info,
+        adset_payload_preview,
+        ad_goal: input.ad_goal,
+        objective,
       };
     }
 
@@ -550,6 +659,9 @@ export async function executeMetaCampaign(
       meta_ad_id: ad.id,
       meta_permissions,
       ad_account_info,
+      adset_payload_preview,
+      ad_goal: input.ad_goal,
+      objective,
     };
   } catch (err: any) {
     console.error('[executeMetaCampaign] ❌ Unexpected error:', err.message, err.stack);
