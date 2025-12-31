@@ -81,9 +81,9 @@ export const handler: Handler = async (event) => {
     try {
       const { data: campaignDrafts, error: draftsError } = await supabase
         .from('campaign_drafts')
-        .select('id, created_at, status, name, meta_campaign_id, error')
+        .select('id, created_at, updated_at, status, name, goal, budget_daily, duration_days')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
+        .order('updated_at', { ascending: false })
         .limit(25);
 
       if (!draftsError && campaignDrafts) {

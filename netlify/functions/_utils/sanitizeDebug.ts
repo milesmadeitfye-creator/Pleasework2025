@@ -74,7 +74,20 @@ export function sanitizeForDebug(obj: unknown): unknown {
 }
 
 /**
+ * Check if a value looks like a Meta numeric ID (not a UUID)
+ * Meta IDs are numeric strings like "120212345678901"
+ * UUIDs are like "abc-123-def-456"
+ */
+function isMetaNumericId(value: any): boolean {
+  if (!value) return false;
+  const str = String(value);
+  // Meta IDs are pure numeric strings, 10+ digits
+  return /^\d{10,}$/.test(str);
+}
+
+/**
  * Extract Meta IDs from response
+ * IMPORTANT: Only extracts actual Meta numeric IDs, not Ghoste UUIDs
  */
 export function extractMetaIds(response: any): {
   meta_campaign_id?: string;
@@ -87,18 +100,20 @@ export function extractMetaIds(response: any): {
     return ids;
   }
 
-  // Try common response shapes
-  if (response.campaign_id) ids.meta_campaign_id = String(response.campaign_id);
-  if (response.campaignId) ids.meta_campaign_id = String(response.campaignId);
-  if (response.meta_campaign_id) ids.meta_campaign_id = String(response.meta_campaign_id);
+  // Only extract if explicitly prefixed with "meta_" OR if it's a numeric Meta ID
+  // Do NOT extract generic "campaign_id" (that's Ghoste UUID)
 
-  if (response.adset_id) ids.meta_adset_id = String(response.adset_id);
-  if (response.adsetId) ids.meta_adset_id = String(response.adsetId);
-  if (response.meta_adset_id) ids.meta_adset_id = String(response.meta_adset_id);
+  if (response.meta_campaign_id && isMetaNumericId(response.meta_campaign_id)) {
+    ids.meta_campaign_id = String(response.meta_campaign_id);
+  }
 
-  if (response.ad_id) ids.meta_ad_id = String(response.ad_id);
-  if (response.adId) ids.meta_ad_id = String(response.adId);
-  if (response.meta_ad_id) ids.meta_ad_id = String(response.meta_ad_id);
+  if (response.meta_adset_id && isMetaNumericId(response.meta_adset_id)) {
+    ids.meta_adset_id = String(response.meta_adset_id);
+  }
+
+  if (response.meta_ad_id && isMetaNumericId(response.meta_ad_id)) {
+    ids.meta_ad_id = String(response.meta_ad_id);
+  }
 
   // Check nested data object
   if (response.data) {

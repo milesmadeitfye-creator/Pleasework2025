@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X, ChevronRight, ChevronLeft, Target, DollarSign, Image as ImageIcon, Link as LinkIcon, Check, AlertCircle, Loader2, Sparkles, Play, Bug, Copy, ChevronDown, ChevronUp } from 'lucide-react';
 import { supabase } from '../../lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,6 +31,7 @@ interface AICampaignWizardProps {
 
 export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState<WizardStep>('goal');
 
   // Form state
@@ -309,6 +311,7 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
         smart_link_slug: selectedSmartLink.slug,
         destination_url: smartLinkUrl,
         total_budget_cents: duration > 0 ? Math.round(dailyBudget * duration * 100) : null,
+        mode: 'draft', // Explicitly set mode to draft (server defaults to draft anyway)
       };
 
       console.log('[AICampaignWizard] Publishing campaign:', {
@@ -400,10 +403,22 @@ export function AICampaignWizard({ onClose, onSuccess }: AICampaignWizardProps) 
       }
 
       // Success
-      console.log('[AICampaignWizard] Campaign published successfully:', result.campaign_id);
+      console.log('[AICampaignWizard] Campaign published successfully:', {
+        campaign_id: result.campaign_id,
+        campaign_type: result.campaign_type,
+        status: result.status,
+      });
+
       notify('success', `Campaign created successfully! ${result.campaign_type || ''}`);
+
+      // Call onSuccess callback (triggers refetch in parent)
       onSuccess();
+
+      // Close wizard immediately
       onClose();
+
+      // Navigate to campaigns page
+      navigate('/studio/ad-campaigns');
     } catch (err: any) {
       console.error('[AICampaignWizard] Publish error:', err);
 
