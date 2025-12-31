@@ -1,7 +1,12 @@
 import type { Handler } from "@netlify/functions";
 import { getSupabaseAdmin } from "./_supabaseAdmin";
 import { buildAndLaunchCampaign, RunAdsInput } from "./_runAdsCampaignBuilder";
-import { resolveDestination } from "./_destinationResolver";
+
+function extractSmartLinkSlug(url: string | undefined): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const match = url.match(/\/l\/([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : null;
+}
 
 export const handler: Handler = async (event) => {
   if (event.httpMethod !== "POST") {
@@ -127,32 +132,114 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    // Resolve destination URL for all campaign styles
-    const destinationResult = await resolveDestination(
-      {
-        destination_url,
+    // Log submit start
+    console.log('[run-ads-submit] Submit started:', {
+      draft_id: draft_id || 'none',
+      has_smart_link_id: !!smart_link_id,
+      has_smart_link_slug: !!smart_link_slug,
+      has_destination_url: !!destination_url,
+    });
+
+    // Resolve smart link with clear priority: id → slug → extracted slug
+    let smartLink: any = null;
+    let resolutionMethod: string = 'none';
+    const extractedSlug = extractSmartLinkSlug(destination_url);
+
+    // Priority 1: smart_link_id
+    if (smart_link_id) {
+      console.log('[run-ads-submit] Attempting lookup by smart_link_id:', smart_link_id);
+      const { data, error } = await supabase
+        .from('smart_links')
+        .select('id, slug, destination_url, user_id, owner_user_id')
+        .eq('id', smart_link_id)
+        .maybeSingle();
+
+      if (!error && data) {
+        smartLink = data;
+        resolutionMethod = 'smart_link_id';
+      }
+    }
+
+    // Priority 2: smart_link_slug
+    if (!smartLink && smart_link_slug) {
+      console.log('[run-ads-submit] Attempting lookup by smart_link_slug:', smart_link_slug);
+      const { data, error } = await supabase
+        .from('smart_links')
+        .select('id, slug, destination_url, user_id, owner_user_id')
+        .eq('slug', smart_link_slug)
+        .maybeSingle();
+
+      if (!error && data) {
+        smartLink = data;
+        resolutionMethod = 'smart_link_slug';
+      }
+    }
+
+    // Priority 3: extracted slug from destination_url
+    if (!smartLink && extractedSlug) {
+      console.log('[run-ads-submit] Attempting lookup by extracted slug:', extractedSlug);
+      const { data, error } = await supabase
+        .from('smart_links')
+        .select('id, slug, destination_url, user_id, owner_user_id')
+        .eq('slug', extractedSlug)
+        .maybeSingle();
+
+      if (!error && data) {
+        smartLink = data;
+        resolutionMethod = 'extracted_slug';
+      }
+    }
+
+    // Check if we found a smart link
+    if (!smartLink) {
+      console.error('[run-ads-submit] Smart link not found', {
         smart_link_id,
         smart_link_slug,
-      },
-      user.id,
-      supabase
-    );
+        extracted_slug: extractedSlug,
+        destination_url,
+      });
 
-    if (!destinationResult.ok) {
-      console.error('[run-ads-submit] Destination resolution failed:', destinationResult.error, destinationResult.debug);
       return {
         statusCode: 400,
         body: JSON.stringify({
           ok: false,
-          error: destinationResult.error || 'smart_link_not_found',
-          details: 'Could not resolve campaign destination URL',
-          debug: destinationResult.debug,
+          error: 'Smart link not found',
+          smart_link_id,
+          smart_link_slug,
+          extracted_slug: extractedSlug,
+          destination_url,
+          received_keys: Object.keys(body),
         }),
       };
     }
 
-    const resolvedDestinationUrl = destinationResult.url!;
-    const resolvedSmartLinkId = destinationResult.smart_link_id || smart_link_id;
+    // Verify ownership (check both owner_user_id and user_id for compatibility)
+    const linkOwner = smartLink.owner_user_id || smartLink.user_id;
+    if (linkOwner && linkOwner !== user.id) {
+      console.error('[run-ads-submit] Smart link ownership mismatch', {
+        link_owner: linkOwner,
+        user_id: user.id,
+      });
+
+      return {
+        statusCode: 403,
+        body: JSON.stringify({
+          ok: false,
+          error: 'Smart link does not belong to user',
+        }),
+      };
+    }
+
+    // Build destination URL
+    const resolvedDestinationUrl = smartLink.slug
+      ? `https://ghoste.one/l/${smartLink.slug}`
+      : (destination_url || smartLink.destination_url);
+
+    console.log('[run-ads-submit] ✓ Smart link resolved:', {
+      method: resolutionMethod,
+      slug: smartLink.slug,
+      destination: resolvedDestinationUrl,
+    });
 
     console.log('[run-ads-submit] Building campaign:', {
       ad_goal,
@@ -161,7 +248,6 @@ export const handler: Handler = async (event) => {
       creative_count: resolvedCreativeIds.length,
       draft_id: draft_id || 'none',
       destination_url: resolvedDestinationUrl,
-      resolution_path: destinationResult.debug?.resolution_path,
     });
 
     const input: RunAdsInput = {
@@ -171,7 +257,7 @@ export const handler: Handler = async (event) => {
       automation_mode,
       creative_ids: resolvedCreativeIds,
       total_budget_cents,
-      smart_link_id: resolvedSmartLinkId,
+      smart_link_id: smartLink.id,
       one_click_link_id,
       platform,
       profile_url: resolvedDestinationUrl,
