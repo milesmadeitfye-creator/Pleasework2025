@@ -641,9 +641,18 @@ export const handler: Handler = async (event) => {
       meta_adset_id: metaResult.meta_adset_id,
       meta_ad_id: metaResult.meta_ad_id,
       error: metaResult.error,
+      stage: metaResult.stage,
+      has_meta_error: !!metaResult.meta_error,
     });
 
     if (!metaResult.success) {
+      console.error('[run-ads-submit] ===== ❌ META EXECUTION FAILED =====');
+      console.error('[run-ads-submit] Error:', metaResult.error);
+      console.error('[run-ads-submit] Stage:', metaResult.stage);
+      console.error('[run-ads-submit] Meta Graph Error:', JSON.stringify(metaResult.meta_error, null, 2));
+      console.error('[run-ads-submit] Permissions:', metaResult.meta_permissions);
+      console.error('[run-ads-submit] Ad Account Info:', metaResult.ad_account_info);
+
       // Update campaign status to failed
       await supabase
         .from('ad_campaigns')
@@ -659,9 +668,13 @@ export const handler: Handler = async (event) => {
       responseData = {
         ok: false,
         campaign_id: ghosteCampaignId,
-        error: metaResult.error || 'Meta execution failed',
+        error: metaResult.error || 'Meta Graph error',
+        meta_error: metaResult.meta_error,
+        stage: metaResult.stage || 'publish_failed',
         meta_campaign_id: metaResult.meta_campaign_id,
-        stage: 'publish_failed',
+        meta_adset_id: metaResult.meta_adset_id,
+        meta_permissions: metaResult.meta_permissions,
+        ad_account_info: metaResult.ad_account_info,
       };
 
       await recordAdsOperation({

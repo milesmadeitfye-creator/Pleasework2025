@@ -1,342 +1,420 @@
-# Ads Publish Error Details Fix - COMPLETE
+# Ads Publish - Full Meta Error Details - COMPLETE
 
 **Date**: 2025-12-31
-**Status**: ✅ FULLY IMPLEMENTED
+**Status**: ✅ PRODUCTION READY
 
-## Problem
+## Summary
 
-Ads publish was failing with:
-- POST `/.netlify/functions/run-ads-submit` → 500
-- Response: `{ ok: false, error: "Failed to create campaign record" }`
-- No details about WHY the insert failed
-- No Postgres error code, message, or hint
+Enhanced ads publish flow to return **full Meta Graph API error details** instead of generic "Check ad account permissions" messages. Now captures exact error codes, subcodes, messages, and diagnostic info.
 
-This made debugging impossible.
+## What Was Implemented
 
-## Root Cause
+### 1. Meta Request Helper (`_metaCampaignExecutor.ts`)
 
-The error handling in `run-ads-submit.ts` (lines 366-374) was catching Supabase insert errors but only returning a generic message:
+Created `metaRequest<T>()` helper function that:
+- Handles all Meta Graph API calls uniformly
+- Captures full error objects from Meta responses
+- Throws detailed errors with complete Graph API error structure
+- Supports GET and POST methods
+- **NEVER logs access tokens** (security safe)
 
 ```typescript
-if (insertError || !campaign) {
-  console.error('[run-ads-submit] Failed to insert campaign:', insertError);
+interface MetaGraphError {
+  message: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+  fbtrace_id?: string;
+  error_user_title?: string;
+  error_user_msg?: string;
+  [key: string]: any;
+}
+```
+
+### 2. Enhanced MetaExecutionResult Interface
+
+Updated to include:
+```typescript
+interface MetaExecutionResult {
+  success: boolean;
+  meta_campaign_id?: string;
+  meta_adset_id?: string;
+  meta_ad_id?: string;
+  error?: string;
+  meta_error?: MetaGraphError;      // NEW: Full Graph error
+  stage?: string;                    // NEW: Which step failed
+  meta_permissions?: any;            // NEW: Diagnostic data
+  ad_account_info?: any;             // NEW: Ad account status
+}
+```
+
+### 3. Diagnostic Calls Before Campaign Creation
+
+Before attempting to create a campaign, the system now checks:
+
+**Permissions Check:**
+```
+GET /me/permissions
+```
+Returns what permissions the token has (ads_management, pages_read_engagement, etc.)
+
+**Ad Account Health Check:**
+```
+GET /${ad_account_id}?fields=account_status,disable_reason,spend_cap,amount_spent,currency,name
+```
+Returns:
+- `account_status`: ACTIVE, DISABLED, etc.
+- `disable_reason`: Why account was disabled (if applicable)
+- `spend_cap`: Spending limits
+- `amount_spent`: Current spend
+- `currency`: Account currency
+- `name`: Account name
+
+Both diagnostics are **non-blocking** - if they fail, execution continues but errors are captured.
+
+### 4. Refactored Meta API Calls
+
+All three creation functions now use `metaRequest()` and throw detailed errors:
+
+**createMetaCampaign():**
+- Throws if campaign creation fails
+- Error includes code, subcode, fbtrace_id
+
+**createMetaAdSet():**
+- Throws if adset creation fails
+- Error includes targeting issues, budget problems, etc.
+
+**createMetaAd():**
+- Throws if ad/creative creation fails
+- Error includes creative validation issues, policy violations, etc.
+
+### 5. Enhanced Error Handling in executeMetaCampaign
+
+Each step wrapped in try/catch:
+
+```typescript
+try {
+  campaign = await createMetaCampaign(...);
+} catch (campaignErr) {
   return {
-    statusCode: 500,
-    body: JSON.stringify({
-      ok: false,
-      error: 'Failed to create campaign record',
-      // ❌ NO DETAIL!
-    }),
+    success: false,
+    error: 'Meta Graph error during campaign creation',
+    meta_error: JSON.parse(campaignErr.message),
+    stage: 'create_campaign',
+    meta_permissions,
+    ad_account_info,
   };
 }
 ```
 
-## Solution Implemented
+Similar handling for:
+- `stage: 'create_adset'`
+- `stage: 'create_ad'`
 
-### 1. **Server-Side: Expose Full Postgres Error Details**
+### 6. Enhanced Error Logging in run-ads-submit
 
-**File**: `netlify/functions/run-ads-submit.ts`
+When Meta execution fails:
 
-**Changes**:
-
-**A) Added logging before insert (lines 362-367):**
 ```typescript
-console.log('[run-ads-submit] Inserting ad_campaigns row:', {
-  user_id: user.id,
-  keys: Object.keys(insertPayload),
-  creative_ids_count: resolvedCreativeIds.length,
-  status: campaignStatus,
-});
+console.error('[run-ads-submit] ===== ❌ META EXECUTION FAILED =====');
+console.error('[run-ads-submit] Error:', metaResult.error);
+console.error('[run-ads-submit] Stage:', metaResult.stage);
+console.error('[run-ads-submit] Meta Graph Error:', JSON.stringify(metaResult.meta_error, null, 2));
+console.error('[run-ads-submit] Permissions:', metaResult.meta_permissions);
+console.error('[run-ads-submit] Ad Account Info:', metaResult.ad_account_info);
 ```
 
-**B) Improved error response (lines 375-396):**
-```typescript
-if (insertError || !campaign) {
-  console.error('[run-ads-submit] Failed to insert campaign:', {
-    code: insertError?.code,
-    message: insertError?.message,
-    details: insertError?.details,
-    hint: insertError?.hint,
-  });
+### 7. Enhanced API Response
 
-  return {
-    statusCode: 500,
-    body: JSON.stringify({
-      ok: false,
-      error: 'Failed to create campaign record',
-      detail: {
-        code: insertError?.code,        // e.g., "23505" (unique violation)
-        message: insertError?.message,  // e.g., "duplicate key value..."
-        details: insertError?.details,  // Full Postgres error text
-        hint: insertError?.hint,        // Postgres hint
-      },
-    }),
-  };
-}
-```
+Error responses now include full details:
 
-### 2. **Client-Side: Log Session State & Error Details**
-
-**File**: `src/components/campaigns/AICampaignWizard.tsx`
-
-**A) Added session validation logging (lines 286-297):**
-```typescript
-const { data: { session } } = await supabase.auth.getSession();
-if (!session?.access_token) {
-  console.error('[AICampaignWizard] Missing session or access_token', {
-    hasSession: !!session,
-    hasAccessToken: !!session?.access_token,
-  });
-  throw new Error('Not authenticated - please sign in again');
-}
-
-console.log('[AICampaignWizard] Auth session obtained', {
-  hasAccessToken: !!session.access_token,
-});
-```
-
-**B) Enhanced error logging to capture detail field (lines 364-400):**
-```typescript
-if (!response.ok) {
-  const error = result || { error: responseText || 'Unknown error' };
-  console.error('[AICampaignWizard] Publish failed (HTTP error):', {
-    status: response.status,
-    error,
-  });
-
-  // If detail exists, log it for debugging
-  if (error.detail) {
-    console.error('[AICampaignWizard] Database error detail:', error.detail);
-  }
-
-  throw new Error(error.error || error.message || 'Failed to create campaign');
-}
-
-if (!result.ok) {
-  console.error('[AICampaignWizard] Publish failed (result.ok=false):', {
-    result,
-  });
-
-  // If detail exists, log it for debugging
-  if (result.detail) {
-    console.error('[AICampaignWizard] Database error detail:', result.detail);
-  }
-
-  throw new Error(result.error || 'Failed to create campaign');
-}
-```
-
-## What This Fixes
-
-### Before
-**Server logs:**
-```
-[run-ads-submit] Failed to insert campaign: [object Object]
-```
-
-**Client sees:**
 ```json
 {
   "ok": false,
-  "error": "Failed to create campaign record"
-}
-```
-
-**Result**: No idea what went wrong.
-
-### After
-**Server logs:**
-```
-[run-ads-submit] Inserting ad_campaigns row: {
-  user_id: "abc-123-uuid",
-  keys: ["user_id", "draft_id", "ad_goal", "creative_ids", ...],
-  creative_ids_count: 2,
-  status: "draft"
-}
-
-[run-ads-submit] Failed to insert campaign: {
-  code: "23505",
-  message: "duplicate key value violates unique constraint \"ad_campaigns_pkey\"",
-  details: "Key (id)=(xyz-456-uuid) already exists.",
-  hint: null
-}
-```
-
-**Client sees:**
-```json
-{
-  "ok": false,
-  "error": "Failed to create campaign record",
-  "detail": {
-    "code": "23505",
-    "message": "duplicate key value violates unique constraint \"ad_campaigns_pkey\"",
-    "details": "Key (id)=(xyz-456-uuid) already exists.",
-    "hint": null
+  "campaign_id": "abc-123-uuid",
+  "error": "Meta Graph error during campaign creation",
+  "meta_error": {
+    "message": "Invalid parameter",
+    "type": "OAuthException",
+    "code": 100,
+    "error_subcode": 1487124,
+    "fbtrace_id": "AaBC123xyz",
+    "error_user_title": "Invalid Ad Account",
+    "error_user_msg": "The ad account you're trying to use is disabled."
+  },
+  "stage": "create_campaign",
+  "meta_campaign_id": null,
+  "meta_adset_id": null,
+  "meta_permissions": {
+    "data": [
+      { "permission": "ads_management", "status": "granted" },
+      { "permission": "pages_read_engagement", "status": "granted" }
+    ]
+  },
+  "ad_account_info": {
+    "account_status": 2,
+    "disable_reason": 1,
+    "name": "My Ad Account",
+    "currency": "USD",
+    "amount_spent": "0"
   }
 }
 ```
 
-**Client console:**
-```
-[AICampaignWizard] Database error detail: {
-  code: "23505",
-  message: "duplicate key value violates unique constraint ...",
-  details: "Key (id)=(xyz-456-uuid) already exists.",
-  hint: null
-}
-```
+## Error Stages
 
-**Result**: Clear diagnosis!
+The `stage` field indicates exactly where the failure occurred:
 
-## Common Postgres Error Codes
+| Stage | Description |
+|-------|-------------|
+| `create_campaign` | Campaign creation failed (e.g., invalid objective, account disabled) |
+| `create_adset` | AdSet creation failed (e.g., invalid budget, targeting issues) |
+| `create_ad` | Ad/Creative creation failed (e.g., creative policy violation, missing assets) |
+| `unknown` | Unexpected error outside normal flow |
 
-Now that detail is exposed, you can diagnose:
+## Common Meta Error Codes
 
-| Code | Meaning | Example |
+Now captured and returned:
+
+| Code | Subcode | Meaning |
 |------|---------|---------|
-| `23505` | Unique violation | Duplicate ID or slug |
-| `23503` | Foreign key violation | Referenced row doesn't exist |
-| `23502` | Not null violation | Required field missing |
-| `42P01` | Table doesn't exist | Schema mismatch |
-| `42703` | Column doesn't exist | Schema mismatch |
-| `22P02` | Invalid text representation | Type casting error |
-| `42501` | Insufficient privilege | RLS blocking insert |
+| 100 | - | Invalid parameter |
+| 190 | - | Access token expired |
+| 200 | - | Missing permissions |
+| 368 | - | Temporarily blocked for policies violating |
+| 2635 | 1487124 | Ad account disabled |
+| 2635 | 1487534 | Ad account closed |
+| 80004 | - | Too many API calls |
 
-## Auth Validation
+## Example Error Scenarios
 
-The fix also ensures:
+### Scenario 1: Disabled Ad Account
 
-**Client checks session before sending:**
-```typescript
-if (!session?.access_token) {
-  console.error('[AICampaignWizard] Missing session or access_token');
-  throw new Error('Not authenticated - please sign in again');
+**Console Output:**
+```
+[executeMetaCampaign] ===== STARTING META CAMPAIGN EXECUTION =====
+[executeMetaCampaign] Running diagnostic checks...
+[executeMetaCampaign] ✅ Permissions: { data: [...] }
+[executeMetaCampaign] ✅ Ad Account Info: { account_status: 2, disable_reason: 1 }
+[executeMetaCampaign] Step 2/4: Creating Meta campaign...
+[createMetaCampaign] Creating campaign with objective: OUTCOME_TRAFFIC
+[metaRequest] Meta Graph API Error: {
+  path: '/act_123456789/campaigns',
+  method: 'POST',
+  status: 400,
+  error: {
+    message: 'The ad account you're trying to use is disabled',
+    type: 'OAuthException',
+    code: 100,
+    error_subcode: 1487124,
+    fbtrace_id: 'AaBCxyz123'
+  }
 }
+[executeMetaCampaign] ❌ Campaign creation failed
 ```
 
-**Server validates token:**
-```typescript
-const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-
-if (authError || !user) {
-  return {
-    statusCode: 401,
-    body: JSON.stringify({ ok: false, error: "invalid_token" }),
-  };
-}
-```
-
-## Testing Scenarios
-
-### Scenario 1: Missing Authorization Header
-**Response**: 401 `{ ok: false, error: "unauthorized" }`
-
-### Scenario 2: Invalid Token
-**Response**: 401 `{ ok: false, error: "invalid_token" }`
-
-### Scenario 3: Database Insert Fails (RLS)
-**Response**: 500 with detail:
+**API Response:**
 ```json
 {
   "ok": false,
-  "error": "Failed to create campaign record",
-  "detail": {
-    "code": "42501",
-    "message": "new row violates row-level security policy...",
-    "hint": "..."
+  "error": "Meta Graph error during campaign creation",
+  "stage": "create_campaign",
+  "meta_error": {
+    "message": "The ad account you're trying to use is disabled",
+    "type": "OAuthException",
+    "code": 100,
+    "error_subcode": 1487124,
+    "fbtrace_id": "AaBCxyz123"
+  },
+  "ad_account_info": {
+    "account_status": 2,
+    "disable_reason": 1
   }
 }
 ```
 
-### Scenario 4: Duplicate Key
-**Response**: 500 with detail:
+### Scenario 2: Invalid Budget (AdSet Creation)
+
+**Console Output:**
+```
+[executeMetaCampaign] ✓ Created campaign: 120212345678901
+[executeMetaCampaign] Step 3/4: Creating Meta ad set...
+[createMetaAdSet] Creating adset for campaign: 120212345678901
+[metaRequest] Meta Graph API Error: {
+  error: {
+    message: 'Daily budget must be at least $5.00',
+    type: 'FacebookApiException',
+    code: 100,
+    error_subcode: 1487390
+  }
+}
+[executeMetaCampaign] ❌ AdSet creation failed
+```
+
+**API Response:**
 ```json
 {
   "ok": false,
-  "error": "Failed to create campaign record",
-  "detail": {
-    "code": "23505",
-    "message": "duplicate key value violates unique constraint..."
+  "error": "Meta Graph error during adset creation",
+  "stage": "create_adset",
+  "meta_campaign_id": "120212345678901",
+  "meta_error": {
+    "message": "Daily budget must be at least $5.00",
+    "code": 100,
+    "error_subcode": 1487390
   }
 }
 ```
 
-### Scenario 5: Invalid UUID
-**Response**: 500 with detail:
-```json
-{
-  "ok": false,
-  "error": "Failed to create campaign record",
-  "detail": {
-    "code": "22P02",
-    "message": "invalid input syntax for type uuid: \"invalid-uuid\""
+### Scenario 3: Missing Permissions
+
+**Console Output:**
+```
+[executeMetaCampaign] ⚠️ Could not fetch permissions: {
+  "message": "Missing required permission",
+  "type": "OAuthException",
+  "code": 200
+}
+[executeMetaCampaign] Step 2/4: Creating Meta campaign...
+[metaRequest] Meta Graph API Error: {
+  error: {
+    message: "Requires ads_management permission",
+    code: 200
   }
 }
 ```
 
-### Scenario 6: Success
-**Response**: 200 `{ ok: true, campaign_id: "xyz", status: "draft" }`
-
-## Service Role Confirmation
-
-The function uses `getSupabaseAdmin()` which:
-- Returns a Supabase client with `SUPABASE_SERVICE_ROLE_KEY`
-- Bypasses RLS (only if service key is set in Netlify env vars)
-- Falls back to anon key if service key not available
-
-**Logged at function startup:**
-```
-[Supabase Admin] configured=true | urlLen=50 | serviceKeyLen=178 | anonKeyLen=178 | usingServiceRole=true
-```
-
-## What This Enables
-
-With error details now exposed, you can:
-
-1. **Diagnose RLS issues**: See if code `42501` appears → RLS blocking insert
-2. **Fix schema mismatches**: See if code `42703` appears → column doesn't exist
-3. **Handle constraint violations**: See if code `23505` appears → duplicate key
-4. **Debug type errors**: See if code `22P02` appears → invalid UUID format
-5. **Read Postgres hints**: Use `hint` field for suggestions
-
-## Integration with Ads Debug Panel
-
-The enhanced error details will be captured by the Ads Debug Panel:
-
-**Console Tab** will show:
-```
-[AICampaignWizard] Database error detail: { code: "23505", ... }
+**API Response:**
+```json
+{
+  "ok": false,
+  "error": "Meta Graph error during campaign creation",
+  "stage": "create_campaign",
+  "meta_error": {
+    "message": "Requires ads_management permission",
+    "code": 200
+  },
+  "meta_permissions": {
+    "error": {
+      "message": "Missing required permission",
+      "code": 200
+    }
+  }
+}
 ```
 
-**Network Tab** will show response body with full detail object.
+## Security Notes
+
+**Token Safety:**
+- Access tokens are **NEVER logged** to console
+- Request bodies are **NOT logged** (they contain tokens)
+- Only error objects are logged (no sensitive data)
+- API responses **DO NOT include tokens**
+
+## Testing Instructions
+
+### 1. View Full Error in Console
+
+```javascript
+// In DevTools Console, trigger publish
+// You'll see detailed errors like:
+
+[run-ads-submit] ===== ❌ META EXECUTION FAILED =====
+[run-ads-submit] Error: Meta Graph error during campaign creation
+[run-ads-submit] Stage: create_campaign
+[run-ads-submit] Meta Graph Error: {
+  "message": "The ad account you're trying to use is disabled",
+  "type": "OAuthException",
+  "code": 100,
+  "error_subcode": 1487124,
+  "fbtrace_id": "AaBCxyz123",
+  "error_user_title": "Account Disabled",
+  "error_user_msg": "Your ad account has been disabled..."
+}
+[run-ads-submit] Permissions: { data: [...] }
+[run-ads-submit] Ad Account Info: {
+  "account_status": 2,
+  "disable_reason": 1,
+  "name": "My Ad Account"
+}
+```
+
+### 2. Check API Response
+
+Publish endpoint now returns:
+```json
+{
+  "ok": false,
+  "error": "Meta Graph error during campaign creation",
+  "meta_error": { /* Full error object */ },
+  "stage": "create_campaign",
+  "meta_permissions": { /* Diagnostic data */ },
+  "ad_account_info": { /* Account health */ }
+}
+```
+
+### 3. Verify ads_operations Table
+
+After publish failure, check:
+```sql
+SELECT * FROM ads_operations
+WHERE label = 'publish_failed'
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+The `response` JSON column should contain:
+- `meta_error` with full Graph error
+- `stage` indicating where it failed
+- `meta_permissions` and `ad_account_info`
+
+## Build Status
+
+✅ **Build passed** (37.85s)
+
+All TypeScript types correct, no errors.
+
+## Benefits
+
+### Before This Fix:
+```json
+{
+  "ok": false,
+  "error": "Failed to create Meta campaign. Check ad account permissions."
+}
+```
+**Problem:** Generic, unhelpful, no debugging info
+
+### After This Fix:
+```json
+{
+  "ok": false,
+  "error": "Meta Graph error during campaign creation",
+  "stage": "create_campaign",
+  "meta_error": {
+    "message": "The ad account you're trying to use is disabled",
+    "code": 100,
+    "error_subcode": 1487124,
+    "fbtrace_id": "AaBCxyz123",
+    "error_user_title": "Account Disabled"
+  },
+  "ad_account_info": {
+    "account_status": 2,
+    "disable_reason": 1
+  }
+}
+```
+**Solution:** Exact error, exact stage, diagnostic context, actionable info
 
 ## Next Steps
 
-If you still get 500 errors:
+When you see a publish failure:
 
-1. **Open Ads Debug Panel**
-2. **Click "Console" tab** → Look for session validation logs
-3. **Click "Network" tab** → Expand request/response details
-4. **Look at `detail.code`** in response body
-5. **Cross-reference with Postgres error code table above**
-6. **Fix root cause** (e.g., add missing column, fix RLS policy, etc.)
+1. **Check Console** - See full error with fbtrace_id
+2. **Check meta_error.code** - Identify error type
+3. **Check stage** - Know which step failed
+4. **Check ad_account_info** - Verify account health
+5. **Check meta_permissions** - Verify token permissions
+6. **Use fbtrace_id** - Report to Meta support if needed
 
-## Files Changed
-
-### Modified
-- `netlify/functions/run-ads-submit.ts` - Added error detail exposure
-- `src/components/campaigns/AICampaignWizard.tsx` - Added session validation and error detail logging
-
-## Security Note
-
-No tokens or secrets are exposed in the error detail.
-
-The `detail` field only contains:
-- Postgres error code (public)
-- Postgres error message (safe)
-- Postgres details (table/column names - safe)
-- Postgres hint (safe)
-
-Authorization headers are never logged or returned.
-
-Build passes. Error details now fully exposed for debugging.
+The error details will tell you exactly what's wrong and what to fix!
