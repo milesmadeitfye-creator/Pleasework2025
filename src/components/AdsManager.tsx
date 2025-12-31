@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
 import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle } from 'lucide-react';
 import { safeToFixed, safeNumber } from '../utils/numbers';
+import { AICampaignWizard } from './campaigns/AICampaignWizard';
 
 interface Campaign {
   id: string;
@@ -79,27 +80,55 @@ export default function AdsManager() {
         return;
       }
 
-      const response = await fetch('/.netlify/functions/meta-ads-assets', {
+      // FIXED: Correct endpoint is meta-accounts (not meta-ads-assets)
+      const response = await fetch('/.netlify/functions/meta-accounts', {
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
           'Content-Type': 'application/json',
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
-        setMetaAssets(data);
-
-        // Set default selected ad account
-        if (data.connected && data.ad_accounts && data.ad_accounts.length > 0) {
-          setSelectedAdAccountId(data.ad_accounts[0].id);
+      // Robust error handling for non-JSON responses
+      if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('text/html')) {
+          console.error('[AdsManager] Received HTML instead of JSON (endpoint may not exist):', response.status);
+          console.error('[AdsManager] Response preview:', await response.text().then(t => t.substring(0, 200)));
+        } else {
+          console.error('[AdsManager] Meta assets fetch failed:', response.status, await response.text());
         }
-      } else {
-        console.error('[AdsManager] Meta assets fetch failed:', response.status);
         setMetaAssets({ connected: false });
+        setLoadingMeta(false);
+        return;
       }
-    } catch (err) {
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        console.error('[AdsManager] Expected JSON but got:', contentType);
+        const preview = await response.text();
+        console.error('[AdsManager] Response preview:', preview.substring(0, 200));
+        setMetaAssets({ connected: false });
+        setLoadingMeta(false);
+        return;
+      }
+
+      const data = await response.json();
+
+      // Transform response to expected format
+      setMetaAssets({
+        connected: data.connected !== false,
+        ad_accounts: data.accounts || data.ad_accounts || [],
+      });
+
+      // Set default selected ad account
+      if (data.accounts && data.accounts.length > 0) {
+        setSelectedAdAccountId(data.accounts[0].id);
+      }
+    } catch (err: any) {
       console.error('[AdsManager] Error fetching Meta assets:', err);
+      if (err.message?.includes('Unexpected token')) {
+        console.error('[AdsManager] JSON parse error - likely received HTML instead of JSON');
+      }
       setMetaAssets({ connected: false });
     } finally {
       setLoadingMeta(false);
@@ -426,123 +455,13 @@ export default function AdsManager() {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 w-full max-w-md">
-            <h2 className="text-2xl font-bold mb-6">Create Campaign</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Campaign Name <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Platform <span className="text-red-400">*</span>
-                </label>
-                <select
-                  value={formData.platform}
-                  onChange={(e) =>
-                    setFormData({ ...formData, platform: e.target.value as 'meta' | 'tiktok' | 'youtube' })
-                  }
-                  className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="meta">Meta (Facebook/Instagram)</option>
-                  <option value="tiktok">TikTok</option>
-                  <option value="youtube">YouTube</option>
-                </select>
-              </div>
-
-              {/* BUILD FIX: Changed ad_accounts to adAccounts to match MetaAssets interface (TS2551) */}
-              {formData.platform === 'meta' && metaAssets?.connected && metaAssets.adAccounts && metaAssets.adAccounts.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Ad Account <span className="text-red-400">*</span>
-                  </label>
-                  <select
-                    value={selectedAdAccountId || ''}
-                    onChange={(e) => setSelectedAdAccountId(e.target.value)}
-                    className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
-                  >
-                    {metaAssets.adAccounts.map((account: any) => (
-                      <option key={account.id} value={account.id}>
-                        {account.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {formData.platform === 'meta' && (!metaAssets?.connected || !metaAssets.adAccounts || metaAssets.adAccounts.length === 0) && (
-                <div className="bg-yellow-900/20 border border-yellow-700/50 rounded-lg p-3">
-                  <p className="text-sm text-yellow-400">
-                    No Meta ad accounts found. Please connect Meta in <a href="/dashboard?tab=accounts" className="underline">Connected Accounts</a>.
-                  </p>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Budget ($) <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.budget}
-                  onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-                  className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                  min="0"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    value={formData.start_date}
-                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                    className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">End Date</label>
-                  <input
-                    type="date"
-                    value={formData.end_date}
-                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                    className="w-full px-4 py-2 bg-black border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <button
-                  type="submit"
-                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition-colors"
-                >
-                  Create Campaign
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+        <AICampaignWizard
+          onClose={() => setShowModal(false)}
+          onSuccess={() => {
+            fetchCampaigns();
+            setShowModal(false);
+          }}
+        />
       )}
     </div>
   );
