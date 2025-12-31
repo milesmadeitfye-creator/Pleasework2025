@@ -9,8 +9,10 @@ interface PageShellProps {
 }
 
 export function PageShell({ title, subtitle, children, actions, fullWidth = false }: PageShellProps) {
+  const isStudio = title === 'Ghoste Studio';
+
   return (
-    <div className="min-h-screen bg-ghoste-navy text-ghoste-white">
+    <div className={`min-h-screen bg-ghoste-navy text-ghoste-white ${isStudio ? 'ghoste-studio-scrollbars' : ''}`}>
       <main className={`mx-auto w-full ${fullWidth ? 'max-w-full px-4 md:px-6' : 'max-w-7xl px-4 md:px-8'} pt-4 pb-6 md:pb-8`}>
         {(title || actions) && (
           <div className="mb-6 flex items-start justify-between animate-[fadeUp_0.5s_ease-out]">

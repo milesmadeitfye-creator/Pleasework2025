@@ -611,3 +611,42 @@
   transform: translateY(-4px);
   box-shadow: 0 8px 32px rgba(26, 108, 255, 0.2);
 }
+
+/* =========================================
+   Ghoste Studio – Desktop Scrollbar Add-On
+   (keeps existing scroll behavior)
+   ========================================= */
+
+@media (pointer: fine) {
+  .ghoste-studio-scrollbars {
+    /* Do NOT change overflow/scrolling behavior here.
+       We only adjust scrollbar visuals. */
+    scrollbar-gutter: stable;
+  }
+
+  /* Firefox: make scrollbar visible */
+  .ghoste-studio-scrollbars {
+    scrollbar-width: auto;
+    scrollbar-color: rgba(140, 140, 140, 0.75) rgba(0, 0, 0, 0.10);
+  }
+
+  /* Chrome / Edge / Safari: style scrollbar without changing scroll behavior */
+  .ghoste-studio-scrollbars::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  .ghoste-studio-scrollbars::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.10);
+  }
+
+  .ghoste-studio-scrollbars::-webkit-scrollbar-thumb {
+    background-color: rgba(140, 140, 140, 0.70);
+    border-radius: 8px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  .ghoste-studio-scrollbars::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(160, 160, 160, 0.90);
+  }
+}
