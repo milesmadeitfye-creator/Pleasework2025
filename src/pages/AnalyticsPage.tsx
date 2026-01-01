@@ -12,6 +12,7 @@ import { AudienceDemographicsCard } from '../components/analytics/AudienceDemogr
 import { LinkClickDemographicsCard } from '../components/analytics/LinkClickDemographicsCard';
 import { TrafficSourcesCard } from '../components/analytics/TrafficSourcesCard';
 import { TopPerformingAssetsCard } from '../components/analytics/TopPerformingAssetsCard';
+import { SpotifyArtistIdentity } from '../components/analytics/SpotifyArtistIdentity';
 
 interface Stats {
   totalLinks: number;
@@ -487,6 +488,16 @@ export default function AnalyticsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Artist Identity Block */}
+      <SpotifyArtistIdentity
+        onIdentityChange={(identity) => {
+          // When identity is linked, use songstats_artist_id for analytics queries
+          if (identity?.songstats_artist_id) {
+            console.log('[Analytics] Artist identity linked:', identity);
+          }
+        }}
+      />
+
       {/* Analytics Search Header - MOVED TO TOP */}
       <div className="rounded-3xl border border-white/10 bg-ghoste-black/60 backdrop-blur-sm p-6">
         <div className="flex items-center justify-between mb-4">
