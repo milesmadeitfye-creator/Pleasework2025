@@ -99,3 +99,72 @@ export async function getMetaCredentialsSafe(userId: string): Promise<MetaCreden
     return null;
   }
 }
+
+/**
+ * Server-only Meta credentials loader with snake_case format.
+ * Used by meta-audiences-ensure and other functions expecting snake_case fields.
+ */
+export async function fetchMetaCredentials(
+  userId: string
+): Promise<{
+  access_token: string | null;
+  ad_account_id?: string | null;
+  page_id?: string | null;
+  pixel_id?: string | null;
+  instagram_actor_id?: string | null;
+  user_id?: string | null;
+}> {
+  const supabase = getSupabaseAdmin();
+
+  if (!supabase) {
+    throw new Error('Supabase not configured - cannot fetch Meta credentials');
+  }
+
+  // Try safe view first if it exists
+  const safe = await supabase
+    .from('meta_credentials_safe')
+    .select(
+      'access_token, ad_account_id, page_id, pixel_id, instagram_actor_id, user_id'
+    )
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!safe.error && safe.data?.access_token) {
+    return {
+      access_token: safe.data.access_token,
+      ad_account_id: safe.data.ad_account_id,
+      page_id: safe.data.page_id,
+      pixel_id: safe.data.pixel_id,
+      instagram_actor_id: safe.data.instagram_actor_id,
+      user_id: safe.data.user_id,
+    };
+  }
+
+  // Fallback to raw table (service role allowed)
+  const raw = await supabase
+    .from('meta_credentials')
+    .select(
+      'access_token, ad_account_id, page_id, pixel_id, instagram_actor_id, user_id'
+    )
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (raw.error) {
+    throw new Error(
+      `Failed to load meta credentials: ${raw.error.message}`
+    );
+  }
+
+  if (!raw.data?.access_token) {
+    throw new Error('Meta not connected (missing access_token)');
+  }
+
+  return {
+    access_token: raw.data.access_token,
+    ad_account_id: raw.data.ad_account_id,
+    page_id: raw.data.page_id,
+    pixel_id: raw.data.pixel_id,
+    instagram_actor_id: raw.data.instagram_actor_id,
+    user_id: raw.data.user_id,
+  };
+}
