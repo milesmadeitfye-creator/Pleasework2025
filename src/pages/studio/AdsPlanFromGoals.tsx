@@ -35,6 +35,9 @@ export default function AdsPlanFromGoals() {
   const [planAssets, setPlanAssets] = useState<PlanAssets>({});
   const [creatives, setCreatives] = useState<Creative[]>([]);
   const [launching, setLaunching] = useState(false);
+  const [songQuery, setSongQuery] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [resolveError, setResolveError] = useState('');
 
   useEffect(() => {
     loadUserGoals();
@@ -75,6 +78,58 @@ export default function AdsPlanFromGoals() {
 
   function updateAsset(key: keyof PlanAssets, value: string) {
     setPlanAssets(prev => ({ ...prev, [key]: value }));
+  }
+
+  async function resolveSongUrl() {
+    if (!songQuery.trim()) {
+      setResolveError('Please enter a song query (e.g., "Song Name - Artist")');
+      return;
+    }
+
+    setResolving(true);
+    setResolveError('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const res = await fetch('/.netlify/functions/song-resolve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ input: songQuery }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || json.error) {
+        throw new Error(json.error || 'Failed to resolve song');
+      }
+
+      if (json.track && json.track.spotify_url) {
+        updateAsset('smartlink_url', json.track.spotify_url);
+        setSongQuery('');
+        alert(`Resolved: ${json.track.title} by ${json.track.artist}`);
+      } else if (json.track && json.track.spotify_id) {
+        const spotifyUrl = `https://open.spotify.com/track/${json.track.spotify_id}`;
+        updateAsset('smartlink_url', spotifyUrl);
+        setSongQuery('');
+        alert(`Resolved: ${json.track.title} by ${json.track.artist}`);
+      } else {
+        throw new Error('No Spotify URL found');
+      }
+    } catch (err: any) {
+      console.error('[AdsPlanFromGoals] Resolve error:', err);
+      setResolveError(err.message || 'Failed to resolve song. Try pasting the URL manually.');
+    } finally {
+      setResolving(false);
+    }
   }
 
   function addCreative(file: File, goalKey: OverallGoalKey) {
@@ -125,11 +180,48 @@ export default function AdsPlanFromGoals() {
   async function handleLaunch() {
     setLaunching(true);
     try {
-      alert('Launch flow not yet implemented. Campaign drafts will be created here.');
-      navigate('/studio/ads');
-    } catch (err) {
-      console.error('Error launching campaigns:', err);
-      alert('Failed to launch campaigns');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('Not authenticated');
+      }
+
+      // Create a draft for each active goal
+      const primaryGoal = activeGoals[0];
+      const goalBudget = goalSettings[primaryGoal]?.daily_budget || 10;
+
+      // Get destination URL (prioritize smartlink)
+      const destinationUrl = planAssets.smartlink_url || planAssets.presave_url || planAssets.lead_url || '';
+
+      if (!destinationUrl) {
+        throw new Error('Please add at least one destination link');
+      }
+
+      // Create campaign draft
+      const { data: draft, error: draftError } = await supabase
+        .from('campaign_drafts')
+        .insert({
+          user_id: user.id,
+          goal: primaryGoal,
+          budget_daily: goalBudget,
+          duration_days: 7,
+          destination_url: destinationUrl,
+          status: 'draft',
+        })
+        .select()
+        .single();
+
+      if (draftError || !draft) {
+        console.error('[AdsPlanFromGoals] Draft creation error:', draftError);
+        throw new Error(draftError?.message || 'Failed to create campaign draft');
+      }
+
+      console.log('[AdsPlanFromGoals] Draft created:', draft.id);
+
+      // Navigate to draft detail page
+      navigate(`/studio/ads/drafts/${draft.id}`);
+    } catch (err: any) {
+      console.error('[AdsPlanFromGoals] Launch error:', err);
+      alert(err.message || 'Failed to create campaign. Please try again.');
     } finally {
       setLaunching(false);
     }
@@ -272,11 +364,39 @@ export default function AdsPlanFromGoals() {
                         return (
                           <div key={assetKey}>
                             <label className="block text-xs font-medium text-ghoste-grey mb-2">{labels[assetKey]}</label>
+
+                            {/* Song Resolver for smartlink_url */}
+                            {assetKey === 'smartlink_url' && (
+                              <div className="mb-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                                <p className="text-xs text-blue-300 mb-2">Find your song automatically</p>
+                                <div className="flex gap-2">
+                                  <input
+                                    type="text"
+                                    value={songQuery}
+                                    onChange={(e) => setSongQuery(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && resolveSongUrl()}
+                                    placeholder="Song Name - Artist"
+                                    className="flex-1 px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white placeholder-ghoste-grey/50 text-sm"
+                                  />
+                                  <button
+                                    onClick={resolveSongUrl}
+                                    disabled={resolving || !songQuery.trim()}
+                                    className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors whitespace-nowrap"
+                                  >
+                                    {resolving ? 'Finding...' : 'Find Song'}
+                                  </button>
+                                </div>
+                                {resolveError && (
+                                  <p className="text-xs text-red-400 mt-2">{resolveError}</p>
+                                )}
+                              </div>
+                            )}
+
                             <input
                               type="url"
                               value={planAssets[assetKey] || ''}
                               onChange={(e) => updateAsset(assetKey, e.target.value)}
-                              placeholder={`https://...`}
+                              placeholder={assetKey === 'smartlink_url' ? 'Or paste Spotify URL manually' : `https://...`}
                               className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white placeholder-ghoste-grey/50"
                             />
                           </div>
