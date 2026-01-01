@@ -41,10 +41,14 @@ interface CreateCampaignInput {
   custom_thumbnail_url?: string;
   metaStatus?: any; // RPC result from get_meta_connection_status
   // Template support
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
+    instagram_profile_url?: string;
+    facebook_page_url?: string;
+    tiktok_profile_url?: string;
+    lead_url?: string;
   };
 }
 
@@ -406,7 +410,7 @@ async function createMetaCampaign(
   assets: MetaAssets,
   name: string,
   ad_goal: string,
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound'
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads'
 ): Promise<{ id: string }> {
   // Build payload using single source of truth builder
   let body = buildMetaCampaignPayload({
@@ -449,8 +453,15 @@ async function createMetaAdSet(
   ad_goal: string,
   daily_budget_cents: number,
   meta_status?: any,
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound',
-  platform_destinations?: { facebook_sound_url?: string; tiktok_sound_url?: string }
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads',
+  platform_destinations?: {
+    facebook_sound_url?: string;
+    tiktok_sound_url?: string;
+    instagram_profile_url?: string;
+    facebook_page_url?: string;
+    tiktok_profile_url?: string;
+    lead_url?: string;
+  }
 ): Promise<{ id: string }> {
   // Build payload using single source of truth builder
   let body = buildMetaAdSetPayload({

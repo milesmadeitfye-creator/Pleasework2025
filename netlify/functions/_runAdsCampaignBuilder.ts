@@ -14,10 +14,14 @@ export interface RunAdsInput {
   profile_url?: string;
   capture_page_url?: string;
   // Template support
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
+    instagram_profile_url?: string;
+    facebook_page_url?: string;
+    tiktok_profile_url?: string;
+    lead_url?: string;
   };
 }
 

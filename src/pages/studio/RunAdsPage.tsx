@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug, Target, Volume2 } from 'lucide-react';
+import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug, Target, Volume2, UserPlus } from 'lucide-react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { uploadMedia } from '../../lib/uploadMedia';
@@ -59,6 +59,16 @@ export default function RunAdsPage() {
   const [facebookSoundUrl, setFacebookSoundUrl] = useState('');
   const [tiktokSoundUrl, setTiktokSoundUrl] = useState('');
   const [soundUrlErrors, setSoundUrlErrors] = useState<{ facebook?: string; tiktok?: string }>({});
+
+  // Profile URLs for follower_growth_profile_visits template
+  const [instagramProfileUrl, setInstagramProfileUrl] = useState('');
+  const [facebookPageUrl, setFacebookPageUrl] = useState('');
+  const [tiktokProfileUrl, setTiktokProfileUrl] = useState('');
+  const [profileUrlErrors, setProfileUrlErrors] = useState<{ instagram?: string; facebook?: string; tiktok?: string }>({});
+
+  // Lead URL for email_capture_leads template
+  const [leadUrl, setLeadUrl] = useState('');
+  const [leadUrlError, setLeadUrlError] = useState<string>('');
 
   const [launchResult, setLaunchResult] = useState<any>(null);
 
@@ -214,6 +224,22 @@ export default function RunAdsPage() {
       }
     }
 
+    // Validate follower growth template requirements
+    if (selectedTemplate === 'follower_growth_profile_visits') {
+      if (!instagramProfileUrl && !facebookPageUrl && !tiktokProfileUrl) {
+        alert('Please provide at least one profile URL (Instagram, Facebook, or TikTok) for the Follower Growth template.');
+        return;
+      }
+    }
+
+    // Validate email capture template requirements
+    if (selectedTemplate === 'email_capture_leads') {
+      if (!leadUrl) {
+        alert('Please provide a lead capture URL (Smart Link or landing page) for the Email Capture template.');
+        return;
+      }
+    }
+
     console.log('[ADS] Submit start', {
       user: user.id,
       step,
@@ -248,11 +274,29 @@ export default function RunAdsPage() {
 
       // Build platform destinations for template
       const platformDestinations: PlatformDestinations = {};
+
+      // Virality template: sound URLs
       if (facebookSoundUrl) {
         platformDestinations.facebook_sound_url = resolveFacebookSoundUrl(facebookSoundUrl);
       }
       if (tiktokSoundUrl) {
         platformDestinations.tiktok_sound_url = resolveTikTokSoundUrl(tiktokSoundUrl);
+      }
+
+      // Follower growth template: profile URLs
+      if (instagramProfileUrl) {
+        platformDestinations.instagram_profile_url = instagramProfileUrl.trim();
+      }
+      if (facebookPageUrl) {
+        platformDestinations.facebook_page_url = facebookPageUrl.trim();
+      }
+      if (tiktokProfileUrl) {
+        platformDestinations.tiktok_profile_url = tiktokProfileUrl.trim();
+      }
+
+      // Email capture template: lead URL
+      if (leadUrl) {
+        platformDestinations.lead_url = leadUrl.trim();
       }
 
       // Capture debug data BEFORE sending
@@ -699,6 +743,112 @@ export default function RunAdsPage() {
                     <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                       <p className="text-sm text-yellow-400">
                         At least one sound URL is required to publish this template.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Follower Growth Template Profile URL Inputs */}
+              {selectedTemplate === 'follower_growth_profile_visits' && (
+                <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700 space-y-4">
+                  <div className="flex items-start gap-2 mb-4">
+                    <UserPlus className="w-5 h-5 text-blue-400 mt-1" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-white mb-1">Profile URLs Required</h4>
+                      <p className="text-sm text-gray-400">
+                        Provide at least one profile URL (Instagram preferred). Ads will drive traffic to your social profiles to grow followers.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      Instagram Profile URL <span className="text-blue-400">(Preferred)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={instagramProfileUrl}
+                      onChange={(e) => setInstagramProfileUrl(e.target.value)}
+                      placeholder="https://instagram.com/yourusername"
+                      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      Facebook Page URL <span className="text-gray-500">(Optional)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={facebookPageUrl}
+                      onChange={(e) => setFacebookPageUrl(e.target.value)}
+                      placeholder="https://facebook.com/yourpage"
+                      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      TikTok Profile URL <span className="text-gray-500">(Optional)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={tiktokProfileUrl}
+                      onChange={(e) => setTiktokProfileUrl(e.target.value)}
+                      placeholder="https://tiktok.com/@yourusername"
+                      className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-lg text-white"
+                    />
+                  </div>
+
+                  {!instagramProfileUrl && !facebookPageUrl && !tiktokProfileUrl && (
+                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <p className="text-sm text-yellow-400">
+                        At least one profile URL is required to publish this template.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Email Capture Template Lead URL Input */}
+              {selectedTemplate === 'email_capture_leads' && (
+                <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700 space-y-4">
+                  <div className="flex items-start gap-2 mb-4">
+                    <Mail className="w-5 h-5 text-green-400 mt-1" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-white mb-1">Lead Capture URL Required</h4>
+                      <p className="text-sm text-gray-400">
+                        Provide a Ghoste Smart Link or landing page URL with email capture form. Ads will drive leads to this form.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      Lead Capture URL
+                    </label>
+                    <input
+                      type="url"
+                      value={leadUrl}
+                      onChange={(e) => setLeadUrl(e.target.value)}
+                      placeholder="https://ghoste.one/l/your-link"
+                      className={`w-full px-4 py-3 bg-gray-900 border rounded-lg text-white ${
+                        leadUrlError ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                    />
+                    {leadUrlError && (
+                      <p className="text-red-400 text-sm mt-1">{leadUrlError}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">
+                      Tip: Use a Smart Link with email capture enabled, or a landing page with an email form.
+                    </p>
+                  </div>
+
+                  {!leadUrl && (
+                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <p className="text-sm text-yellow-400">
+                        A lead capture URL is required to publish this template.
                       </p>
                     </div>
                   )}

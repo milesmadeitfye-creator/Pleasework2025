@@ -20,7 +20,7 @@ const VALID_CUSTOM_EVENT_TYPES = [
 interface CampaignPayloadInput {
   name: string;
   ad_goal: string;
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
 }
 
 interface AdSetPayloadInput {
@@ -32,10 +32,14 @@ interface AdSetPayloadInput {
   pixel_id?: string;
   page_id?: string;
   // Template support
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
+    instagram_profile_url?: string;
+    facebook_page_url?: string;
+    tiktok_profile_url?: string;
+    lead_url?: string;
   };
 }
 
@@ -77,6 +81,19 @@ function mapTemplateToMetaConfig(template_key?: string): {
       return {
         objective: 'VIDEO_VIEWS',
         optimization_goal: 'THRUPLAY',
+      };
+
+    case 'follower_growth_profile_visits':
+      return {
+        objective: 'OUTCOME_TRAFFIC',
+        optimization_goal: 'LINK_CLICKS',
+        // Note: Meta may support PROFILE_VISITS in future, for now use LINK_CLICKS
+      };
+
+    case 'email_capture_leads':
+      return {
+        objective: 'OUTCOME_LEADS',
+        optimization_goal: 'LEAD',
       };
 
     default:
@@ -196,10 +213,19 @@ export function buildMetaAdSetPayload(input: AdSetPayloadInput): any {
 
   // Select destination URL based on template
   let finalDestinationUrl = destination_url;
+
   if (template_key === 'virality_engagement_thruplay_sound' && platform_destinations) {
     // For virality template, prefer Facebook sound URL, fallback to TikTok
     finalDestinationUrl = platform_destinations.facebook_sound_url || platform_destinations.tiktok_sound_url || destination_url;
     console.log('[buildMetaAdSetPayload] Using sound URL for virality template:', finalDestinationUrl);
+  } else if (template_key === 'follower_growth_profile_visits' && platform_destinations) {
+    // For follower growth template, prefer Instagram profile, fallback to Facebook page, then TikTok
+    finalDestinationUrl = platform_destinations.instagram_profile_url || platform_destinations.facebook_page_url || platform_destinations.tiktok_profile_url || destination_url;
+    console.log('[buildMetaAdSetPayload] Using profile URL for follower growth template:', finalDestinationUrl);
+  } else if (template_key === 'email_capture_leads' && platform_destinations) {
+    // For email capture template, use lead URL
+    finalDestinationUrl = platform_destinations.lead_url || destination_url;
+    console.log('[buildMetaAdSetPayload] Using lead URL for email capture template:', finalDestinationUrl);
   }
 
   const payload: any = {
