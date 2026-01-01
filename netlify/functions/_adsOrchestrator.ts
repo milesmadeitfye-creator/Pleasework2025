@@ -452,6 +452,16 @@ export class AdsOrchestrator {
       return;
     }
 
+    // Try to ensure audiences exist (graceful failure)
+    let audiences: any[] = [];
+    try {
+      audiences = await this.ensureAudiences(goal);
+      console.log(`[AdsOrchestrator] Audiences ready for ${goal.goalKey}: ${audiences.length} audiences`);
+    } catch (err) {
+      console.warn(`[AdsOrchestrator] Audience creation failed for ${goal.goalKey}, will use broad targeting:`, err);
+      // Continue without audiences - campaign will use broad targeting
+    }
+
     // Create learning campaign (placeholder - integrate with your Meta pipeline)
     await this.logAction({
       actionType: 'create_campaign',
@@ -461,10 +471,41 @@ export class AdsOrchestrator {
         budgetType: 'ABO',
         goalKey: goal.goalKey,
         templateKey: goal.templateKey,
+        audiences: audiences.length > 0 ? audiences.map(a => a.meta_audience_id) : undefined,
+        targeting: audiences.length > 0 ? 'custom_audiences' : 'broad',
       },
       status: this.config.dryRun ? 'pending' : 'success',
-      message: `Would create learning campaign for ${goal.goalKey}`,
+      message: `Would create learning campaign for ${goal.goalKey}${audiences.length > 0 ? ` with ${audiences.length} audiences` : ' (broad targeting)'}`,
     });
+  }
+
+  private async ensureAudiences(goal: GoalData): Promise<any[]> {
+    // Call meta-audiences-ensure function
+    // This is a best-effort call - if it fails, we continue without audiences
+    const NETLIFY_FUNCTIONS_URL = process.env.URL || 'https://ghoste.one';
+
+    try {
+      const response = await fetch(`${NETLIFY_FUNCTIONS_URL}/api/meta-audiences-ensure`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          goal_key: goal.goalKey,
+          seed_types: ['website_180', 'engagers_365', 'video_viewers_25'],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Audience API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.audiences || [];
+    } catch (err) {
+      console.error('[AdsOrchestrator] ensureAudiences failed:', err);
+      throw err;
+    }
   }
 
   private async detectWinners(goal: GoalData): Promise<WinnerCandidate[]> {

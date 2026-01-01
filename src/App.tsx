@@ -364,6 +364,16 @@ function App() {
             }
           />
           <Route
+            path="/studio/ads"
+            element={
+              <ProtectedRoute>
+                <AppShell>
+                  <AdCampaignsPage />
+                </AppShell>
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/studio/ads/plan-from-goals"
             element={
               <ProtectedRoute>
