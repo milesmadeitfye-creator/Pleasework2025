@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle, Copy, Edit3, ExternalLink, Target } from 'lucide-react';
 import { safeToFixed, safeNumber } from '../utils/numbers';
 import { AICampaignWizard } from './campaigns/AICampaignWizard';
+import { ActiveGoalsSummary } from './ads/ActiveGoalsSummary';
 
 interface Campaign {
   id: string;
@@ -489,6 +490,11 @@ export default function AdsManager() {
           </div>
         </div>
       )}
+
+      {/* Read-Only Active Goals Summary */}
+      <div className="mb-6">
+        <ActiveGoalsSummary />
+      </div>
 
       <div className="flex justify-between items-center mb-6">
         <p className="text-gray-400">Manage ad campaigns across platforms</p>

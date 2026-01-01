@@ -270,26 +270,56 @@ export function GoalsAndBudget() {
     );
   }
 
+  const [activeTab, setActiveTab] = useState<'estimator' | 'ads-goals'>('estimator');
+
   return (
     <div className="space-y-6">
-      {/* Your Goals Section */}
+      {/* Unified Goals & Budget Section */}
       <div className="rounded-2xl border border-ghoste-border bg-ghoste-card p-6">
-        <div className="mb-6">
-          <div className="flex items-center gap-3 mb-2">
-            <Target className="w-6 h-6 text-ghoste-blue" />
-            <h2 className="text-xl font-bold text-ghoste-white">Your Goals</h2>
-          </div>
-          <p className="text-sm text-ghoste-grey">Turn goals on and upload creatives. Ghoste tests and scales automatically.</p>
-        </div>
+      <div className="mb-6">
+        <h2 className="text-xl font-bold text-ghoste-white mb-1">Goals & Budget</h2>
+        <p className="text-sm text-ghoste-grey">Configure your marketing goals and budget planning</p>
+      </div>
 
-        {/* Goal Cards */}
-        <div className="grid gap-4">
+      {/* Tab Switcher */}
+      <div className="flex gap-2 mb-6 border-b border-ghoste-border">
+        <button
+          onClick={() => setActiveTab('ads-goals')}
+          className={[
+            'px-4 py-2 font-medium transition-all border-b-2',
+            activeTab === 'ads-goals'
+              ? 'border-ghoste-blue text-ghoste-blue'
+              : 'border-transparent text-ghoste-grey hover:text-ghoste-white',
+          ].join(' ')}
+        >
+          Ads Goals
+        </button>
+        <button
+          onClick={() => setActiveTab('estimator')}
+          className={[
+            'px-4 py-2 font-medium transition-all border-b-2',
+            activeTab === 'estimator'
+              ? 'border-ghoste-blue text-ghoste-blue'
+              : 'border-transparent text-ghoste-grey hover:text-ghoste-white',
+          ].join(' ')}
+        >
+          Budget Estimator
+        </button>
+      </div>
+
+      {/* Ads Goals Tab */}
+      {activeTab === 'ads-goals' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-4">
+            <Target className="w-5 h-5 text-ghoste-blue" />
+            <p className="text-sm text-ghoste-grey">Turn goals on and upload creatives. Ghoste tests and scales automatically.</p>
+          </div>
+
+          {/* Goal Cards */}
           {getAllGoalKeys().map(goalKey => {
             const goal = GOAL_REGISTRY[goalKey];
             const settings = goalSettings[goalKey] || DEFAULT_GOAL_SETTINGS;
-            const priorityLabels = ['Low', 'Medium', 'High'];
             const priorityValue = settings.priority || 3;
-            const priorityLabel = priorityValue <= 2 ? 'Low' : priorityValue <= 3 ? 'Medium' : 'High';
 
             return (
               <div
@@ -363,16 +393,11 @@ export function GoalsAndBudget() {
             );
           })}
         </div>
-      </div>
+      )}
 
-      {/* Existing Budget Estimator */}
-      <div className="rounded-2xl border border-ghoste-border bg-ghoste-card p-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-bold text-ghoste-white mb-1">Goals & Budget Estimator</h2>
-        <p className="text-sm text-ghoste-grey">Set your goals and get a recommended marketing budget</p>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-8">
+      {/* Budget Estimator Tab */}
+      {activeTab === 'estimator' && (
+        <div className="grid md:grid-cols-2 gap-8">
         {/* Left Column - Inputs */}
         <div className="space-y-6">
           {/* Primary Goal */}
@@ -675,33 +700,35 @@ export function GoalsAndBudget() {
             </>
           )}
         </div>
+
+        {/* Actions */}
+        <div className="md:col-span-2 mt-8 pt-6 border-t border-ghoste-border flex gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-6 py-2.5 rounded-lg bg-ghoste-blue text-white font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            {saving ? 'Saving...' : 'Save Goals'}
+          </button>
+
+          <button
+            onClick={applyToAds}
+            disabled={!estimate}
+            className="px-6 py-2.5 rounded-lg bg-white/5 text-ghoste-white font-medium hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          >
+            Use in Ads Tab
+          </button>
+
+          <button
+            onClick={handleReset}
+            className="px-6 py-2.5 rounded-lg bg-white/5 text-ghoste-grey font-medium hover:bg-white/10 transition-all"
+          >
+            Reset
+          </button>
+        </div>
       </div>
+      )}
 
-      {/* Actions */}
-      <div className="mt-8 pt-6 border-t border-ghoste-border flex gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-6 py-2.5 rounded-lg bg-ghoste-blue text-white font-medium hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-        >
-          {saving ? 'Saving...' : 'Save Goals'}
-        </button>
-
-        <button
-          onClick={applyToAds}
-          disabled={!estimate}
-          className="px-6 py-2.5 rounded-lg bg-white/5 text-ghoste-white font-medium hover:bg-white/10 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-        >
-          Use in Ads Tab
-        </button>
-
-        <button
-          onClick={handleReset}
-          className="px-6 py-2.5 rounded-lg bg-white/5 text-ghoste-grey font-medium hover:bg-white/10 transition-all"
-        >
-          Reset
-        </button>
-      </div>
       </div>
     </div>
   );
