@@ -20,6 +20,7 @@ const VALID_CUSTOM_EVENT_TYPES = [
 interface CampaignPayloadInput {
   name: string;
   ad_goal: string;
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
 }
 
 interface AdSetPayloadInput {
@@ -30,6 +31,12 @@ interface AdSetPayloadInput {
   destination_url?: string;
   pixel_id?: string;
   page_id?: string;
+  // Template support
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
+  platform_destinations?: {
+    facebook_sound_url?: string;
+    tiktok_sound_url?: string;
+  };
 }
 
 interface PayloadDebugInfo {
@@ -42,6 +49,40 @@ interface PayloadDebugInfo {
   bid_strategy: string;
   optimization_goal: string;
   billing_event: string;
+}
+
+/**
+ * Map template to Meta objective and optimization goal
+ * Templates override default ad_goal mapping
+ */
+function mapTemplateToMetaConfig(template_key?: string): {
+  objective: string;
+  optimization_goal: string;
+  custom_event_type?: string;
+} | null {
+  if (!template_key) return null;
+
+  switch (template_key) {
+    case 'oneclick_segmentation_sales':
+      return {
+        objective: 'OUTCOME_SALES',
+        optimization_goal: 'OFFSITE_CONVERSIONS',
+        // NOTE: custom_event_type should be platform-specific at runtime:
+        // 'oneclickspotify', 'oneclickyoutube', 'oneclickapplemusic', etc.
+        // Default to 'CONTENT_VIEW' as fallback if platform not yet selected
+        custom_event_type: 'CONTENT_VIEW',
+      };
+
+    case 'virality_engagement_thruplay_sound':
+      return {
+        objective: 'VIDEO_VIEWS',
+        optimization_goal: 'THRUPLAY',
+      };
+
+    default:
+      console.warn('[mapTemplateToMetaConfig] Unknown template_key:', template_key);
+      return null;
+  }
 }
 
 /**
@@ -84,8 +125,11 @@ function mapGoalToObjective(ad_goal: string): string {
  * - Budget is set at ad set level
  */
 export function buildMetaCampaignPayload(input: CampaignPayloadInput): any {
-  const { name, ad_goal } = input;
-  const objective = mapGoalToObjective(ad_goal);
+  const { name, ad_goal, template_key } = input;
+
+  // Check for template override
+  const templateConfig = mapTemplateToMetaConfig(template_key);
+  const objective = templateConfig ? templateConfig.objective : mapGoalToObjective(ad_goal);
 
   const payload: any = {
     name,
@@ -104,6 +148,8 @@ export function buildMetaCampaignPayload(input: CampaignPayloadInput): any {
 
   console.log('[buildMetaCampaignPayload] ABO Campaign payload:', {
     objective,
+    template_key: template_key || 'none',
+    from_template: !!templateConfig,
     is_adset_budget_sharing_enabled: payload.is_adset_budget_sharing_enabled,
     has_budget: false,
     mode: 'ABO',
@@ -125,15 +171,35 @@ export function buildMetaCampaignPayload(input: CampaignPayloadInput): any {
  * - NO custom_event_type for traffic goals
  */
 export function buildMetaAdSetPayload(input: AdSetPayloadInput): any {
-  const { name, campaign_id, ad_goal, daily_budget_cents, destination_url, pixel_id, page_id } = input;
+  const { name, campaign_id, ad_goal, daily_budget_cents, destination_url, pixel_id, page_id, template_key, platform_destinations } = input;
+
+  // Check for template override
+  const templateConfig = mapTemplateToMetaConfig(template_key);
+
   const goal = ad_goal.toLowerCase();
 
-  // Check if this is a traffic/link clicks goal
-  const isTrafficGoal = goal === 'link_clicks' || goal === 'traffic' || goal === 'streams';
+  // Check if this is a traffic/link clicks goal (unless overridden by template)
+  const isTrafficGoal = templateConfig
+    ? false
+    : (goal === 'link_clicks' || goal === 'traffic' || goal === 'streams');
 
-  // Streams temporarily routes to traffic until conversion flow is implemented
-  if (goal === 'streams') {
+  // Log template usage
+  if (templateConfig) {
+    console.log('[buildMetaAdSetPayload] Using template config:', {
+      template_key,
+      objective: templateConfig.objective,
+      optimization_goal: templateConfig.optimization_goal,
+    });
+  } else if (goal === 'streams') {
     console.log('[buildMetaAdSetPayload] Routing "streams" goal to traffic payload');
+  }
+
+  // Select destination URL based on template
+  let finalDestinationUrl = destination_url;
+  if (template_key === 'virality_engagement_thruplay_sound' && platform_destinations) {
+    // For virality template, prefer Facebook sound URL, fallback to TikTok
+    finalDestinationUrl = platform_destinations.facebook_sound_url || platform_destinations.tiktok_sound_url || destination_url;
+    console.log('[buildMetaAdSetPayload] Using sound URL for virality template:', finalDestinationUrl);
   }
 
   const payload: any = {
@@ -144,7 +210,7 @@ export function buildMetaAdSetPayload(input: AdSetPayloadInput): any {
     daily_budget: String(daily_budget_cents),
     // Bidding settings (no bid_amount - automatic optimization)
     billing_event: 'IMPRESSIONS',
-    optimization_goal: 'LINK_CLICKS',
+    optimization_goal: templateConfig ? templateConfig.optimization_goal : 'LINK_CLICKS',
     bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
     // Targeting
     targeting: {
@@ -164,12 +230,18 @@ export function buildMetaAdSetPayload(input: AdSetPayloadInput): any {
   if (!isTrafficGoal) {
     // Conversion goals - add promoted_object with pixel
     if (pixel_id) {
+      // Use template's custom_event_type if provided, otherwise default to PURCHASE
+      const customEventType = templateConfig?.custom_event_type || 'PURCHASE';
+
       payload.promoted_object = {
         pixel_id,
-        // ONLY add custom_event_type if NOT a traffic goal
-        custom_event_type: 'PURCHASE',
+        custom_event_type: customEventType,
       };
-      console.log('[buildMetaAdSetPayload] Added promoted_object for conversion goal');
+
+      console.log('[buildMetaAdSetPayload] Added promoted_object for conversion goal:', {
+        custom_event_type: customEventType,
+        from_template: !!templateConfig,
+      });
     } else if (page_id && (goal === 'leads' || goal === 'lead_generation')) {
       // Lead generation - use page_id, NO custom_event_type
       payload.promoted_object = {

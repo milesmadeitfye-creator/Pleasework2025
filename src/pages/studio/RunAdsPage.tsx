@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug } from 'lucide-react';
+import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug, Target, Volume2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { uploadMedia } from '../../lib/uploadMedia';
 import { AdsDebugPanel } from '../../components/ads/AdsDebugPanel';
 import { setAdsDebugLastRun } from '../../utils/adsDebugBus';
 import { sanitizeForDebug } from '../../utils/sanitizeForDebug';
+import { fetchAdsTemplates, type AdsTemplateRecord, type AdsTemplateKey, type PlatformDestinations, TEMPLATE_DETAILS } from '../../lib/ads/templates';
+import { resolveFacebookSoundUrl, resolveTikTokSoundUrl, validateSoundUrl } from '../../lib/ads/templates';
 
 interface Creative {
   id: string;
@@ -51,6 +53,13 @@ export default function RunAdsPage() {
   const [smartLinks, setSmartLinks] = useState<any[]>([]);
   const [selectedSmartLink, setSelectedSmartLink] = useState<string>('');
 
+  // Template state
+  const [templates, setTemplates] = useState<AdsTemplateRecord[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<AdsTemplateKey | null>(null);
+  const [facebookSoundUrl, setFacebookSoundUrl] = useState('');
+  const [tiktokSoundUrl, setTiktokSoundUrl] = useState('');
+  const [soundUrlErrors, setSoundUrlErrors] = useState<{ facebook?: string; tiktok?: string }>({});
+
   const [launchResult, setLaunchResult] = useState<any>(null);
 
   // Debug panel state
@@ -70,6 +79,22 @@ export default function RunAdsPage() {
       loadSmartLinks();
     }
   }, [user, selectedGoal]);
+
+  useEffect(() => {
+    if (user) {
+      loadTemplates();
+    }
+  }, [user]);
+
+  const loadTemplates = async () => {
+    const loadedTemplates = await fetchAdsTemplates(supabase);
+    setTemplates(loadedTemplates);
+
+    // Auto-select first template if none selected
+    if (!selectedTemplate && loadedTemplates.length > 0) {
+      setSelectedTemplate(loadedTemplates[0].template_key);
+    }
+  };
 
   const loadSmartLinks = async () => {
     if (!user) return;
@@ -181,7 +206,20 @@ export default function RunAdsPage() {
   const handleSubmit = async () => {
     if (!user) return;
 
-    console.log('[ADS] Submit start', { user: user.id, step });
+    // Validate virality template requirements
+    if (selectedTemplate === 'virality_engagement_thruplay_sound') {
+      if (!facebookSoundUrl && !tiktokSoundUrl) {
+        alert('Please provide at least one sound URL (Facebook or TikTok) for the Virality template.');
+        return;
+      }
+    }
+
+    console.log('[ADS] Submit start', {
+      user: user.id,
+      step,
+      template_key: selectedTemplate,
+      destination_mode: templates.find(t => t.template_key === selectedTemplate)?.destination_mode,
+    });
 
     setLaunching(true);
     const startTime = Date.now();
@@ -208,6 +246,15 @@ export default function RunAdsPage() {
         smartLinkUrl,
       });
 
+      // Build platform destinations for template
+      const platformDestinations: PlatformDestinations = {};
+      if (facebookSoundUrl) {
+        platformDestinations.facebook_sound_url = resolveFacebookSoundUrl(facebookSoundUrl);
+      }
+      if (tiktokSoundUrl) {
+        platformDestinations.tiktok_sound_url = resolveTikTokSoundUrl(tiktokSoundUrl);
+      }
+
       // Capture debug data BEFORE sending
       const payload = {
         ad_goal: selectedGoal,
@@ -222,6 +269,9 @@ export default function RunAdsPage() {
         notification_phone: notificationMethod === 'sms' ? notificationPhone : undefined,
         notification_email: notificationMethod === 'email' ? notificationEmail : undefined,
         manager_mode_enabled: managerModeEnabled,
+        // Template data
+        template_key: selectedTemplate,
+        platform_destinations: Object.keys(platformDestinations).length > 0 ? platformDestinations : undefined,
       };
 
       console.log('[ADS] Payload prepared', {
@@ -233,7 +283,12 @@ export default function RunAdsPage() {
 
       setDebugPayload(payload);
       if (smartLinkObj) {
-        setDebugMetaStatus({ selectedSmartLink: smartLinkObj });
+        setDebugMetaStatus({
+          selectedSmartLink: smartLinkObj,
+          template_key: selectedTemplate,
+          destination_mode: templates.find(t => t.template_key === selectedTemplate)?.destination_mode,
+          platform_destinations: platformDestinations,
+        });
       }
 
       console.log('[ADS] Submitting to run-ads-submit...');
@@ -511,8 +566,148 @@ export default function RunAdsPage() {
 
         {step === 2 && (
           <div className="bg-gradient-to-br from-gray-900 to-gray-950 border border-gray-800 rounded-xl p-8">
-            <h2 className="text-2xl font-bold text-white mb-4">Select Campaign Goal</h2>
-            <p className="text-gray-400 mb-6">
+            <h2 className="text-2xl font-bold text-white mb-6">Choose Campaign Strategy</h2>
+
+            {/* Template Selection */}
+            <div className="mb-8">
+              <h3 className="text-lg font-semibold text-white mb-2">Ad Template</h3>
+              <p className="text-gray-400 mb-4">
+                Select an optimization strategy for your campaign
+              </p>
+
+              <div className="grid grid-cols-1 gap-4 mb-6">
+                {templates.map((template) => {
+                  const details = TEMPLATE_DETAILS[template.template_key];
+                  const Icon = template.template_key === 'oneclick_segmentation_sales' ? Target : Volume2;
+
+                  return (
+                    <button
+                      key={template.id}
+                      onClick={() => setSelectedTemplate(template.template_key)}
+                      className={`p-6 rounded-xl border-2 transition-all text-left ${
+                        selectedTemplate === template.template_key
+                          ? 'border-green-500 bg-green-500/10'
+                          : 'border-gray-700 hover:border-gray-600'
+                      }`}
+                    >
+                      <div className="flex items-start gap-4">
+                        <div
+                          className={`p-3 rounded-lg ${
+                            selectedTemplate === template.template_key ? 'bg-green-500/20' : 'bg-gray-800'
+                          }`}
+                        >
+                          <Icon className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="text-lg font-semibold text-white mb-1">
+                            {template.title}
+                          </h4>
+                          <p className="text-sm text-gray-400 mb-2">{template.purpose}</p>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <span className="px-2 py-1 bg-gray-800 rounded text-gray-300">
+                              {template.objective}
+                            </span>
+                            <span className="px-2 py-1 bg-gray-800 rounded text-gray-300">
+                              {template.optimization_goal}
+                            </span>
+                            <span className="px-2 py-1 bg-blue-500/20 text-blue-400 rounded">
+                              {template.core_signal}
+                            </span>
+                          </div>
+                        </div>
+                        {selectedTemplate === template.template_key && (
+                          <CheckCircle className="w-6 h-6 text-green-400" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Virality Template Sound URL Inputs */}
+              {selectedTemplate === 'virality_engagement_thruplay_sound' && (
+                <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700 space-y-4">
+                  <div className="flex items-start gap-2 mb-4">
+                    <Volume2 className="w-5 h-5 text-purple-400 mt-1" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-white mb-1">Native Sound URLs Required</h4>
+                      <p className="text-sm text-gray-400">
+                        Provide Facebook and/or TikTok sound URLs. These should be native sound links that open inside the platform.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      Facebook Sound URL
+                    </label>
+                    <input
+                      type="url"
+                      value={facebookSoundUrl}
+                      onChange={(e) => {
+                        setFacebookSoundUrl(e.target.value);
+                        if (e.target.value) {
+                          const validation = validateSoundUrl(e.target.value, 'facebook');
+                          if (!validation.valid) {
+                            setSoundUrlErrors({ ...soundUrlErrors, facebook: validation.error });
+                          } else {
+                            const { facebook, ...rest } = soundUrlErrors;
+                            setSoundUrlErrors(rest);
+                          }
+                        }
+                      }}
+                      placeholder="https://facebook.com/..."
+                      className={`w-full px-4 py-3 bg-gray-900 border rounded-lg text-white ${
+                        soundUrlErrors.facebook ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                    />
+                    {soundUrlErrors.facebook && (
+                      <p className="text-red-400 text-sm mt-1">{soundUrlErrors.facebook}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      TikTok Sound URL
+                    </label>
+                    <input
+                      type="url"
+                      value={tiktokSoundUrl}
+                      onChange={(e) => {
+                        setTiktokSoundUrl(e.target.value);
+                        if (e.target.value) {
+                          const validation = validateSoundUrl(e.target.value, 'tiktok');
+                          if (!validation.valid) {
+                            setSoundUrlErrors({ ...soundUrlErrors, tiktok: validation.error });
+                          } else {
+                            const { tiktok, ...rest } = soundUrlErrors;
+                            setSoundUrlErrors(rest);
+                          }
+                        }
+                      }}
+                      placeholder="https://tiktok.com/..."
+                      className={`w-full px-4 py-3 bg-gray-900 border rounded-lg text-white ${
+                        soundUrlErrors.tiktok ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                    />
+                    {soundUrlErrors.tiktok && (
+                      <p className="text-red-400 text-sm mt-1">{soundUrlErrors.tiktok}</p>
+                    )}
+                  </div>
+
+                  {!facebookSoundUrl && !tiktokSoundUrl && (
+                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <p className="text-sm text-yellow-400">
+                        At least one sound URL is required to publish this template.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <h3 className="text-lg font-semibold text-white mb-2">Campaign Goal</h3>
+            <p className="text-gray-400 mb-4">
               Choose what you want to achieve with this campaign
             </p>
 

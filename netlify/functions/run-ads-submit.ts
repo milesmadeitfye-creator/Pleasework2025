@@ -93,6 +93,8 @@ export const handler: Handler = async (event) => {
       profile_url,
       capture_page_url,
       mode = 'draft',
+      template_key,
+      platform_destinations,
     } = body;
 
     if (!ad_goal || !daily_budget_cents || !automation_mode) {
@@ -342,6 +344,8 @@ export const handler: Handler = async (event) => {
       platform,
       profile_url: resolvedDestinationUrl,
       capture_page_url,
+      template_key,
+      platform_destinations,
     };
 
     const result = await buildAndLaunchCampaign(input);
@@ -633,6 +637,8 @@ export const handler: Handler = async (event) => {
       creative_ids: resolvedCreativeIds,
       creative_urls: resolvedCreativeUrls,
       metaStatus, // Pass RPC status to executor
+      template_key,
+      platform_destinations,
     });
 
     console.log('[run-ads-submit] executeMetaCampaign result:', {
