@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase.client';
+import { Settings, TrendingUp, Zap } from 'lucide-react';
 import {
   calculateBudget,
   formatCurrency,
@@ -11,6 +12,17 @@ import {
   type Timeframe,
   type BudgetEstimate,
 } from '../../lib/budgetEstimator';
+import {
+  readModeSettings,
+  writeModeSettings,
+  updateGoalSettings,
+  type AdsMode,
+  type AdsModeSettings,
+  type PulseSettings,
+  type MomentumSettings,
+  type GoalSettings,
+  DEFAULT_GOAL_SETTINGS,
+} from '../../lib/ads/modes';
 
 const PRIMARY_GOALS: PrimaryGoal[] = [
   'growth',
@@ -38,12 +50,22 @@ interface UserGoals {
   estimator_json: any;
 }
 
+// Ads goal keys that map to templates
+const ADS_GOAL_KEYS = [
+  { key: 'smartlink_conversions', label: 'Smart Link Conversions', description: 'Drive clicks to streaming platforms' },
+  { key: 'presave_conversions', label: 'Pre-Save Conversions', description: 'Convert fans to pre-saves' },
+  { key: 'virality', label: 'Virality + Engagement', description: 'Maximize views and shares' },
+  { key: 'follower_growth', label: 'Follower Growth', description: 'Grow your social following' },
+  { key: 'email_capture', label: 'Email Capture', description: 'Build your email list' },
+  { key: 'oneclick', label: 'One-Click Sales', description: 'Direct platform conversions' },
+];
+
 export function GoalsAndBudget() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Form state
+  // Form state (existing budget estimator)
   const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>('growth');
   const [secondaryGoals, setSecondaryGoals] = useState<PrimaryGoal[]>([]);
   const [timeframe, setTimeframe] = useState<Timeframe>('30d');
@@ -56,9 +78,17 @@ export function GoalsAndBudget() {
   // Estimate state
   const [estimate, setEstimate] = useState<BudgetEstimate | null>(null);
 
-  // Load user goals
+  // Ads Mode state (Pulse & Momentum)
+  const [adsMode, setAdsMode] = useState<AdsMode>('pulse');
+  const [pulseSettings, setPulseSettings] = useState<PulseSettings>({});
+  const [momentumSettings, setMomentumSettings] = useState<MomentumSettings>({});
+  const [goalSettings, setGoalSettings] = useState<Record<string, GoalSettings>>({});
+  const [showModeSettings, setShowModeSettings] = useState(false);
+
+  // Load user goals and ads mode settings
   useEffect(() => {
     loadGoals();
+    loadAdsModeSettings();
   }, []);
 
   // Recalculate estimate whenever inputs change
@@ -106,6 +136,57 @@ export function GoalsAndBudget() {
       console.error('Error loading goals:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadAdsModeSettings() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const settings = await readModeSettings(user.id);
+      setAdsMode(settings.ads_mode);
+      setPulseSettings(settings.pulse_settings);
+      setMomentumSettings(settings.momentum_settings);
+      setGoalSettings(settings.goal_settings);
+    } catch (err) {
+      console.error('Error loading ads mode settings:', err);
+    }
+  }
+
+  async function saveModeSettings() {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      await writeModeSettings({
+        userId: user.id,
+        ads_mode: adsMode,
+        pulse_settings: pulseSettings,
+        momentum_settings: momentumSettings,
+        goal_settings: goalSettings,
+      });
+
+      alert('Ads mode settings saved!');
+    } catch (err) {
+      console.error('Error saving ads mode settings:', err);
+      alert('Failed to save ads mode settings');
+    }
+  }
+
+  async function toggleGoalActive(goalKey: string) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const currentSettings = goalSettings[goalKey] || DEFAULT_GOAL_SETTINGS;
+      const updated = { ...currentSettings, is_active: !currentSettings.is_active };
+
+      setGoalSettings(prev => ({ ...prev, [goalKey]: updated }));
+
+      await updateGoalSettings(user.id, goalKey, updated);
+    } catch (err) {
+      console.error('Error toggling goal:', err);
     }
   }
 
@@ -193,7 +274,215 @@ export function GoalsAndBudget() {
   }
 
   return (
-    <div className="rounded-2xl border border-ghoste-border bg-ghoste-card p-6">
+    <div className="space-y-6">
+      {/* Pulse & Momentum Mode Control */}
+      <div className="rounded-2xl border border-ghoste-border bg-ghoste-card p-6">
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-ghoste-white mb-1">Ads Operating Mode</h2>
+          <p className="text-sm text-ghoste-grey">Choose how your ads campaigns are managed</p>
+        </div>
+
+        {/* Mode Toggle */}
+        <div className="flex gap-3 mb-6">
+          <button
+            onClick={() => setAdsMode('pulse')}
+            className={[
+              'flex-1 p-4 rounded-xl border-2 transition-all text-left',
+              adsMode === 'pulse'
+                ? 'border-ghoste-blue bg-ghoste-blue/10'
+                : 'border-ghoste-border bg-transparent hover:border-ghoste-border/50',
+            ].join(' ')}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-5 h-5 text-ghoste-blue" />
+              <span className="text-lg font-bold text-ghoste-white">Pulse</span>
+            </div>
+            <p className="text-sm text-ghoste-grey">Steady learning + testing mode (ABO)</p>
+          </button>
+
+          <button
+            onClick={() => setAdsMode('momentum')}
+            className={[
+              'flex-1 p-4 rounded-xl border-2 transition-all text-left',
+              adsMode === 'momentum'
+                ? 'border-purple-500 bg-purple-500/10'
+                : 'border-ghoste-border bg-transparent hover:border-ghoste-border/50',
+            ].join(' ')}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Zap className="w-5 h-5 text-purple-400" />
+              <span className="text-lg font-bold text-ghoste-white">Momentum</span>
+            </div>
+            <p className="text-sm text-ghoste-grey">Scale winners automatically (CBO)</p>
+          </button>
+        </div>
+
+        {/* Mode Settings Button */}
+        <button
+          onClick={() => setShowModeSettings(!showModeSettings)}
+          className="w-full flex items-center justify-between p-3 rounded-lg bg-white/5 hover:bg-white/10 transition-all"
+        >
+          <div className="flex items-center gap-2">
+            <Settings className="w-4 h-4 text-ghoste-grey" />
+            <span className="text-sm font-medium text-ghoste-white">Mode Settings</span>
+          </div>
+          <span className="text-xs text-ghoste-grey">{showModeSettings ? 'Hide' : 'Show'}</span>
+        </button>
+
+        {/* Mode Settings Panel */}
+        {showModeSettings && (
+          <div className="mt-4 p-4 rounded-xl bg-white/5 border border-white/10 space-y-6">
+            {/* Pulse Settings */}
+            {adsMode === 'pulse' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-ghoste-white">Pulse Settings</h3>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Daily Budget ($)</label>
+                  <input
+                    type="number"
+                    value={pulseSettings.daily_budget || 20}
+                    onChange={(e) => setPulseSettings(prev => ({ ...prev, daily_budget: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Test Lane % (0-50)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="50"
+                    value={pulseSettings.test_lane_pct || 30}
+                    onChange={(e) => setPulseSettings(prev => ({ ...prev, test_lane_pct: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Rotation Days (1-14)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="14"
+                    value={pulseSettings.rotation_days || 7}
+                    onChange={(e) => setPulseSettings(prev => ({ ...prev, rotation_days: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Momentum Settings */}
+            {adsMode === 'momentum' && (
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-ghoste-white">Momentum Settings</h3>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Starting Daily Budget ($)</label>
+                  <input
+                    type="number"
+                    value={momentumSettings.starting_budget || 50}
+                    onChange={(e) => setMomentumSettings(prev => ({ ...prev, starting_budget: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Max Daily Budget Cap ($)</label>
+                  <input
+                    type="number"
+                    value={momentumSettings.max_daily_budget || 500}
+                    onChange={(e) => setMomentumSettings(prev => ({ ...prev, max_daily_budget: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Scale Step % (10-30)</label>
+                  <input
+                    type="number"
+                    min="10"
+                    max="30"
+                    value={momentumSettings.scale_step_pct || 20}
+                    onChange={(e) => setMomentumSettings(prev => ({ ...prev, scale_step_pct: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">Cooldown Hours (6-72)</label>
+                  <input
+                    type="number"
+                    min="6"
+                    max="72"
+                    value={momentumSettings.cooldown_hours || 24}
+                    onChange={(e) => setMomentumSettings(prev => ({ ...prev, cooldown_hours: Number(e.target.value) }))}
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white"
+                  />
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={saveModeSettings}
+              className="w-full px-4 py-2 rounded-lg bg-ghoste-blue text-white font-medium hover:bg-blue-600 transition-all"
+            >
+              Save Mode Settings
+            </button>
+          </div>
+        )}
+
+        {/* Ads Goals Control */}
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-ghoste-white mb-3">Active Ads Goals</h3>
+          <div className="grid gap-3">
+            {ADS_GOAL_KEYS.map(goal => {
+              const settings = goalSettings[goal.key] || DEFAULT_GOAL_SETTINGS;
+              return (
+                <div
+                  key={goal.key}
+                  className="p-4 rounded-lg bg-white/5 border border-white/10 flex items-center justify-between"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-medium text-ghoste-white">{goal.label}</span>
+                      {settings.is_active && (
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-ghoste-grey">{goal.description}</p>
+                    <div className="flex gap-4 mt-2">
+                      <span className="text-xs text-ghoste-grey">
+                        Priority: <span className="text-ghoste-white font-medium">{settings.priority || 3}</span>
+                      </span>
+                      {settings.budget_hint && (
+                        <span className="text-xs text-ghoste-grey">
+                          Budget: <span className="text-ghoste-white font-medium">${settings.budget_hint}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleGoalActive(goal.key)}
+                    className={[
+                      'px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                      settings.is_active
+                        ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                        : 'bg-white/5 text-ghoste-grey hover:bg-white/10',
+                    ].join(' ')}
+                  >
+                    {settings.is_active ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Existing Budget Estimator */}
+      <div className="rounded-2xl border border-ghoste-border bg-ghoste-card p-6">
       <div className="mb-6">
         <h2 className="text-xl font-bold text-ghoste-white mb-1">Goals & Budget Estimator</h2>
         <p className="text-sm text-ghoste-grey">Set your goals and get a recommended marketing budget</p>
@@ -528,6 +817,7 @@ export function GoalsAndBudget() {
         >
           Reset
         </button>
+      </div>
       </div>
     </div>
   );
