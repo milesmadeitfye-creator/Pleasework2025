@@ -20,7 +20,7 @@ const VALID_CUSTOM_EVENT_TYPES = [
 interface CampaignPayloadInput {
   name: string;
   ad_goal: string;
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads' | 'presave_conversions' | 'smartlink_conversions';
 }
 
 interface AdSetPayloadInput {
@@ -32,7 +32,7 @@ interface AdSetPayloadInput {
   pixel_id?: string;
   page_id?: string;
   // Template support
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads' | 'presave_conversions' | 'smartlink_conversions';
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
@@ -40,6 +40,9 @@ interface AdSetPayloadInput {
     facebook_page_url?: string;
     tiktok_profile_url?: string;
     lead_url?: string;
+    presave_smartlink_url?: string;
+    smartlink_url?: string;
+    primary_event?: string;
   };
 }
 
@@ -94,6 +97,20 @@ function mapTemplateToMetaConfig(template_key?: string): {
       return {
         objective: 'OUTCOME_LEADS',
         optimization_goal: 'LEAD',
+      };
+
+    case 'presave_conversions':
+      return {
+        objective: 'OUTCOME_SALES',
+        optimization_goal: 'OFFSITE_CONVERSIONS',
+        custom_event_type: 'presavecomplete',
+      };
+
+    case 'smartlink_conversions':
+      return {
+        objective: 'OUTCOME_SALES',
+        optimization_goal: 'OFFSITE_CONVERSIONS',
+        custom_event_type: 'smartlinkclicked',
       };
 
     default:
@@ -226,6 +243,14 @@ export function buildMetaAdSetPayload(input: AdSetPayloadInput): any {
     // For email capture template, use lead URL
     finalDestinationUrl = platform_destinations.lead_url || destination_url;
     console.log('[buildMetaAdSetPayload] Using lead URL for email capture template:', finalDestinationUrl);
+  } else if (template_key === 'presave_conversions' && platform_destinations) {
+    // For presave conversions template, use presave smartlink URL
+    finalDestinationUrl = platform_destinations.presave_smartlink_url || destination_url;
+    console.log('[buildMetaAdSetPayload] Using presave smartlink URL for presave conversions template:', finalDestinationUrl);
+  } else if (template_key === 'smartlink_conversions' && platform_destinations) {
+    // For smartlink conversions template, use smartlink URL
+    finalDestinationUrl = platform_destinations.smartlink_url || destination_url;
+    console.log('[buildMetaAdSetPayload] Using smartlink URL for smartlink conversions template:', finalDestinationUrl);
   }
 
   const payload: any = {

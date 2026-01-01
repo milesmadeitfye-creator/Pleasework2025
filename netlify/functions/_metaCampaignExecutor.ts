@@ -41,7 +41,7 @@ interface CreateCampaignInput {
   custom_thumbnail_url?: string;
   metaStatus?: any; // RPC result from get_meta_connection_status
   // Template support
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads' | 'presave_conversions' | 'smartlink_conversions';
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
@@ -49,6 +49,9 @@ interface CreateCampaignInput {
     facebook_page_url?: string;
     tiktok_profile_url?: string;
     lead_url?: string;
+    presave_smartlink_url?: string;
+    smartlink_url?: string;
+    primary_event?: string;
   };
 }
 
@@ -410,7 +413,7 @@ async function createMetaCampaign(
   assets: MetaAssets,
   name: string,
   ad_goal: string,
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads'
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads' | 'presave_conversions' | 'smartlink_conversions'
 ): Promise<{ id: string }> {
   // Build payload using single source of truth builder
   let body = buildMetaCampaignPayload({
@@ -453,7 +456,7 @@ async function createMetaAdSet(
   ad_goal: string,
   daily_budget_cents: number,
   meta_status?: any,
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads',
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads' | 'presave_conversions' | 'smartlink_conversions',
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
@@ -461,6 +464,9 @@ async function createMetaAdSet(
     facebook_page_url?: string;
     tiktok_profile_url?: string;
     lead_url?: string;
+    presave_smartlink_url?: string;
+    smartlink_url?: string;
+    primary_event?: string;
   }
 ): Promise<{ id: string }> {
   // Build payload using single source of truth builder

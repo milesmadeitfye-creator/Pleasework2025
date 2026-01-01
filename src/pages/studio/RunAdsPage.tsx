@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug, Target, Volume2, UserPlus } from 'lucide-react';
+import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug, Target, Volume2, UserPlus, CalendarPlus, Link } from 'lucide-react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
 import { uploadMedia } from '../../lib/uploadMedia';
@@ -69,6 +69,14 @@ export default function RunAdsPage() {
   // Lead URL for email_capture_leads template
   const [leadUrl, setLeadUrl] = useState('');
   const [leadUrlError, setLeadUrlError] = useState<string>('');
+
+  // Pre-Save URL for presave_conversions template
+  const [presaveSmartlinkUrl, setPresaveSmartlinkUrl] = useState('');
+  const [presaveUrlError, setPresaveUrlError] = useState<string>('');
+
+  // Smart Link URL for smartlink_conversions template
+  const [smartlinkConversionUrl, setSmartlinkConversionUrl] = useState('');
+  const [smartlinkUrlError, setSmartlinkUrlError] = useState<string>('');
 
   const [launchResult, setLaunchResult] = useState<any>(null);
 
@@ -240,6 +248,22 @@ export default function RunAdsPage() {
       }
     }
 
+    // Validate presave conversions template requirements
+    if (selectedTemplate === 'presave_conversions') {
+      if (!presaveSmartlinkUrl) {
+        alert('Please provide a Pre-Save Smart Link URL for the Pre-Save Conversions template.');
+        return;
+      }
+    }
+
+    // Validate smartlink conversions template requirements
+    if (selectedTemplate === 'smartlink_conversions') {
+      if (!smartlinkConversionUrl) {
+        alert('Please provide a Smart Link URL for the Smart Link Conversions template.');
+        return;
+      }
+    }
+
     console.log('[ADS] Submit start', {
       user: user.id,
       step,
@@ -297,6 +321,18 @@ export default function RunAdsPage() {
       // Email capture template: lead URL
       if (leadUrl) {
         platformDestinations.lead_url = leadUrl.trim();
+      }
+
+      // Pre-Save conversions template: presave smartlink URL
+      if (presaveSmartlinkUrl) {
+        platformDestinations.presave_smartlink_url = presaveSmartlinkUrl.trim();
+        platformDestinations.primary_event = 'presavecomplete';
+      }
+
+      // Smart Link conversions template: smartlink URL
+      if (smartlinkConversionUrl) {
+        platformDestinations.smartlink_url = smartlinkConversionUrl.trim();
+        platformDestinations.primary_event = 'smartlinkclicked';
       }
 
       // Capture debug data BEFORE sending
@@ -849,6 +885,94 @@ export default function RunAdsPage() {
                     <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
                       <p className="text-sm text-yellow-400">
                         A lead capture URL is required to publish this template.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Pre-Save Conversions Template URL Input */}
+              {selectedTemplate === 'presave_conversions' && (
+                <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700 space-y-4">
+                  <div className="flex items-start gap-2 mb-4">
+                    <CalendarPlus className="w-5 h-5 text-purple-400 mt-1" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-white mb-1">Pre-Save Smart Link Required</h4>
+                      <p className="text-sm text-gray-400">
+                        Provide a Ghoste Pre-Save Smart Link. Ads will optimize for Pre-Save completions using custom conversion tracking.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      Pre-Save Smart Link URL
+                    </label>
+                    <input
+                      type="url"
+                      value={presaveSmartlinkUrl}
+                      onChange={(e) => setPresaveSmartlinkUrl(e.target.value)}
+                      placeholder="https://ghoste.one/l/your-presave-link"
+                      className={`w-full px-4 py-3 bg-gray-900 border rounded-lg text-white ${
+                        presaveUrlError ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                    />
+                    {presaveUrlError && (
+                      <p className="text-red-400 text-sm mt-1">{presaveUrlError}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">
+                      Optimizes on: <code className="text-purple-400">presavecomplete</code> custom conversion event
+                    </p>
+                  </div>
+
+                  {!presaveSmartlinkUrl && (
+                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <p className="text-sm text-yellow-400">
+                        A Pre-Save Smart Link URL is required to publish this template.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Smart Link Conversions Template URL Input */}
+              {selectedTemplate === 'smartlink_conversions' && (
+                <div className="p-6 bg-gray-800/50 rounded-xl border border-gray-700 space-y-4">
+                  <div className="flex items-start gap-2 mb-4">
+                    <Link className="w-5 h-5 text-blue-400 mt-1" />
+                    <div>
+                      <h4 className="text-sm font-semibold text-white mb-1">Smart Link URL Required</h4>
+                      <p className="text-sm text-gray-400">
+                        Provide a Ghoste Smart Link. Ads will optimize for Smart Link clicks and platform-specific conversions.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">
+                      Smart Link URL
+                    </label>
+                    <input
+                      type="url"
+                      value={smartlinkConversionUrl}
+                      onChange={(e) => setSmartlinkConversionUrl(e.target.value)}
+                      placeholder="https://ghoste.one/l/your-link"
+                      className={`w-full px-4 py-3 bg-gray-900 border rounded-lg text-white ${
+                        smartlinkUrlError ? 'border-red-500' : 'border-gray-700'
+                      }`}
+                    />
+                    {smartlinkUrlError && (
+                      <p className="text-red-400 text-sm mt-1">{smartlinkUrlError}</p>
+                    )}
+                    <p className="text-xs text-gray-500 mt-2">
+                      Optimizes on: <code className="text-blue-400">smartlinkclicked</code> with platform sub-events (Spotify, Apple Music, YouTube)
+                    </p>
+                  </div>
+
+                  {!smartlinkConversionUrl && (
+                    <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                      <p className="text-sm text-yellow-400">
+                        A Smart Link URL is required to publish this template.
                       </p>
                     </div>
                   )}

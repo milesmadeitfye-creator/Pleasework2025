@@ -7,13 +7,16 @@ export type AdsTemplateKey =
   | 'oneclick_segmentation_sales'
   | 'virality_engagement_thruplay_sound'
   | 'follower_growth_profile_visits'
-  | 'email_capture_leads';
+  | 'email_capture_leads'
+  | 'presave_conversions'
+  | 'smartlink_conversions';
 
 export type DestinationMode =
   | 'oneclick_redirect'
   | 'native_sound'
   | 'native_profile'
-  | 'lead_form';
+  | 'lead_form'
+  | 'smartlink';
 
 export interface PlatformDestinations {
   facebook_sound_url?: string;
@@ -22,6 +25,9 @@ export interface PlatformDestinations {
   facebook_page_url?: string;
   tiktok_profile_url?: string;
   lead_url?: string;
+  presave_smartlink_url?: string;
+  smartlink_url?: string;
+  primary_event?: string;
 }
 
 export interface AdsTemplateRecord {
@@ -79,5 +85,17 @@ export const TEMPLATE_DETAILS: Record<AdsTemplateKey, {
     icon: 'mail',
     requiresSound: false,
     requiresLeadUrl: true,
+  },
+  presave_conversions: {
+    displayName: 'Pre-Save Conversions',
+    description: 'Optimize for Pre-Save completions using custom conversion event tracking',
+    icon: 'calendar-plus',
+    requiresSound: false,
+  },
+  smartlink_conversions: {
+    displayName: 'Smart Link Conversions',
+    description: 'Optimize for Smart Link clicks and platform-specific conversions',
+    icon: 'link',
+    requiresSound: false,
   },
 };

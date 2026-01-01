@@ -14,7 +14,7 @@ export interface RunAdsInput {
   profile_url?: string;
   capture_page_url?: string;
   // Template support
-  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads';
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound' | 'follower_growth_profile_visits' | 'email_capture_leads' | 'presave_conversions' | 'smartlink_conversions';
   platform_destinations?: {
     facebook_sound_url?: string;
     tiktok_sound_url?: string;
@@ -22,6 +22,9 @@ export interface RunAdsInput {
     facebook_page_url?: string;
     tiktok_profile_url?: string;
     lead_url?: string;
+    presave_smartlink_url?: string;
+    smartlink_url?: string;
+    primary_event?: string;
   };
 }
 
