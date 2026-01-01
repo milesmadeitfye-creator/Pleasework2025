@@ -6,6 +6,7 @@ import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, F
 import { safeToFixed, safeNumber } from '../utils/numbers';
 import { AICampaignWizard } from './campaigns/AICampaignWizard';
 import { ActiveGoalsSummary } from './ads/ActiveGoalsSummary';
+import { CampaignLaunchButton } from './ads/CampaignLaunchButton';
 
 interface Campaign {
   id: string;
@@ -14,6 +15,7 @@ interface Campaign {
   campaign_type?: string;
   platform?: 'meta' | 'tiktok' | 'youtube';
   status: 'draft' | 'publishing' | 'published' | 'failed' | 'active' | 'paused' | 'completed';
+  lifecycle_state?: 'draft' | 'approved' | 'launching' | 'active' | 'paused' | 'scheduled' | 'failed';
   budget?: number;
   daily_budget_cents?: number;
   total_budget_cents?: number;
@@ -659,7 +661,11 @@ export default function AdsManager() {
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-start">
+                  <CampaignLaunchButton
+                    campaign={campaign}
+                    onStatusChange={fetchCampaigns}
+                  />
                   {(campaign.status === 'draft' || campaign.status === 'paused') && (
                     <button
                       onClick={() => toggleCampaignStatus(campaign)}
