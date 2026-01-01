@@ -43,6 +43,21 @@ export class AppErrorBoundary extends Component<Props, State> {
       console.error('[AppErrorBoundary] Persisted crash found:', persistedCrash);
     }
 
+    // Store error in window for debug overlay access
+    try {
+      if (typeof window !== 'undefined') {
+        (window as any).__ghoste_last_error = {
+          message: error?.message || 'Unknown error',
+          stack: error?.stack || '',
+          componentStack: errorInfo?.componentStack || '',
+          time: new Date().toISOString(),
+          path: window.location.pathname,
+        };
+      }
+    } catch (err) {
+      console.warn('[AppErrorBoundary] Failed to store error in window:', err);
+    }
+
     const isWebSocketError =
       error?.message?.toLowerCase().includes('websocket') ||
       error?.message?.toLowerCase().includes('operation is insecure') ||

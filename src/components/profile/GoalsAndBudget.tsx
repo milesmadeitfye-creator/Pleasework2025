@@ -56,6 +56,7 @@ export function GoalsAndBudget() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Form state (existing budget estimator)
   const [primaryGoal, setPrimaryGoal] = useState<PrimaryGoal>('growth');
@@ -75,8 +76,17 @@ export function GoalsAndBudget() {
 
   // Load user goals and ads mode settings
   useEffect(() => {
-    loadGoals();
-    loadAdsModeSettings();
+    const loadData = async () => {
+      try {
+        await Promise.all([loadGoals(), loadAdsModeSettings()]);
+      } catch (err) {
+        console.error('[GoalsAndBudget] Error loading data:', err);
+        setLoadError(err instanceof Error ? err.message : 'Failed to load settings');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
   }, []);
 
   // Recalculate estimate whenever inputs change
@@ -96,8 +106,11 @@ export function GoalsAndBudget() {
 
   async function loadGoals() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        console.error('[GoalsAndBudget] No authenticated user:', userError);
+        return;
+      }
 
       const { data, error } = await supabase
         .from('user_goals')
@@ -106,36 +119,44 @@ export function GoalsAndBudget() {
         .maybeSingle();
 
       if (error && error.code !== 'PGRST116') {
-        console.error('Error loading goals:', error);
-        return;
+        console.error('[GoalsAndBudget] Error loading goals:', error);
+        throw new Error(`Failed to load goals: ${error.message}`);
       }
 
       if (data) {
-        setPrimaryGoal(data.primary_goal as PrimaryGoal);
+        setPrimaryGoal((data.primary_goal as PrimaryGoal) || 'growth');
         setSecondaryGoals(data.secondary_goals || []);
-        setTimeframe(data.timeframe as Timeframe);
-        setRiskLevel(data.risk_level as RiskLevel);
-        setHoursPerWeek(data.hours_per_week);
+        setTimeframe((data.timeframe as Timeframe) || '30d');
+        setRiskLevel((data.risk_level as RiskLevel) || 'balanced');
+        setHoursPerWeek(data.hours_per_week || 5);
         setGenre(data.genre || '');
         setRegion(data.region || '');
         setBudgetCap(data.monthly_budget_cap ? String(data.monthly_budget_cap) : '');
       }
     } catch (err) {
-      console.error('Error loading goals:', err);
-    } finally {
-      setLoading(false);
+      console.error('[GoalsAndBudget] Error in loadGoals:', err);
+      throw err;
     }
   }
 
   async function loadAdsModeSettings() {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        console.error('[GoalsAndBudget] No authenticated user for ads settings:', userError);
+        return;
+      }
 
       const settings = await readModeSettings(user.id);
-      setGoalSettings(settings.goal_settings);
+      if (settings && settings.goal_settings) {
+        setGoalSettings(settings.goal_settings);
+      } else {
+        console.warn('[GoalsAndBudget] No goal settings returned, using empty object');
+        setGoalSettings({});
+      }
     } catch (err) {
-      console.error('Error loading goal settings:', err);
+      console.error('[GoalsAndBudget] Error loading goal settings:', err);
+      setGoalSettings({});
     }
   }
 
@@ -265,6 +286,35 @@ export function GoalsAndBudget() {
         <div className="animate-pulse">
           <div className="h-6 w-32 bg-white/10 rounded mb-4"></div>
           <div className="h-4 w-full bg-white/5 rounded"></div>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-2xl border border-red-900/50 bg-red-950/20 p-6">
+        <div className="flex items-start gap-3">
+          <div className="text-red-400 text-2xl">⚠️</div>
+          <div className="flex-1">
+            <h3 className="text-base font-semibold text-red-400 mb-1">
+              Failed to Load Settings
+            </h3>
+            <p className="text-sm text-gray-400 mb-3">
+              {loadError}
+            </p>
+            <button
+              onClick={() => {
+                setLoadError(null);
+                setLoading(true);
+                loadGoals().catch(() => {});
+                loadAdsModeSettings().catch(() => {});
+              }}
+              className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg text-sm font-medium transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
         </div>
       </div>
     );

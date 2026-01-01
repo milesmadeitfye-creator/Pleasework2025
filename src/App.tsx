@@ -551,7 +551,9 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <ProfileOverviewPage />
+                  <RouteErrorBoundary routeName="profile">
+                    <ProfileOverviewPage />
+                  </RouteErrorBoundary>
                 </AppShell>
               </ProtectedRoute>
             }
@@ -561,7 +563,9 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <ProfileOverviewPage />
+                  <RouteErrorBoundary routeName="profile-overview">
+                    <ProfileOverviewPage />
+                  </RouteErrorBoundary>
                 </AppShell>
               </ProtectedRoute>
             }
@@ -571,7 +575,9 @@ function App() {
             element={
               <ProtectedRoute>
                 <AppShell>
-                  <ConnectedAccountsPage />
+                  <RouteErrorBoundary routeName="profile-connect">
+                    <ConnectedAccountsPage />
+                  </RouteErrorBoundary>
                 </AppShell>
               </ProtectedRoute>
             }
