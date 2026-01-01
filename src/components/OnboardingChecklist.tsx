@@ -23,18 +23,28 @@ const checklistItems: ChecklistItem[] = [
     path: '/studio/smart-links',
     helpPath: '/help/smart-links/smart-links-overview',
     checkComplete: async () => {
-      const { user } = await supabase.auth.getUser();
-      if (!user.data.user) return false;
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError || !userData?.user) return false;
 
-      const { data } = await supabase
-        .from('smart_links')
-        .select('id')
-        .eq('user_id', user.data.user.id)
-        .eq('link_type', 'smart')
-        .limit(1)
-        .maybeSingle();
+        const { data, error } = await supabase
+          .from('smart_links')
+          .select('id')
+          .eq('user_id', userData.user.id)
+          .eq('link_type', 'smart')
+          .limit(1)
+          .maybeSingle();
 
-      return !!data;
+        if (error) {
+          console.error('[OnboardingChecklist] Error checking smart-link:', error);
+          return false;
+        }
+
+        return !!data;
+      } catch (err) {
+        console.error('[OnboardingChecklist] Exception checking smart-link:', err);
+        return false;
+      }
     }
   },
   {
@@ -45,18 +55,28 @@ const checklistItems: ChecklistItem[] = [
     path: '/studio/smart-links',
     helpPath: '/help/smart-links/smart-links-overview',
     checkComplete: async () => {
-      const { user } = await supabase.auth.getUser();
-      if (!user.data.user) return false;
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError || !userData?.user) return false;
 
-      const { data } = await supabase
-        .from('smart_links')
-        .select('id')
-        .eq('user_id', user.data.user.id)
-        .eq('link_type', 'one_click')
-        .limit(1)
-        .maybeSingle();
+        const { data, error } = await supabase
+          .from('smart_links')
+          .select('id')
+          .eq('user_id', userData.user.id)
+          .eq('link_type', 'one_click')
+          .limit(1)
+          .maybeSingle();
 
-      return !!data;
+        if (error) {
+          console.error('[OnboardingChecklist] Error checking one-click-link:', error);
+          return false;
+        }
+
+        return !!data;
+      } catch (err) {
+        console.error('[OnboardingChecklist] Exception checking one-click-link:', err);
+        return false;
+      }
     }
   },
   {
@@ -67,17 +87,27 @@ const checklistItems: ChecklistItem[] = [
     path: '/studio/fan-communication',
     helpPath: '/help/fan-communication/broadcasts',
     checkComplete: async () => {
-      const { user } = await supabase.auth.getUser();
-      if (!user.data.user) return false;
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError || !userData?.user) return false;
 
-      const { data } = await supabase
-        .from('fan_broadcasts')
-        .select('id')
-        .eq('user_id', user.data.user.id)
-        .limit(1)
-        .maybeSingle();
+        const { data, error } = await supabase
+          .from('fan_broadcasts')
+          .select('id')
+          .eq('user_id', userData.user.id)
+          .limit(1)
+          .maybeSingle();
 
-      return !!data;
+        if (error) {
+          console.error('[OnboardingChecklist] Error checking fan-broadcast:', error);
+          return false;
+        }
+
+        return !!data;
+      } catch (err) {
+        console.error('[OnboardingChecklist] Exception checking fan-broadcast:', err);
+        return false;
+      }
     }
   },
   {
@@ -88,17 +118,27 @@ const checklistItems: ChecklistItem[] = [
     path: '/profile/connected-accounts',
     helpPath: '/help/ads-manager/connecting-meta',
     checkComplete: async () => {
-      const { user } = await supabase.auth.getUser();
-      if (!user.data.user) return false;
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError || !userData?.user) return false;
 
-      const { data } = await supabase
-        .from('meta_user_credentials')
-        .select('id')
-        .eq('user_id', user.data.user.id)
-        .limit(1)
-        .maybeSingle();
+        const { data, error } = await supabase
+          .from('meta_user_credentials')
+          .select('id')
+          .eq('user_id', userData.user.id)
+          .limit(1)
+          .maybeSingle();
 
-      return !!data;
+        if (error) {
+          console.error('[OnboardingChecklist] Error checking meta-connect:', error);
+          return false;
+        }
+
+        return !!data;
+      } catch (err) {
+        console.error('[OnboardingChecklist] Exception checking meta-connect:', err);
+        return false;
+      }
     }
   },
   {
@@ -109,17 +149,27 @@ const checklistItems: ChecklistItem[] = [
     path: '/studio/splits',
     helpPath: '/help/splits/sending-invite',
     checkComplete: async () => {
-      const { user } = await supabase.auth.getUser();
-      if (!user.data.user) return false;
+      try {
+        const { data: userData, error: userError } = await supabase.auth.getUser();
+        if (userError || !userData?.user) return false;
 
-      const { data } = await supabase
-        .from('split_negotiations')
-        .select('id')
-        .eq('owner_user_id', user.data.user.id)
-        .limit(1)
-        .maybeSingle();
+        const { data, error } = await supabase
+          .from('split_negotiations')
+          .select('id')
+          .eq('owner_user_id', userData.user.id)
+          .limit(1)
+          .maybeSingle();
 
-      return !!data;
+        if (error) {
+          console.error('[OnboardingChecklist] Error checking split-invite:', error);
+          return false;
+        }
+
+        return !!data;
+      } catch (err) {
+        console.error('[OnboardingChecklist] Exception checking split-invite:', err);
+        return false;
+      }
     }
   }
 ];

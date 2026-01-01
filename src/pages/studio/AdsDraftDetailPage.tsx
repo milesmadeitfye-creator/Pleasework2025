@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { getMetaStatus, MetaConnectionStatus } from '../../lib/meta/getMetaStatus';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 type DraftStatus = 'draft' | 'approved' | 'launched' | 'failed' | 'paused';
 
@@ -37,11 +39,22 @@ export default function AdsDraftDetailPage() {
   const [draft, setDraft] = useState<CampaignDraft | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [metaStatus, setMetaStatus] = useState<MetaConnectionStatus | null>(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [lastPublishError, setLastPublishError] = useState<{ code?: string; message: string } | null>(null);
 
   useEffect(() => {
     if (!user || !id) return;
     loadDraft();
+    loadMetaStatus();
   }, [user, id]);
+
+  async function loadMetaStatus() {
+    console.log('[AdsDraftDetail] Loading Meta connection status...');
+    const status = await getMetaStatus(supabase);
+    setMetaStatus(status);
+    console.log('[AdsDraftDetail] Meta status loaded:', status);
+  }
 
   async function loadDraft() {
     if (!user || !id) return;
@@ -73,16 +86,34 @@ export default function AdsDraftDetailPage() {
   async function approveDraft() {
     if (!draft || !user) return;
 
+    // Check Meta connection status first (client-side pre-flight check)
+    if (!metaStatus || !metaStatus.auth_connected) {
+      alert('Meta is not connected. Please connect Meta in Profile → Connected Accounts first.');
+      navigate('/profile/connected-accounts');
+      return;
+    }
+
+    if (!metaStatus.assets_configured) {
+      const missingList = metaStatus.missing_assets?.join(', ') || 'unknown assets';
+      alert(`Meta assets are not fully configured. Missing: ${missingList}\n\nPlease complete your Meta setup in Profile → Connected Accounts.`);
+      navigate('/profile/connected-accounts');
+      return;
+    }
+
     if (!confirm('Publish this campaign to Meta? It will be created as PAUSED (you can launch it later).')) {
       return;
     }
 
     setActionLoading(true);
+    setLastPublishError(null);
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         throw new Error('Not authenticated');
       }
+
+      console.log('[AdsDraftDetail] Publishing draft to Meta:', draft.id);
 
       const response = await fetch('/.netlify/functions/ads-publish', {
         method: 'POST',
@@ -98,15 +129,26 @@ export default function AdsDraftDetailPage() {
 
       const result = await response.json();
 
+      console.log('[AdsDraftDetail] Publish response:', { status: response.status, result });
+
       if (!response.ok || !result.ok) {
         const errorMsg = result.error || `Publish failed (${response.status})`;
+        setLastPublishError({
+          code: result.code || `HTTP_${response.status}`,
+          message: errorMsg,
+        });
         throw new Error(errorMsg);
       }
 
+      setLastPublishError(null);
       alert(`Published to Meta! ✅\nCampaign ID: ${result.meta?.campaign_id || 'N/A'}\n\nYou can now launch it from the Campaigns page.`);
       loadDraft();
     } catch (err: any) {
-      console.error('[DraftDetail] Publish error:', err);
+      console.error('[AdsDraftDetail] Publish error:', err);
+      setLastPublishError({
+        code: err.code || 'UNKNOWN_ERROR',
+        message: err.message || 'Unknown error occurred',
+      });
       alert(`Failed to publish to Meta: ${err.message}`);
     } finally {
       setActionLoading(false);
@@ -391,6 +433,118 @@ export default function AdsDraftDetailPage() {
             <p className="text-red-300 text-sm">{draft.error_message}</p>
           </div>
         )}
+
+        {/* Publish Debug Panel */}
+        <div className="bg-gray-900/50 border border-gray-700 rounded-xl overflow-hidden mb-6">
+          <button
+            onClick={() => setShowDebugPanel(!showDebugPanel)}
+            className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-800/50 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-blue-400"></div>
+              <span className="text-sm font-medium text-gray-300">Publish Debug Info</span>
+            </div>
+            {showDebugPanel ? (
+              <ChevronUp className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            )}
+          </button>
+
+          {showDebugPanel && (
+            <div className="px-6 pb-6 space-y-4">
+              {/* Meta Connection Status */}
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                  Meta Connection Status
+                </p>
+                {metaStatus ? (
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Auth Connected:</span>
+                      <span className={metaStatus.auth_connected ? 'text-green-400' : 'text-red-400'}>
+                        {metaStatus.auth_connected ? '✓ Yes' : '✗ No'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Assets Configured:</span>
+                      <span className={metaStatus.assets_configured ? 'text-green-400' : 'text-red-400'}>
+                        {metaStatus.assets_configured ? '✓ Yes' : '✗ No'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Ad Account:</span>
+                      <span className={metaStatus.ad_account_id ? 'text-green-400' : 'text-gray-500'}>
+                        {metaStatus.ad_account_id ? '✓ Configured' : '✗ Not set'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Facebook Page:</span>
+                      <span className={metaStatus.page_id ? 'text-green-400' : 'text-gray-500'}>
+                        {metaStatus.page_id ? '✓ Configured' : '✗ Not set'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Pixel:</span>
+                      <span className={metaStatus.pixel_id ? 'text-green-400' : 'text-gray-500'}>
+                        {metaStatus.pixel_id ? '✓ Configured' : '○ Optional'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-400">Instagram:</span>
+                      <span className={metaStatus.instagram_actor_id ? 'text-green-400' : 'text-gray-500'}>
+                        {metaStatus.instagram_actor_id ? '✓ Configured' : '○ Optional'}
+                      </span>
+                    </div>
+                    {metaStatus.missing_assets && metaStatus.missing_assets.length > 0 && (
+                      <div className="pt-2 border-t border-gray-700">
+                        <span className="text-gray-400">Missing Assets:</span>
+                        <p className="text-red-400 text-xs mt-1">{metaStatus.missing_assets.join(', ')}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm">Loading Meta status...</p>
+                )}
+              </div>
+
+              {/* Last Publish Attempt */}
+              {lastPublishError && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+                    Last Publish Error
+                  </p>
+                  <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3">
+                    <p className="text-xs text-red-400 font-mono mb-1">
+                      Code: {lastPublishError.code || 'UNKNOWN'}
+                    </p>
+                    <p className="text-sm text-red-300">{lastPublishError.message}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Helpful Actions */}
+              <div className="pt-2 border-t border-gray-700">
+                <button
+                  onClick={() => {
+                    loadMetaStatus();
+                    alert('Meta status refreshed');
+                  }}
+                  className="text-xs text-blue-400 hover:text-blue-300 underline"
+                >
+                  Refresh Meta Status
+                </button>
+                <span className="text-gray-600 mx-2">•</span>
+                <button
+                  onClick={() => navigate('/profile/connected-accounts')}
+                  className="text-xs text-blue-400 hover:text-blue-300 underline"
+                >
+                  Go to Connected Accounts
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Actions */}
         <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-6">
