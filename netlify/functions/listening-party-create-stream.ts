@@ -39,10 +39,12 @@ export const handler: Handler = async (event) => {
 
     const body = event.body ? JSON.parse(event.body) : {};
     const partyId = String(body.partyId || "").trim();
-    const rawMicId = String(body.micDeviceId || "default");
-    const rawCamId = String(body.camDeviceId || "default");
-    const micDeviceId = rawMicId.trim() || "default";
-    const camDeviceId = rawCamId.trim() || "default";
+    const rawMicId = String(body.micDeviceId || "");
+    const rawCamId = String(body.camDeviceId || "");
+    const micEnabled = body.micEnabled === true;
+    const cameraEnabled = body.cameraEnabled === true;
+    const micDeviceId = rawMicId.trim();
+    const camDeviceId = rawCamId.trim();
     const width = Math.max(240, parseInt(body.width) || 1280);
     const height = Math.max(240, parseInt(body.height) || 720);
 
@@ -50,8 +52,12 @@ export const handler: Handler = async (event) => {
       partyId,
       rawMicId,
       rawCamId,
+      micEnabled,
+      cameraEnabled,
       normalizedMicId: micDeviceId,
       normalizedCamId: camDeviceId,
+      hasMicId: !!micDeviceId,
+      hasCamId: !!camDeviceId,
       width,
       height,
     });
@@ -60,10 +66,57 @@ export const handler: Handler = async (event) => {
       return { statusCode: 400, body: JSON.stringify({ ok: false, error: "Missing partyId" }) };
     }
 
-    console.log('[listening-party-create-stream] Starting stream creation for party:', {
+    // Validate microphone and camera
+    if (!micEnabled) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          ok: false,
+          error: "Turn on your microphone to go live.",
+          code: "MIC_DISABLED"
+        })
+      };
+    }
+
+    if (!cameraEnabled) {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          ok: false,
+          error: "Turn on your camera to go live.",
+          code: "CAMERA_DISABLED"
+        })
+      };
+    }
+
+    if (!micDeviceId || micDeviceId === 'default') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          ok: false,
+          error: "Please select a microphone from the dropdown.",
+          code: "INVALID_MIC"
+        })
+      };
+    }
+
+    if (!camDeviceId || camDeviceId === 'default') {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({
+          ok: false,
+          error: "Please select a camera from the dropdown.",
+          code: "INVALID_CAMERA"
+        })
+      };
+    }
+
+    console.log('[listening-party-create-stream] Validation passed, creating stream for party:', {
       partyId,
       micDeviceId,
       camDeviceId,
+      micEnabled,
+      cameraEnabled,
       width,
       height,
     });
@@ -196,24 +249,44 @@ export const handler: Handler = async (event) => {
         }),
       };
     } catch (streamErr: any) {
-      console.error('[listening-party-create-stream] Stream call creation failed:', streamErr);
+      console.error('[listening-party-create-stream] Stream call creation failed:', {
+        error: streamErr,
+        message: streamErr?.message,
+        code: streamErr?.code,
+        details: streamErr?.details
+      });
 
       // Determine if this is a user error (400) or server error (500)
-      const isUserError = streamErr.message && (
-        streamErr.message.includes('device') ||
-        streamErr.message.includes('microphone') ||
-        streamErr.message.includes('camera') ||
-        streamErr.message.includes('permission') ||
-        streamErr.message.includes('resolution')
+      const errorMessage = streamErr?.message || String(streamErr);
+      const isUserError = errorMessage && (
+        errorMessage.includes('device') ||
+        errorMessage.includes('microphone') ||
+        errorMessage.includes('camera') ||
+        errorMessage.includes('permission') ||
+        errorMessage.includes('resolution') ||
+        errorMessage.includes('audio') ||
+        errorMessage.includes('video')
       );
+
+      // Provide better error messages based on common issues
+      let userFriendlyError = 'Failed to create video stream. Please check your camera and microphone.';
+
+      if (errorMessage.includes('audio') || errorMessage.includes('microphone') || errorMessage.includes('mic')) {
+        userFriendlyError = 'Microphone setup failed. Please check your microphone is connected and browser permissions are granted.';
+      } else if (errorMessage.includes('video') || errorMessage.includes('camera') || errorMessage.includes('cam')) {
+        userFriendlyError = 'Camera setup failed. Please check your camera is connected and browser permissions are granted.';
+      } else if (errorMessage.includes('resolution')) {
+        userFriendlyError = 'Video resolution too low. Please try a different camera or adjust settings.';
+      } else if (errorMessage.includes('permission')) {
+        userFriendlyError = 'Browser permissions denied. Please allow camera and microphone access.';
+      }
 
       return {
         statusCode: isUserError ? 400 : 500,
         body: JSON.stringify({
           ok: false,
-          error: isUserError
-            ? `Select a microphone to go live.`
-            : `Failed to create video stream: ${streamErr.message}`,
+          error: isUserError ? userFriendlyError : `Server error: ${errorMessage}`,
+          code: streamErr?.code || 'STREAM_ERROR'
         }),
       };
     }

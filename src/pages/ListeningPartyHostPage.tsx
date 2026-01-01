@@ -127,12 +127,14 @@ export default function ListeningPartyHostPage() {
         setMics(audioInputs);
         setCams(videoInputs);
 
-        // Auto-select first device or default
-        if (!selectedMicId || selectedMicId === 'default') {
-          setSelectedMicId(audioInputs[0]?.deviceId || 'default');
+        // Auto-select first device (never use 'default' if real devices exist)
+        if (audioInputs.length > 0 && (!selectedMicId || selectedMicId === 'default')) {
+          setSelectedMicId(audioInputs[0].deviceId);
+          console.log('[ListeningPartyHostPage] Auto-selected mic:', audioInputs[0].label || audioInputs[0].deviceId);
         }
-        if (!selectedCamId || selectedCamId === 'default') {
-          setSelectedCamId(videoInputs[0]?.deviceId || 'default');
+        if (videoInputs.length > 0 && (!selectedCamId || selectedCamId === 'default')) {
+          setSelectedCamId(videoInputs[0].deviceId);
+          console.log('[ListeningPartyHostPage] Auto-selected camera:', videoInputs[0].label || videoInputs[0].deviceId);
         }
 
         setDevicesLoaded(true);
@@ -267,13 +269,39 @@ export default function ListeningPartyHostPage() {
       return;
     }
 
+    // Validation: must have both mic and camera enabled
+    if (!micEnabled) {
+      setError('Turn on your microphone to go live.');
+      return;
+    }
+
+    if (!cameraEnabled) {
+      setError('Turn on your camera to go live.');
+      return;
+    }
+
     if (!stream) {
       setError('Preview stream not started. Enable camera and mic first.');
       return;
     }
 
-    if (mics.length === 0 || cams.length === 0) {
-      setError('No microphone or camera detected. Please connect devices.');
+    if (mics.length === 0) {
+      setError('No microphone detected. Please connect a microphone.');
+      return;
+    }
+
+    if (cams.length === 0) {
+      setError('No camera detected. Please connect a camera.');
+      return;
+    }
+
+    if (!selectedMicId || selectedMicId === 'default') {
+      setError('Please select a microphone from the dropdown.');
+      return;
+    }
+
+    if (!selectedCamId || selectedCamId === 'default') {
+      setError('Please select a camera from the dropdown.');
       return;
     }
 
@@ -281,15 +309,15 @@ export default function ListeningPartyHostPage() {
       setUpdating(true);
       setError(null);
 
-      // Ensure valid device IDs (use 'default' if empty or invalid)
-      const micId = selectedMicId && selectedMicId.trim() !== '' ? selectedMicId : 'default';
-      const camId = selectedCamId && selectedCamId.trim() !== '' ? selectedCamId : 'default';
-
-      console.log('[ListeningPartyHostPage] Creating video stream with devices:', {
-        mic: micId,
-        cam: camId,
+      console.log('[ListeningPartyHostPage] GoLive payload:', {
+        partyId: party.id,
         selectedMicId,
         selectedCamId,
+        micEnabled,
+        cameraEnabled,
+        micCount: mics.length,
+        camCount: cams.length,
+        streamTracks: stream?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, label: t.label }))
       });
 
       // Get auth session
@@ -313,8 +341,10 @@ export default function ListeningPartyHostPage() {
         },
         body: JSON.stringify({
           partyId: party.id,
-          micDeviceId: micId,
-          camDeviceId: camId,
+          micDeviceId: selectedMicId,
+          camDeviceId: selectedCamId,
+          micEnabled,
+          cameraEnabled,
           width,
           height,
         }),
@@ -797,7 +827,11 @@ export default function ListeningPartyHostPage() {
                     cams.length === 0 ||
                     !stream ||
                     !selectedMicId ||
-                    !selectedCamId
+                    selectedMicId === 'default' ||
+                    !selectedCamId ||
+                    selectedCamId === 'default' ||
+                    !micEnabled ||
+                    !cameraEnabled
                   }
                   className="flex-1 px-6 py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-semibold rounded-lg transition"
                   title={
@@ -807,6 +841,8 @@ export default function ListeningPartyHostPage() {
                       ? 'Allow camera/mic permissions'
                       : mics.length === 0 || cams.length === 0
                       ? 'No devices detected'
+                      : !micEnabled || !cameraEnabled
+                      ? 'Turn on camera and mic first'
                       : !stream
                       ? 'Enable camera and mic preview first'
                       : 'Go Live'
@@ -814,13 +850,15 @@ export default function ListeningPartyHostPage() {
                 >
                   {updating ? 'Starting...' : 'Go Live'}
                 </button>
-                {(!devicesLoaded || permissionDenied || mics.length === 0 || cams.length === 0) && (
+                {(!devicesLoaded || permissionDenied || mics.length === 0 || cams.length === 0 || !micEnabled || !cameraEnabled) && (
                   <div className="flex-1 text-xs text-gray-400 flex items-center justify-center">
                     {!devicesLoaded
                       ? 'Loading devices...'
                       : permissionDenied
                       ? 'Allow permissions to go live'
-                      : 'Connect camera/mic to go live'}
+                      : mics.length === 0 || cams.length === 0
+                      ? 'Connect camera/mic to go live'
+                      : 'Turn on camera and mic to go live'}
                   </div>
                 )}
               </>
