@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../contexts/AuthContext';
-import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle, Copy, Edit3, ExternalLink } from 'lucide-react';
+import { Plus, TrendingUp, DollarSign, Eye, MousePointer, Trash2, Play, Pause, Facebook, AlertCircle, Copy, Edit3, ExternalLink, Target } from 'lucide-react';
 import { safeToFixed, safeNumber } from '../utils/numbers';
 import { AICampaignWizard } from './campaigns/AICampaignWizard';
 
@@ -62,6 +63,7 @@ interface MetaAssets {
 
 export default function AdsManager() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -490,13 +492,22 @@ export default function AdsManager() {
 
       <div className="flex justify-between items-center mb-6">
         <p className="text-gray-400">Manage ad campaigns across platforms</p>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          Create Campaign
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate('/studio/ads/plan-from-goals')}
+            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-ghoste-blue to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold rounded-lg transition-all shadow-lg"
+          >
+            <Target className="w-5 h-5" />
+            Use My Goals
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+          >
+            <Plus className="w-5 h-5" />
+            Create Campaign
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

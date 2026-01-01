@@ -40,6 +40,7 @@ const StudioIndex = lazyWithRecovery(() => import('./pages/studio/StudioIndex'))
 const GettingStarted = lazyWithRecovery(() => import('./pages/studio/GettingStarted'));
 const SmartLinksPage = lazyWithRecovery(() => import('./pages/studio/SmartLinksPage'));
 const AdCampaignsPage = lazyWithRecovery(() => import('./pages/studio/AdCampaignsPage'));
+const AdsPlanFromGoals = lazyWithRecovery(() => import('./pages/studio/AdsPlanFromGoals'));
 const GhosteAIPage = lazyWithRecovery(() => import('./pages/studio/GhosteAIPage'));
 const CoverArtPage = lazyWithRecovery(() => import('./pages/studio/CoverArtPage'));
 const MusicVisualsPage = lazyWithRecovery(() => import('./pages/studio/MusicVisualsPage'));
@@ -358,6 +359,14 @@ function App() {
                 <AppShell>
                   <AdCampaignsPage />
                 </AppShell>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/studio/ads/plan-from-goals"
+            element={
+              <ProtectedRoute>
+                <AdsPlanFromGoals />
               </ProtectedRoute>
             }
           />
