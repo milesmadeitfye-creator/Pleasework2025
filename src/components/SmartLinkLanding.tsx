@@ -5,6 +5,7 @@ import { Music, ExternalLink } from 'lucide-react';
 import { getMetaCookies } from '../lib/metaCookies';
 import { trackSmartLinkEvent } from '../lib/smartlinkSession';
 import { getPlatformClickEventName } from '../lib/metaPlatformEvents';
+import { detectPlatform, getPlatformName, getOneClickEventName, attemptDeepLinkRedirect } from '../lib/deeplink';
 
 interface SmartLink {
   id: string;
@@ -17,6 +18,8 @@ interface SmartLink {
   tidal_url: string | null;
   soundcloud_url: string | null;
   user_id: string;
+  link_type?: string;
+  destination_url?: string;
 }
 
 interface MetaCredentials {
@@ -108,10 +111,9 @@ export default function SmartLinkLanding() {
   const handleOneClickRedirect = async () => {
     if (!link || !link.destination_url) return;
 
-    const { detectPlatform, getPlatformName, attemptDeepLinkRedirect, getOneClickEventName } = await import('../lib/deeplink');
-
     const platform = detectPlatform(link.destination_url);
     const platformName = getPlatformName(platform);
+    const platformEvent = getOneClickEventName(platform);
 
     console.log('[SmartLinkLanding] OneClick detected:', {
       slug,
@@ -119,33 +121,35 @@ export default function SmartLinkLanding() {
       destination: link.destination_url
     });
 
-    // Fire Meta events BEFORE redirect
-    const fireOneClickEvents = async () => {
-      try {
-        // Fire generic oneclick event
-        if ((window as any).fbq) {
-          (window as any).fbq('trackCustom', 'onclicklink', {
-            slug,
-            platform,
-            destination: link.destination_url,
-          });
-        }
+    // Fire events with keepalive (non-blocking, survive navigation)
+    const eventPromises: Promise<any>[] = [];
 
-        // Fire platform-specific event
-        const platformEvent = getOneClickEventName(platform);
-        if ((window as any).fbq) {
-          (window as any).fbq('trackCustom', platformEvent, {
-            slug,
-            platform,
-            destination: link.destination_url,
-          });
-        }
+    // Fire Pixel events (synchronous, should be instant)
+    try {
+      if ((window as any).fbq) {
+        (window as any).fbq('trackCustom', 'onclicklink', {
+          slug,
+          platform,
+          destination: link.destination_url,
+        });
+        (window as any).fbq('trackCustom', platformEvent, {
+          slug,
+          platform,
+          destination: link.destination_url,
+        });
+        console.log('[SmartLinkLanding] Pixel events fired:', ['onclicklink', platformEvent]);
+      }
+    } catch (err) {
+      console.error('[SmartLinkLanding] Pixel error:', err);
+    }
 
-        console.log('[SmartLinkLanding] OneClick events fired:', ['onclicklink', platformEvent]);
-
-        // Also fire CAPI events
-        if (link && link.user_id) {
-          await fireCapiEvent({
+    // Fire CAPI events with keepalive
+    if (link.user_id) {
+      eventPromises.push(
+        fetch('/.netlify/functions/meta-track-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             user_id: link.user_id,
             event_name: 'onclicklink',
             event_id: generateEventId('oc'),
@@ -154,9 +158,17 @@ export default function SmartLinkLanding() {
             link_id: link.id,
             platform,
             destination_url: link.destination_url,
-          });
+            link_type: 'oneclick',
+          }),
+          keepalive: true,
+        }).catch(() => null)
+      );
 
-          await fireCapiEvent({
+      eventPromises.push(
+        fetch('/.netlify/functions/meta-track-event', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             user_id: link.user_id,
             event_name: platformEvent,
             event_id: generateEventId('oc'),
@@ -165,22 +177,45 @@ export default function SmartLinkLanding() {
             link_id: link.id,
             platform,
             destination_url: link.destination_url,
-          });
-        }
-      } catch (err) {
-        console.error('[SmartLinkLanding] OneClick event error:', err);
-      }
-    };
+            link_type: 'oneclick',
+          }),
+          keepalive: true,
+        }).catch(() => null)
+      );
+    }
 
-    // Fire events with short delay, then redirect
-    await fireOneClickEvents();
+    // Track in analytics (fire-and-forget with keepalive)
+    eventPromises.push(
+      fetch('/.netlify/functions/smartlink-track-click', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slug,
+          platform,
+          url: link.destination_url,
+          referrer: document.referrer || null,
+          metadata: {
+            ua: navigator.userAgent,
+            ts: new Date().toISOString(),
+            page: window.location.href,
+          },
+        }),
+        keepalive: true,
+      }).catch(() => null)
+    );
 
-    // Short delay to ensure events are sent
-    setTimeout(() => {
-      attemptDeepLinkRedirect(link.destination_url!, () => {
-        console.log('[SmartLinkLanding] Redirecting to:', link.destination_url);
-      });
-    }, 200);
+    // Wait max 300ms for events to start sending
+    await Promise.race([
+      Promise.allSettled(eventPromises),
+      new Promise(resolve => setTimeout(resolve, 300))
+    ]);
+
+    console.log('[SmartLinkLanding] Events fired, redirecting to:', link.destination_url);
+
+    // Redirect using deep link logic
+    attemptDeepLinkRedirect(link.destination_url, () => {
+      console.log('[SmartLinkLanding] Redirect initiated');
+    });
   };
 
   const fetchLink = async () => {
@@ -785,7 +820,6 @@ export default function SmartLinkLanding() {
 
   // If oneclick and has destination_url, show minimal redirect UI
   if (isOneClick && link.destination_url) {
-    const { detectPlatform, getPlatformName } = require('../lib/deeplink');
     const platform = detectPlatform(link.destination_url);
     const platformName = getPlatformName(platform);
 
