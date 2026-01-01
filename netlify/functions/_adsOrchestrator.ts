@@ -268,27 +268,147 @@ export class AdsOrchestrator {
   }
 
   private async loadGoalAssets(goalKey: string): Promise<any> {
-    // Placeholder: Load assets from wherever you store them
-    // Could be in user_profile, or a dedicated assets table
-    return {};
+    // Load user profile for Instagram/Facebook/TikTok URLs
+    const { data: profile } = await this.supabase
+      .from('user_profiles')
+      .select('instagram_profile_url, facebook_page_url, tiktok_profile_url')
+      .eq('user_id', this.config.userId)
+      .maybeSingle();
+
+    // Load most recent smart link for streams goal
+    const { data: smartLinks } = await this.supabase
+      .from('smart_links')
+      .select('id, slug, title')
+      .eq('owner_user_id', this.config.userId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const smartLink = smartLinks?.[0];
+    const smartlinkUrl = smartLink ? `https://ghoste.one/l/${smartLink.slug}` : null;
+
+    // Load most recent presave link
+    const { data: presaveLinks } = await this.supabase
+      .from('smart_links')
+      .select('id, slug, title')
+      .eq('owner_user_id', this.config.userId)
+      .eq('type', 'presave')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const presaveLink = presaveLinks?.[0];
+    const presaveUrl = presaveLink ? `https://ghoste.one/l/${presaveLink.slug}` : null;
+
+    // Load most recent one-click link
+    const { data: oneClickLinks } = await this.supabase
+      .from('smart_links')
+      .select('id, slug, title')
+      .eq('owner_user_id', this.config.userId)
+      .eq('type', 'one_click')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    const oneClickLink = oneClickLinks?.[0];
+    const oneClickUrl = oneClickLink ? `https://ghoste.one/l/${oneClickLink.slug}` : null;
+
+    // Map goal to destination URL
+    const destinationUrlMap: Record<string, string | null> = {
+      streams: smartlinkUrl,
+      presave: presaveUrl,
+      build_audience: smartlinkUrl, // fallback to smartlink for lead capture
+      followers: profile?.instagram_profile_url || profile?.facebook_page_url || null,
+      virality: smartlinkUrl, // fallback to smartlink for engagement
+      fan_segmentation: oneClickUrl || smartlinkUrl,
+    };
+
+    return {
+      smartlink_url: smartlinkUrl,
+      presave_url: presaveUrl,
+      oneclick_url: oneClickUrl,
+      instagram_profile_url: profile?.instagram_profile_url,
+      facebook_page_url: profile?.facebook_page_url,
+      tiktok_profile_url: profile?.tiktok_profile_url,
+      destination_url: destinationUrlMap[goalKey] || smartlinkUrl,
+    };
   }
 
   private async loadGoalCreatives(goalKey: string): Promise<any[]> {
-    // Placeholder: Load creatives from wherever you store them
-    // Could be ad_creatives table or similar
-    const { data } = await this.supabase
-      .from('ad_creatives')
-      .select('*')
-      .eq('user_id', this.config.userId)
-      .eq('goal_key', goalKey);
+    // Load creatives tagged for this goal
+    const { data, error } = await this.supabase
+      .rpc('get_creatives_by_goal', {
+        p_user_id: this.config.userId,
+        p_goal_key: goalKey,
+        p_status: 'ready',
+      });
 
+    if (error) {
+      console.error(`[AdsOrchestrator] Failed to load creatives for ${goalKey}:`, error);
+      return [];
+    }
+
+    console.log(`[AdsOrchestrator] Loaded ${data?.length || 0} creatives for goal ${goalKey}`);
     return data || [];
+  }
+
+  private async autoFillDestinationUrls(goal: GoalData): Promise<void> {
+    if (!goal.assets?.destination_url) return;
+
+    const creativesNeedingUrl = goal.creatives.filter(c => !c.destination_url);
+    if (creativesNeedingUrl.length === 0) {
+      console.log(`[AdsOrchestrator] All creatives for ${goal.goalKey} already have destination URLs`);
+      return;
+    }
+
+    console.log(`[AdsOrchestrator] Auto-filling destination URLs for ${creativesNeedingUrl.length} creatives in goal ${goal.goalKey}`);
+
+    for (const creative of creativesNeedingUrl) {
+      const { error } = await this.supabase
+        .from('ad_creatives')
+        .update({ destination_url: goal.assets.destination_url })
+        .eq('id', creative.id);
+
+      if (error) {
+        console.error(`[AdsOrchestrator] Failed to update destination_url for creative ${creative.id}:`, error);
+      } else {
+        console.log(`[AdsOrchestrator] Set destination_url for creative ${creative.id} to ${goal.assets.destination_url}`);
+      }
+    }
   }
 
   private async processGoal(goal: GoalData, settings: any): Promise<void> {
     console.log(`[AdsOrchestrator] Processing goal: ${goal.goalKey}`);
 
     try {
+      // Check if goal has creatives
+      if (!goal.creatives || goal.creatives.length === 0) {
+        console.log(`[AdsOrchestrator] Goal ${goal.goalKey} has no creatives - skipping`);
+        await this.logAction({
+          actionType: 'error',
+          goalKey: goal.goalKey,
+          details: { reason: 'missing_creatives' },
+          status: 'failed',
+          message: `No creatives uploaded for goal ${goal.goalKey}`,
+        });
+        return;
+      }
+
+      // Auto-fill destination URLs for creatives that don't have one
+      if (goal.assets?.destination_url && !this.config.dryRun) {
+        await this.autoFillDestinationUrls(goal);
+      }
+
+      // Check if goal has required assets (placeholder - will be filled later)
+      // const missingAssets = this.checkRequiredAssets(goal);
+      // if (missingAssets.length > 0) {
+      //   await this.logAction({
+      //     actionType: 'error',
+      //     goalKey: goal.goalKey,
+      //     details: { reason: 'missing_assets', assets: missingAssets },
+      //     status: 'failed',
+      //     message: `Missing required assets for ${goal.goalKey}: ${missingAssets.join(', ')}`,
+      //   });
+      //   return;
+      // }
+
       // 1. Ensure Learning campaign exists
       await this.ensureLearningCampaign(goal, settings);
 
