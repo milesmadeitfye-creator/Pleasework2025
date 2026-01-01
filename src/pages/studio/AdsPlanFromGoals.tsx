@@ -185,43 +185,82 @@ export default function AdsPlanFromGoals() {
         throw new Error('Not authenticated');
       }
 
-      // Create a draft for each active goal
-      const primaryGoal = activeGoals[0];
-      const goalBudget = goalSettings[primaryGoal]?.daily_budget || 10;
+      // CRITICAL FIX: Create a draft for EACH active goal (not just first one)
+      const bundleId = crypto.randomUUID();
+      const bundleTotal = activeGoals.length;
 
-      // Get destination URL (prioritize smartlink)
-      const destinationUrl = planAssets.smartlink_url || planAssets.presave_url || planAssets.lead_url || '';
+      console.log(`[AdsPlanFromGoals] Creating bundle with ${bundleTotal} campaigns for goals:`, activeGoals);
 
-      if (!destinationUrl) {
+      // Validate at least one destination URL exists
+      const hasDestination = planAssets.smartlink_url || planAssets.presave_url || planAssets.lead_url;
+      if (!hasDestination) {
         throw new Error('Please add at least one destination link');
       }
 
-      // Create campaign draft
-      const { data: draft, error: draftError } = await supabase
-        .from('campaign_drafts')
-        .insert({
-          user_id: user.id,
-          goal: primaryGoal,
-          budget_daily: goalBudget,
-          duration_days: 7,
-          destination_url: destinationUrl,
-          status: 'draft',
-        })
-        .select()
-        .single();
+      // Create all drafts in parallel
+      const draftPromises = activeGoals.map(async (goalKey, index) => {
+        const goalBudget = goalSettings[goalKey]?.daily_budget || 10;
+        const goal = GOAL_REGISTRY[goalKey];
+        const templateKey = goal?.defaultTemplateKeys[0] || 'smartlink_conversions';
 
-      if (draftError || !draft) {
-        console.error('[AdsPlanFromGoals] Draft creation error:', draftError);
-        throw new Error(draftError?.message || 'Failed to create campaign draft');
-      }
+        // Get appropriate destination URL for this goal
+        let destinationUrl = '';
+        if (goalKey === 'presave' && planAssets.presave_url) {
+          destinationUrl = planAssets.presave_url;
+        } else if (goalKey === 'build_audience' && planAssets.lead_url) {
+          destinationUrl = planAssets.lead_url;
+        } else if (planAssets.smartlink_url) {
+          destinationUrl = planAssets.smartlink_url;
+        } else if (planAssets.presave_url) {
+          destinationUrl = planAssets.presave_url;
+        } else if (planAssets.lead_url) {
+          destinationUrl = planAssets.lead_url;
+        }
 
-      console.log('[AdsPlanFromGoals] Draft created:', draft.id);
+        if (!destinationUrl) {
+          throw new Error(`No destination URL available for goal: ${goalKey}`);
+        }
 
-      // Navigate to draft detail page
-      navigate(`/studio/ads/drafts/${draft.id}`);
+        const idempotencyKey = `${user.id}:${bundleId}:${index}:${templateKey}`;
+
+        const { data: draft, error: draftError } = await supabase
+          .from('campaign_drafts')
+          .insert({
+            user_id: user.id,
+            goal: goalKey,
+            goal_key: goalKey,
+            template_key: templateKey,
+            budget_daily: goalBudget,
+            duration_days: 7,
+            destination_url: destinationUrl,
+            status: 'draft',
+            bundle_id: bundleId,
+            bundle_index: index,
+            bundle_total: bundleTotal,
+            idempotency_key: idempotencyKey,
+          })
+          .select()
+          .single();
+
+        if (draftError) {
+          console.error(`[AdsPlanFromGoals] Draft creation error for ${goalKey}:`, draftError);
+          throw new Error(`Failed to create draft for ${goalKey}: ${draftError.message}`);
+        }
+
+        console.log(`[AdsPlanFromGoals] Draft ${index + 1}/${bundleTotal} created:`, draft.id, goalKey);
+        return draft;
+      });
+
+      // Wait for all drafts to be created
+      const drafts = await Promise.all(draftPromises);
+
+      console.log(`[AdsPlanFromGoals] Bundle ${bundleId} created successfully with ${drafts.length} campaigns`);
+
+      // Navigate to bundle results page
+      navigate(`/studio/ads/bundles/${bundleId}`);
     } catch (err: any) {
       console.error('[AdsPlanFromGoals] Launch error:', err);
-      alert(err.message || 'Failed to create campaign. Please try again.');
+      alert(err.message || 'Failed to create campaigns. Please try again.');
     } finally {
       setLaunching(false);
     }
