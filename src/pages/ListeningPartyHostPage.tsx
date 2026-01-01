@@ -388,21 +388,38 @@ export default function ListeningPartyHostPage() {
       }
 
       // Step 1: Get Stream Video token from backend
-      console.log('[ListeningParty] Fetching Stream Video token...');
+      // IMPORTANT: Call is created server-side with deterministic callId = party.id
+      const callId = party.id;
+      const callType = 'livestream';
+
+      console.log('[ListeningParty] Fetching Stream Video token...', { callType, callId });
+
       const tokenRes = await fetch('/.netlify/functions/stream-video-token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({
+          callType,
+          callId,
+        }),
       });
 
       const tokenData = await tokenRes.json();
       if (!tokenRes.ok || !tokenData.ok) {
-        throw new Error(tokenData.error || 'Failed to get video token');
+        const errorCode = tokenData.error || 'TOKEN_ERROR';
+        console.error('[ListeningParty] Token fetch failed:', { status: tokenRes.status, error: tokenData.error });
+        throw new Error(`Stream auth failed (${errorCode}). Please refresh and try again.`);
       }
 
-      console.log('[ListeningParty] Stream Video token received');
+      console.log('[ListeningParty] Stream Video token received:', {
+        apiKey: tokenData.apiKey ? '✓' : '✗',
+        token: tokenData.token ? '✓' : '✗',
+        userId: tokenData.userId,
+        callType: tokenData.callType,
+        callId: tokenData.callId,
+      });
 
       // Step 2: Create Stream Video client
       const vc = new StreamVideoClient({
@@ -417,30 +434,19 @@ export default function ListeningPartyHostPage() {
       setVideoClient(vc);
       console.log('[ListeningParty] Stream Video client created');
 
-      // Step 3: Create/get call (deterministic call ID = party.id)
-      const callId = party.id;
-      const videoCall = vc.call('livestream', callId);
+      // Step 3: Get call (already created server-side)
+      const videoCall = vc.call(callType, callId);
+      console.log('[ListeningParty] Retrieved call reference:', callId);
 
-      console.log('[ListeningParty] Creating/getting call:', callId);
-
-      // Step 4: Get or create call on Stream's servers
-      await videoCall.getOrCreate({
-        data: {
-          members: [{ user_id: tokenData.userId, role: 'host' }],
-        },
-      });
-
-      console.log('[ListeningParty] Call created on Stream servers');
-
-      // Step 5: Join call with existing stream (critical: this publishes tracks)
-      console.log('[ListeningParty] Joining call with local stream...');
+      // Step 4: Join call (call already created server-side)
+      console.log('[ListeningParty] Joining call...');
       await videoCall.join({
-        create: false, // Already created above
+        create: false, // Already created server-side in stream-video-token function
       });
 
       console.log('[ListeningParty] Call joined successfully');
 
-      // Step 6: Enable camera and mic
+      // Step 5: Enable camera and mic
       if (cameraEnabled) {
         await videoCall.camera.enable();
         console.log('[ListeningParty] Camera enabled');
@@ -450,13 +456,13 @@ export default function ListeningPartyHostPage() {
         console.log('[ListeningParty] Microphone enabled');
       }
 
-      // Step 7: Go live (for livestream calls)
+      // Step 6: Go live (for livestream calls)
       await videoCall.goLive();
       console.log('[ListeningParty] Call is now live!');
 
       setCall(videoCall);
 
-      // Step 8: Update database to mark party as live
+      // Step 7: Update database to mark party as live
       const { error: updateError } = await supabase
         .from('listening_parties')
         .update({
@@ -499,15 +505,25 @@ export default function ListeningPartyHostPage() {
     } catch (err: any) {
       console.error('[ListeningParty] Go Live error:', err);
 
-      // Provide better error messages
+      // Provide better error messages based on error type
       let errorMsg = err?.message || 'Failed to go live';
+      const errorName = err?.name || '';
 
-      if (errorMsg.includes('microphone') || errorMsg.includes('audio')) {
+      // Browser media errors
+      if (errorName === 'NotAllowedError') {
+        errorMsg = 'Camera/microphone permission denied. Please allow access in your browser settings and refresh.';
+      } else if (errorName === 'NotFoundError') {
+        errorMsg = 'No camera or microphone found. Please connect your devices and try again.';
+      } else if (errorName === 'NotReadableError') {
+        errorMsg = 'Camera or microphone is already in use by another application. Please close other apps and try again.';
+      } else if (errorName === 'OverconstrainedError') {
+        errorMsg = 'Selected device constraints not supported. Try selecting different devices.';
+      } else if (errorMsg.includes('microphone') || errorMsg.includes('audio')) {
         errorMsg = 'Microphone setup failed. Please check your microphone is connected and browser permissions are granted.';
       } else if (errorMsg.includes('camera') || errorMsg.includes('video')) {
         errorMsg = 'Camera setup failed. Please check your camera is connected and browser permissions are granted.';
-      } else if (errorMsg.includes('token')) {
-        errorMsg = 'Authentication failed. Please refresh the page and try again.';
+      } else if (errorMsg.includes('token') || errorMsg.includes('auth')) {
+        errorMsg = `Authentication failed: ${err?.message || 'Unknown error'}. Please refresh the page and try again.`;
       }
 
       setError(`Failed to go live: ${errorMsg}`);

@@ -20,6 +20,19 @@ export const handler: Handler = async (event) => {
   console.log('[stream-video-token] Request received');
 
   try {
+    if (event.httpMethod === "OPTIONS") {
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        },
+        body: JSON.stringify({ ok: true })
+      };
+    }
+
     if (event.httpMethod !== "POST") {
       return {
         statusCode: 405,
@@ -38,6 +51,21 @@ export const handler: Handler = async (event) => {
 
     const jwt = authHeader.replace("Bearer ", "");
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // Parse request body
+    const body = event.body ? JSON.parse(event.body) : {};
+    const callType = body.callType || 'livestream';
+    const callId = body.callId;
+
+    if (!callId) {
+      console.error('[stream-video-token] Missing callId in request body');
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ ok: false, error: "Missing callId parameter" })
+      };
+    }
+
+    console.log('[stream-video-token] Request params:', { callType, callId });
 
     // Verify auth
     const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(jwt);
@@ -86,6 +114,17 @@ export const handler: Handler = async (event) => {
 
     console.log('[stream-video-token] User upserted in Stream:', userId);
 
+    // Ensure call exists (idempotent)
+    console.log('[stream-video-token] Ensuring call exists:', { callType, callId });
+    const call = streamClient.video.call(callType, callId);
+    await call.getOrCreate({
+      data: {
+        created_by_id: userId,
+      },
+    });
+
+    console.log('[stream-video-token] Call created/verified on Stream servers');
+
     // Generate token (expires in 24 hours)
     const expirationTime = Math.floor(Date.now() / 1000) + (24 * 60 * 60);
     const token = streamClient.generateUserToken({
@@ -97,18 +136,28 @@ export const handler: Handler = async (event) => {
 
     return {
       statusCode: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
       body: JSON.stringify({
         ok: true,
         token,
         userId,
         userName: displayName,
         apiKey: STREAM_API_KEY,
+        callType,
+        callId,
       }),
     };
   } catch (e: any) {
     console.error('[stream-video-token] Error:', e);
     return {
       statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
       body: JSON.stringify({
         ok: false,
         error: e?.message || "Failed to generate video token"
