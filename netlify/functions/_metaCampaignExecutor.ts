@@ -40,6 +40,12 @@ interface CreateCampaignInput {
   video_url?: string;
   custom_thumbnail_url?: string;
   metaStatus?: any; // RPC result from get_meta_connection_status
+  // Template support
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound';
+  platform_destinations?: {
+    facebook_sound_url?: string;
+    tiktok_sound_url?: string;
+  };
 }
 
 interface MetaGraphError {
@@ -399,12 +405,14 @@ function sanitizeAdsetPayload(payload: any, ad_goal: string): any {
 async function createMetaCampaign(
   assets: MetaAssets,
   name: string,
-  ad_goal: string
+  ad_goal: string,
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound'
 ): Promise<{ id: string }> {
   // Build payload using single source of truth builder
   let body = buildMetaCampaignPayload({
     name,
     ad_goal,
+    template_key,
   });
 
   // Final sanitization
@@ -412,6 +420,7 @@ async function createMetaCampaign(
 
   console.log('[createMetaCampaign] Creating ABO campaign:', {
     objective: body.objective,
+    template_key: template_key || 'none',
     is_adset_budget_sharing_enabled: body.is_adset_budget_sharing_enabled,
     has_budget: !!body.daily_budget || !!body.lifetime_budget,
     mode: 'ABO',
@@ -439,7 +448,9 @@ async function createMetaAdSet(
   destinationUrl: string,
   ad_goal: string,
   daily_budget_cents: number,
-  meta_status?: any
+  meta_status?: any,
+  template_key?: 'oneclick_segmentation_sales' | 'virality_engagement_thruplay_sound',
+  platform_destinations?: { facebook_sound_url?: string; tiktok_sound_url?: string }
 ): Promise<{ id: string }> {
   // Build payload using single source of truth builder
   let body = buildMetaAdSetPayload({
@@ -450,6 +461,8 @@ async function createMetaAdSet(
     destination_url: destinationUrl,
     pixel_id: meta_status?.pixel_id,
     page_id: meta_status?.page_id,
+    template_key,
+    platform_destinations,
   });
 
   // Final sanitization
@@ -768,7 +781,8 @@ export async function executeMetaCampaign(
       campaign = await createMetaCampaign(
         assets,
         campaignName,
-        input.ad_goal // ABO mode - pass ad_goal instead of objective
+        input.ad_goal, // ABO mode - pass ad_goal instead of objective
+        input.template_key
       );
       console.log('[executeMetaCampaign] ✓ Created ABO campaign:', campaign.id);
     } catch (campaignErr: any) {
@@ -809,6 +823,8 @@ export async function executeMetaCampaign(
         destination_url: input.destination_url,
         pixel_id: input.metaStatus?.pixel_id,
         page_id: input.metaStatus?.page_id,
+        template_key: input.template_key,
+        platform_destinations: input.platform_destinations,
       });
 
       adset_payload_preview = {
@@ -836,7 +852,9 @@ export async function executeMetaCampaign(
         input.destination_url,
         input.ad_goal,
         input.daily_budget_cents, // ABO mode - pass budget to ad set
-        input.metaStatus
+        input.metaStatus,
+        input.template_key,
+        input.platform_destinations
       );
       console.log('[executeMetaCampaign] ✓ Created ABO adset:', adset.id);
     } catch (adsetErr: any) {
