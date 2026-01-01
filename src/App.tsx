@@ -42,6 +42,8 @@ const SmartLinksPage = lazyWithRecovery(() => import('./pages/studio/SmartLinksP
 const AdCampaignsPage = lazyWithRecovery(() => import('./pages/studio/AdCampaignsPage'));
 const AdsPlanFromGoals = lazyWithRecovery(() => import('./pages/studio/AdsPlanFromGoals'));
 const UseMyGoalsPage = lazyWithRecovery(() => import('./pages/studio/UseMyGoalsPage'));
+const AdsDraftsPage = lazyWithRecovery(() => import('./pages/studio/AdsDraftsPage'));
+const AdsDraftDetailPage = lazyWithRecovery(() => import('./pages/studio/AdsDraftDetailPage'));
 const GhosteAIPage = lazyWithRecovery(() => import('./pages/studio/GhosteAIPage'));
 const CoverArtPage = lazyWithRecovery(() => import('./pages/studio/CoverArtPage'));
 const MusicVisualsPage = lazyWithRecovery(() => import('./pages/studio/MusicVisualsPage'));
@@ -386,6 +388,22 @@ function App() {
             element={
               <ProtectedRoute>
                 <UseMyGoalsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/studio/ads/drafts"
+            element={
+              <ProtectedRoute>
+                <AdsDraftsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/studio/ads/drafts/:id"
+            element={
+              <ProtectedRoute>
+                <AdsDraftDetailPage />
               </ProtectedRoute>
             }
           />

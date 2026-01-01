@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Upload, Sparkles, TrendingUp, Users, Mail, ChevronRight, CheckCircle, Zap, Bug, Target, Volume2, UserPlus, CalendarPlus, Link } from 'lucide-react';
 import { supabase } from '@/lib/supabase.client';
 import { useAuth } from '../../contexts/AuthContext';
@@ -35,6 +36,7 @@ const VIBES = [
 
 export default function RunAdsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -1310,12 +1312,20 @@ export default function RunAdsPage() {
               </div>
             </div>
 
-            <button
-              onClick={() => window.location.href = '/studio/campaigns'}
-              className="w-full px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold rounded-lg transition-colors"
-            >
-              View Campaign Dashboard
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => navigate('/studio/ads')}
+                className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold rounded-lg transition-colors"
+              >
+                Back to Ads
+              </button>
+              <button
+                onClick={() => navigate('/studio/campaigns')}
+                className="flex-1 px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-lg transition-colors"
+              >
+                View Campaigns
+              </button>
+            </div>
           </div>
         )}
       </div>
