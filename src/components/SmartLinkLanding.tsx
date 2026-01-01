@@ -96,8 +96,92 @@ export default function SmartLinkLanding() {
   useEffect(() => {
     if (link) {
       initializeTracking();
+
+      // Handle oneclick auto-redirect
+      const isOneClick = link.link_type === 'oneclick' || (link as any).config?.oneclick;
+      if (isOneClick && link.destination_url) {
+        handleOneClickRedirect();
+      }
     }
   }, [link]);
+
+  const handleOneClickRedirect = async () => {
+    if (!link || !link.destination_url) return;
+
+    const { detectPlatform, getPlatformName, attemptDeepLinkRedirect, getOneClickEventName } = await import('../lib/deeplink');
+
+    const platform = detectPlatform(link.destination_url);
+    const platformName = getPlatformName(platform);
+
+    console.log('[SmartLinkLanding] OneClick detected:', {
+      slug,
+      platform,
+      destination: link.destination_url
+    });
+
+    // Fire Meta events BEFORE redirect
+    const fireOneClickEvents = async () => {
+      try {
+        // Fire generic oneclick event
+        if ((window as any).fbq) {
+          (window as any).fbq('trackCustom', 'onclicklink', {
+            slug,
+            platform,
+            destination: link.destination_url,
+          });
+        }
+
+        // Fire platform-specific event
+        const platformEvent = getOneClickEventName(platform);
+        if ((window as any).fbq) {
+          (window as any).fbq('trackCustom', platformEvent, {
+            slug,
+            platform,
+            destination: link.destination_url,
+          });
+        }
+
+        console.log('[SmartLinkLanding] OneClick events fired:', ['onclicklink', platformEvent]);
+
+        // Also fire CAPI events
+        if (link && link.user_id) {
+          await fireCapiEvent({
+            user_id: link.user_id,
+            event_name: 'onclicklink',
+            event_id: generateEventId('oc'),
+            event_source_url: window.location.href,
+            slug,
+            link_id: link.id,
+            platform,
+            destination_url: link.destination_url,
+          });
+
+          await fireCapiEvent({
+            user_id: link.user_id,
+            event_name: platformEvent,
+            event_id: generateEventId('oc'),
+            event_source_url: window.location.href,
+            slug,
+            link_id: link.id,
+            platform,
+            destination_url: link.destination_url,
+          });
+        }
+      } catch (err) {
+        console.error('[SmartLinkLanding] OneClick event error:', err);
+      }
+    };
+
+    // Fire events with short delay, then redirect
+    await fireOneClickEvents();
+
+    // Short delay to ensure events are sent
+    setTimeout(() => {
+      attemptDeepLinkRedirect(link.destination_url!, () => {
+        console.log('[SmartLinkLanding] Redirecting to:', link.destination_url);
+      });
+    }, 200);
+  };
 
   const fetchLink = async () => {
     if (!slug) {
@@ -695,6 +779,69 @@ export default function SmartLinkLanding() {
     { name: 'Tidal', url: link.tidal_url, color: 'bg-[#000000] hover:bg-[#1a1a1a]' },
     { name: 'SoundCloud', url: link.soundcloud_url, color: 'bg-[#ff5500] hover:bg-[#ff6619]' },
   ].filter((platform) => platform.url);
+
+  // Check if this is a oneclick link
+  const isOneClick = link.link_type === 'oneclick' || (link as any).config?.oneclick;
+
+  // If oneclick and has destination_url, show minimal redirect UI
+  if (isOneClick && link.destination_url) {
+    const { detectPlatform, getPlatformName } = require('../lib/deeplink');
+    const platform = detectPlatform(link.destination_url);
+    const platformName = getPlatformName(platform);
+
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-ghoste-black via-ghoste-navy to-ghoste-black text-ghoste-white flex items-center justify-center p-4">
+        <div className="max-w-md w-full text-center space-y-6">
+          {/* Ghoste Logo */}
+          <div className="flex justify-center mb-8">
+            <Music className="w-16 h-16 text-blue-400 animate-pulse" />
+          </div>
+
+          {/* Status Message */}
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold text-white">Opening in {platformName}...</h1>
+            <p className="text-gray-400">You'll be redirected automatically</p>
+          </div>
+
+          {/* Loading Spinner */}
+          <div className="flex justify-center py-4">
+            <div className="w-12 h-12 border-4 border-blue-500/20 border-t-blue-500 rounded-full animate-spin"></div>
+          </div>
+
+          {/* Manual Open Button */}
+          <div className="pt-4">
+            <a
+              href={link.destination_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors text-white font-medium"
+            >
+              <ExternalLink className="w-5 h-5" />
+              Open Manually
+            </a>
+          </div>
+
+          {/* Copy Link Button */}
+          <div>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(link.destination_url!);
+                alert('Link copied to clipboard!');
+              }}
+              className="text-sm text-gray-400 hover:text-white transition-colors underline"
+            >
+              Copy Link
+            </button>
+          </div>
+
+          {/* Powered by */}
+          <div className="pt-8">
+            <p className="text-xs text-gray-500">Powered by Ghoste One</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-ghoste-black via-ghoste-navy to-ghoste-black text-ghoste-white">

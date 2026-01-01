@@ -89,28 +89,55 @@ export default function OneClickLinks() {
     }
 
     const shortCode = generateShortCode();
+    const slug = `oc-${shortCode}`;
 
-    const insertPayload = {
+    // Insert into oneclick_links for backward compatibility with redirect function
+    const oneclickPayload = {
       user_id: user?.id,
       title: formData.title,
       target_url: formData.target_url,
       short_code: shortCode,
+      slug,
       clicks: 0,
     };
 
-    const { data, error } = await supabase
+    const { error: oneclickError } = await supabase
       .from('oneclick_links')
-      .insert([insertPayload])
+      .insert([oneclickPayload])
       .select('*');
 
-    if (error) {
-      const msg = (error.message || '').toLowerCase();
+    if (oneclickError) {
+      const msg = (oneclickError.message || '').toLowerCase();
       const isNoRows = msg.includes('no rows returned');
 
       if (!isNoRows) {
-        showToast('Error creating link: ' + error.message, 'error');
+        showToast('Error creating link: ' + oneclickError.message, 'error');
         return;
       }
+    }
+
+    // ALSO insert into smart_links so public /s/{slug} route can find it
+    const smartlinkPayload = {
+      user_id: user?.id,
+      slug,
+      title: formData.title,
+      link_type: 'oneclick',
+      destination_url: formData.target_url,
+      is_active: true,
+      config: {
+        auto_redirect: true,
+        oneclick: true,
+        short_code: shortCode,
+      },
+    };
+
+    const { error: smartlinkError } = await supabase
+      .from('smart_links')
+      .insert([smartlinkPayload])
+      .select('*');
+
+    if (smartlinkError) {
+      console.warn('[OneClickLinks] Failed to insert into smart_links (non-blocking):', smartlinkError);
     }
 
     showToast('Deep link created successfully! 🎉', 'success');
@@ -130,11 +157,13 @@ export default function OneClickLinks() {
     }
   };
 
-  const copyLink = (shortCode: string) => {
+  const copyLink = (link: DeepLink) => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ghoste.one';
-    const url = `${origin}/.netlify/functions/oneclick-redirect?code=${shortCode}`;
+    // Use /s/{slug} format for cleaner URLs
+    const slug = (link as any).slug || `oc-${link.short_code}`;
+    const url = `${origin}/s/${slug}`;
     navigator.clipboard.writeText(url);
-    setCopiedCode(shortCode);
+    setCopiedCode(link.short_code);
     showToast('Link copied to clipboard! 📋', 'success');
     setTimeout(() => setCopiedCode(null), 2000);
   };
@@ -188,14 +217,14 @@ export default function OneClickLinks() {
                     <span className="flex items-center gap-1">
                       <ExternalLink className="w-4 h-4" />
                       <span className="truncate max-w-xs">
-                        {typeof window !== 'undefined' ? window.location.origin : 'https://ghoste.one'}/.netlify/functions/oneclick-redirect?code={link.short_code}
+                        {typeof window !== 'undefined' ? window.location.origin : 'https://ghoste.one'}/s/{(link as any).slug || `oc-${link.short_code}`}
                       </span>
                     </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => copyLink(link.short_code)}
+                    onClick={() => copyLink(link)}
                     className="p-2 text-gray-400 hover:text-blue-400 transition-colors"
                     title="Copy link"
                   >
