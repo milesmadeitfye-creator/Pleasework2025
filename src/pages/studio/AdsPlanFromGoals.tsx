@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase.client';
 import { PageShell } from '../../components/layout/PageShell';
-import { Target, Link, Upload, Rocket, CheckCircle, AlertCircle } from 'lucide-react';
+import { Target, Link, Upload, Rocket, CheckCircle, AlertCircle, Sparkles, Loader } from 'lucide-react';
 import { readModeSettings, type GoalSettings, DEFAULT_GOAL_SETTINGS } from '../../lib/ads/modes';
 import { GOAL_REGISTRY, type OverallGoalKey, getAssetRequirementsText } from '../../lib/goals';
 
@@ -39,6 +39,13 @@ export default function AdsPlanFromGoals() {
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
 
+  // Auto-resolve state
+  const [autoResolveSong, setAutoResolveSong] = useState('');
+  const [autoResolveArtist, setAutoResolveArtist] = useState('');
+  const [autoResolveSpotifyUrl, setAutoResolveSpotifyUrl] = useState('');
+  const [autoResolving, setAutoResolving] = useState(false);
+  const [autoResolveStatus, setAutoResolveStatus] = useState<Record<string, 'resolved' | 'missing'>>({});
+
   useEffect(() => {
     loadUserGoals();
   }, []);
@@ -66,8 +73,29 @@ export default function AdsPlanFromGoals() {
 
       setActiveGoals(active);
 
-      const storedAssets = (settings.goal_settings as any).__assets || {};
-      setPlanAssets(storedAssets);
+      // Load saved resolved links
+      const resolvedLinks = (settings as any).resolved_links || {};
+      if (resolvedLinks) {
+        const newAssets: PlanAssets = {};
+        if (resolvedLinks.smart_link_url) newAssets.smartlink_url = resolvedLinks.smart_link_url;
+        if (resolvedLinks.presave_link_url) newAssets.presave_url = resolvedLinks.presave_link_url;
+        if (resolvedLinks.instagram_profile_url) newAssets.instagram_profile_url = resolvedLinks.instagram_profile_url;
+        if (resolvedLinks.tiktok_sound_url) newAssets.tiktok_sound_url = resolvedLinks.tiktok_sound_url;
+        if (resolvedLinks.facebook_sound_url) newAssets.facebook_sound_url = resolvedLinks.facebook_sound_url;
+        if (resolvedLinks.lead_form_url) newAssets.lead_url = resolvedLinks.lead_form_url;
+
+        setPlanAssets(newAssets);
+
+        // Update auto-resolve status
+        const status: Record<string, 'resolved' | 'missing'> = {};
+        if (resolvedLinks.smart_link_url) status.smartlink_url = 'resolved';
+        if (resolvedLinks.presave_link_url) status.presave_url = 'resolved';
+        if (resolvedLinks.instagram_profile_url) status.instagram_profile_url = 'resolved';
+        if (resolvedLinks.tiktok_sound_url) status.tiktok_sound_url = 'resolved';
+        if (resolvedLinks.facebook_sound_url) status.facebook_sound_url = 'resolved';
+        if (resolvedLinks.lead_form_url) status.lead_url = 'resolved';
+        setAutoResolveStatus(status);
+      }
 
       setLoading(false);
     } catch (err) {
@@ -129,6 +157,98 @@ export default function AdsPlanFromGoals() {
       setResolveError(err.message || 'Failed to resolve song. Try pasting the URL manually.');
     } finally {
       setResolving(false);
+    }
+  }
+
+  async function handleAutoResolve() {
+    if (!autoResolveSpotifyUrl && !autoResolveSong) {
+      setResolveError('Please provide either a Spotify URL or song name');
+      return;
+    }
+
+    setAutoResolving(true);
+    setResolveError('');
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      console.log('[handleAutoResolve] Calling resolve-goal-links...');
+
+      const res = await fetch('/.netlify/functions/resolve-goal-links', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          query: {
+            song: autoResolveSong || undefined,
+            artist: autoResolveArtist || undefined,
+            spotify_url: autoResolveSpotifyUrl || undefined,
+          },
+          goals: activeGoals,
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json.ok) {
+        throw new Error(json.error || 'Failed to auto-resolve links');
+      }
+
+      console.log('[handleAutoResolve] Resolved links:', json.resolved);
+
+      // Update assets from resolved links
+      const newAssets: PlanAssets = { ...planAssets };
+      const status: Record<string, 'resolved' | 'missing'> = {};
+
+      if (json.resolved.smart_link_url) {
+        newAssets.smartlink_url = json.resolved.smart_link_url;
+        status.smartlink_url = 'resolved';
+      }
+      if (json.resolved.presave_link_url) {
+        newAssets.presave_url = json.resolved.presave_link_url;
+        status.presave_url = 'resolved';
+      }
+      if (json.resolved.instagram_profile_url) {
+        newAssets.instagram_profile_url = json.resolved.instagram_profile_url;
+        status.instagram_profile_url = 'resolved';
+      }
+      if (json.resolved.tiktok_sound_url) {
+        newAssets.tiktok_sound_url = json.resolved.tiktok_sound_url;
+        status.tiktok_sound_url = 'resolved';
+      }
+      if (json.resolved.facebook_sound_url) {
+        newAssets.facebook_sound_url = json.resolved.facebook_sound_url;
+        status.facebook_sound_url = 'resolved';
+      }
+      if (json.resolved.lead_form_url) {
+        newAssets.lead_url = json.resolved.lead_form_url;
+        status.lead_url = 'resolved';
+      }
+
+      setPlanAssets(newAssets);
+      setAutoResolveStatus(status);
+
+      // Show missing fields
+      if (json.missing) {
+        Object.entries(json.missing).forEach(([key, reason]) => {
+          status[key] = 'missing';
+        });
+        console.log('[handleAutoResolve] Some fields need manual entry:', json.missing);
+      }
+
+      console.log('[handleAutoResolve] Auto-resolve complete!');
+    } catch (err: any) {
+      console.error('[handleAutoResolve] Error:', err);
+      setResolveError(err.message || 'Failed to auto-resolve. Try entering links manually.');
+    } finally {
+      setAutoResolving(false);
     }
   }
 
@@ -363,6 +483,108 @@ export default function AdsPlanFromGoals() {
             <div>
               <h2 className="text-2xl font-bold text-ghoste-white mb-2">Add Required Links</h2>
               <p className="text-ghoste-grey">Enter the links Ghoste needs to run your campaigns.</p>
+            </div>
+
+            {/* Auto-Resolve Section */}
+            <div className="p-6 rounded-xl border border-ghoste-blue/30 bg-gradient-to-br from-ghoste-blue/5 to-purple-500/5">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-ghoste-blue/20">
+                  <Sparkles className="w-5 h-5 text-ghoste-blue" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-ghoste-white mb-1">Auto-Resolve Links</h3>
+                  <p className="text-sm text-ghoste-grey">
+                    Enter your song details and Ghoste will automatically find and fill all required links
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-ghoste-grey mb-2">Song Name</label>
+                    <input
+                      type="text"
+                      value={autoResolveSong}
+                      onChange={(e) => setAutoResolveSong(e.target.value)}
+                      placeholder="e.g., Blinding Lights"
+                      className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white placeholder-ghoste-grey/50 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-ghoste-grey mb-2">Artist (optional)</label>
+                    <input
+                      type="text"
+                      value={autoResolveArtist}
+                      onChange={(e) => setAutoResolveArtist(e.target.value)}
+                      placeholder="e.g., The Weeknd"
+                      className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white placeholder-ghoste-grey/50 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-ghoste-grey mb-2">
+                    Or paste Spotify URL
+                  </label>
+                  <input
+                    type="url"
+                    value={autoResolveSpotifyUrl}
+                    onChange={(e) => setAutoResolveSpotifyUrl(e.target.value)}
+                    placeholder="https://open.spotify.com/track/..."
+                    className="w-full px-3 py-2 rounded-lg bg-ghoste-bg border border-ghoste-border text-ghoste-white placeholder-ghoste-grey/50 text-sm"
+                  />
+                </div>
+
+                <button
+                  onClick={handleAutoResolve}
+                  disabled={autoResolving || (!autoResolveSpotifyUrl && !autoResolveSong)}
+                  className="w-full px-4 py-3 rounded-lg bg-ghoste-blue text-white font-semibold hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                >
+                  {autoResolving ? (
+                    <>
+                      <Loader className="w-5 h-5 animate-spin" />
+                      Resolving links...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-5 h-5" />
+                      Auto-Resolve All Links
+                    </>
+                  )}
+                </button>
+
+                {resolveError && (
+                  <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30">
+                    <p className="text-sm text-red-400">{resolveError}</p>
+                  </div>
+                )}
+
+                {Object.keys(autoResolveStatus).length > 0 && (
+                  <div className="pt-3 border-t border-white/10">
+                    <p className="text-xs font-medium text-ghoste-grey mb-2">Resolved Links:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(autoResolveStatus).map(([key, status]) => (
+                        <div
+                          key={key}
+                          className={`px-2 py-1 rounded-full text-xs flex items-center gap-1 ${
+                            status === 'resolved'
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-yellow-500/20 text-yellow-400'
+                          }`}
+                        >
+                          {status === 'resolved' ? (
+                            <CheckCircle className="w-3 h-3" />
+                          ) : (
+                            <AlertCircle className="w-3 h-3" />
+                          )}
+                          {key.replace(/_/g, ' ')}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="space-y-4">
