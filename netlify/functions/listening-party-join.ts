@@ -1,6 +1,7 @@
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import { StreamChat } from "stream-chat";
+import { StreamClient } from "@stream-io/node-sdk";
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -94,8 +95,23 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    console.log('[listening-party-join] Upserting users:', Object.keys(usersToUpsert));
+    console.log('[listening-party-join] Upserting users to Stream Chat:', Object.keys(usersToUpsert));
     await chat.upsertUsers(Object.values(usersToUpsert));
+
+    // Also upsert users to Stream Video (uses same user data structure)
+    const streamVideoClient = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET);
+
+    const videoUsersToUpsert: Record<string, any> = {};
+    for (const [userId, userData] of Object.entries(usersToUpsert)) {
+      videoUsersToUpsert[userId] = {
+        id: userId,
+        name: userData.name,
+        role: userData.role,
+      };
+    }
+
+    console.log('[listening-party-join] Upserting users to Stream Video:', Object.keys(videoUsersToUpsert));
+    await streamVideoClient.upsertUsers({ users: videoUsersToUpsert });
 
     // Channel id should be deterministic + safe
     const channelId = `lp_${String(party.id).replace(/-/g, "")}`;

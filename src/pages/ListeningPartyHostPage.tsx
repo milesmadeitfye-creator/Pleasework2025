@@ -2,7 +2,9 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from '../hooks/useAuth';
-import { Copy, Check, Video, Mic, Users, Circle, Globe, Lock } from 'lucide-react';
+import { Copy, Check, Video, Mic, Users, Circle, Globe, Lock, AlertTriangle } from 'lucide-react';
+import { StreamVideo, StreamVideoClient, StreamCall } from '@stream-io/video-react-sdk';
+import '@stream-io/video-react-sdk/dist/css/styles.css';
 
 type Party = {
   id: string;
@@ -41,6 +43,11 @@ export default function ListeningPartyHostPage() {
   const [cams, setCams] = useState<MediaDeviceInfo[]>([]);
   const [devicesLoaded, setDevicesLoaded] = useState(false);
   const [permissionDenied, setPermissionDenied] = useState(false);
+
+  // Stream Video state
+  const [videoClient, setVideoClient] = useState<StreamVideoClient | null>(null);
+  const [call, setCall] = useState<any>(null);
+  const [isJoiningStream, setIsJoiningStream] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -194,7 +201,10 @@ export default function ListeningPartyHostPage() {
 
         if (micEnabled) {
           constraints.audio = {
-            ...(selectedMicId !== 'default' ? { deviceId: { exact: selectedMicId } } : {}),
+            deviceId: selectedMicId !== 'default' ? { exact: selectedMicId } : undefined,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
           };
         } else {
           constraints.audio = false;
@@ -255,8 +265,28 @@ export default function ListeningPartyHostPage() {
     }
   }, [stream, cameraEnabled]);
 
+  // Cleanup Stream Video on unmount
+  useEffect(() => {
+    return () => {
+      console.log('[ListeningParty] Component unmounting, cleaning up...');
+
+      // Cleanup Stream Video
+      if (call) {
+        call.leave().catch((e: any) => console.error('[ListeningParty] Error leaving call:', e));
+      }
+      if (videoClient) {
+        videoClient.disconnectUser().catch((e: any) => console.error('[ListeningParty] Error disconnecting:', e));
+      }
+
+      // Cleanup media stream
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [call, videoClient, stream]);
+
   const handleGoLive = async () => {
-    if (!party || updating) return;
+    if (!party || updating || isJoiningStream) return;
 
     // Validation: check devices are ready
     if (!devicesLoaded) {
@@ -305,11 +335,35 @@ export default function ListeningPartyHostPage() {
       return;
     }
 
+    // Critical: Verify audio track exists in preview stream
+    const audioTracks = stream.getAudioTracks();
+    const videoTracks = stream.getVideoTracks();
+
+    console.log('[ListeningParty] Pre-flight track check:', {
+      audioTracks: audioTracks.length,
+      videoTracks: videoTracks.length,
+      audioEnabled: audioTracks[0]?.enabled,
+      videoEnabled: videoTracks[0]?.enabled,
+      audioLabel: audioTracks[0]?.label,
+      videoLabel: videoTracks[0]?.label,
+    });
+
+    if (micEnabled && audioTracks.length === 0) {
+      setError('No audio track found. Please toggle microphone off and on again.');
+      return;
+    }
+
+    if (cameraEnabled && videoTracks.length === 0) {
+      setError('No video track found. Please toggle camera off and on again.');
+      return;
+    }
+
     try {
       setUpdating(true);
+      setIsJoiningStream(true);
       setError(null);
 
-      console.log('[ListeningPartyHostPage] GoLive payload:', {
+      console.log('[ListeningParty] Starting Go Live with tracks:', {
         partyId: party.id,
         selectedMicId,
         selectedCamId,
@@ -317,7 +371,12 @@ export default function ListeningPartyHostPage() {
         cameraEnabled,
         micCount: mics.length,
         camCount: cams.length,
-        streamTracks: stream?.getTracks().map(t => ({ kind: t.kind, enabled: t.enabled, label: t.label }))
+        streamTracks: stream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          label: t.label,
+          id: t.id,
+        }))
       });
 
       // Get auth session
@@ -328,84 +387,140 @@ export default function ListeningPartyHostPage() {
         throw new Error('Please log in to start a live stream');
       }
 
-      // Clamp resolution to safe values
-      const width = Math.max(240, 1280);
-      const height = Math.max(240, 720);
-
-      // Create Stream video room/call via backend
-      const res = await fetch('/.netlify/functions/listening-party-create-stream', {
+      // Step 1: Get Stream Video token from backend
+      console.log('[ListeningParty] Fetching Stream Video token...');
+      const tokenRes = await fetch('/.netlify/functions/stream-video-token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          partyId: party.id,
-          micDeviceId: selectedMicId,
-          camDeviceId: selectedCamId,
-          micEnabled,
-          cameraEnabled,
-          width,
-          height,
-        }),
       });
 
-      const data = await res.json();
-
-      if (!res.ok || !data.ok) {
-        // Better error messages for known issues
-        let errorMsg = data.error || 'Failed to create video stream';
-
-        if (errorMsg.includes('audio.default_device')) {
-          errorMsg = 'Select a microphone to go live.';
-        } else if (errorMsg.includes('target_resolution')) {
-          errorMsg = 'Video resolution too low. Switch camera or refresh.';
-        }
-
-        throw new Error(errorMsg);
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok || !tokenData.ok) {
+        throw new Error(tokenData.error || 'Failed to get video token');
       }
 
-      console.log('[ListeningPartyHostPage] Video stream created:', data);
+      console.log('[ListeningParty] Stream Video token received');
 
-      // Refresh party data to get updated stream_url, stream_app_id, status, and is_live
-      const { data: updatedParty, error: refetchError } = await supabase
+      // Step 2: Create Stream Video client
+      const vc = new StreamVideoClient({
+        apiKey: tokenData.apiKey,
+        token: tokenData.token,
+        user: {
+          id: tokenData.userId,
+          name: tokenData.userName,
+        },
+      });
+
+      setVideoClient(vc);
+      console.log('[ListeningParty] Stream Video client created');
+
+      // Step 3: Create/get call (deterministic call ID = party.id)
+      const callId = party.id;
+      const videoCall = vc.call('livestream', callId);
+
+      console.log('[ListeningParty] Creating/getting call:', callId);
+
+      // Step 4: Get or create call on Stream's servers
+      await videoCall.getOrCreate({
+        data: {
+          members: [{ user_id: tokenData.userId, role: 'host' }],
+        },
+      });
+
+      console.log('[ListeningParty] Call created on Stream servers');
+
+      // Step 5: Join call with existing stream (critical: this publishes tracks)
+      console.log('[ListeningParty] Joining call with local stream...');
+      await videoCall.join({
+        create: false, // Already created above
+      });
+
+      console.log('[ListeningParty] Call joined successfully');
+
+      // Step 6: Enable camera and mic
+      if (cameraEnabled) {
+        await videoCall.camera.enable();
+        console.log('[ListeningParty] Camera enabled');
+      }
+      if (micEnabled) {
+        await videoCall.microphone.enable();
+        console.log('[ListeningParty] Microphone enabled');
+      }
+
+      // Step 7: Go live (for livestream calls)
+      await videoCall.goLive();
+      console.log('[ListeningParty] Call is now live!');
+
+      setCall(videoCall);
+
+      // Step 8: Update database to mark party as live
+      const { error: updateError } = await supabase
+        .from('listening_parties')
+        .update({
+          is_live: true,
+          is_public: true,
+          status: 'live',
+          live_started_at: new Date().toISOString(),
+          stream_app_id: callId,
+        })
+        .eq('id', party.id);
+
+      if (updateError) {
+        console.error('[ListeningParty] Database update error:', updateError);
+        throw new Error(`Failed to update party: ${updateError.message}`);
+      }
+
+      console.log('[ListeningParty] Database updated, party is now live');
+
+      // Refresh party data
+      const { data: updatedParty } = await supabase
         .from('listening_parties')
         .select('*')
         .eq('id', party.id)
         .maybeSingle();
 
-      if (refetchError) {
-        console.error('[ListeningPartyHostPage] Refetch error after Go Live:', refetchError);
-        // Still update local state with known changes even if refetch fails
-        setParty((p) => p ? {
-          ...p,
-          is_live: true,
-          status: 'live',
-          is_public: true,
-          stream_app_id: data.stream_app_id || p.stream_app_id,
-          stream_url: data.stream_url || p.stream_url,
-        } : null);
-        console.log('[ListeningPartyHostPage] Party is now live (fallback state update)');
-      } else if (updatedParty) {
+      if (updatedParty) {
         setParty(updatedParty as Party);
-        console.log('[ListeningPartyHostPage] Party is now live! Status:', updatedParty.status, 'is_live:', updatedParty.is_live);
       } else {
-        // Refetch returned no data - use fallback state
-        console.warn('[ListeningPartyHostPage] Refetch returned no data, using fallback state');
+        // Fallback
         setParty((p) => p ? {
           ...p,
           is_live: true,
           status: 'live',
           is_public: true,
-          stream_app_id: data.stream_app_id || p.stream_app_id,
-          stream_url: data.stream_url || p.stream_url,
+          stream_app_id: callId,
         } : null);
       }
+
+      console.log('[ListeningParty] Go Live complete!');
     } catch (err: any) {
-      console.error('[ListeningPartyHostPage] Go Live error:', err);
-      setError(`Failed to go live: ${err.message}`);
+      console.error('[ListeningParty] Go Live error:', err);
+
+      // Provide better error messages
+      let errorMsg = err?.message || 'Failed to go live';
+
+      if (errorMsg.includes('microphone') || errorMsg.includes('audio')) {
+        errorMsg = 'Microphone setup failed. Please check your microphone is connected and browser permissions are granted.';
+      } else if (errorMsg.includes('camera') || errorMsg.includes('video')) {
+        errorMsg = 'Camera setup failed. Please check your camera is connected and browser permissions are granted.';
+      } else if (errorMsg.includes('token')) {
+        errorMsg = 'Authentication failed. Please refresh the page and try again.';
+      }
+
+      setError(`Failed to go live: ${errorMsg}`);
+
+      // Cleanup on error
+      if (videoClient) {
+        await videoClient.disconnectUser().catch(console.error);
+        setVideoClient(null);
+      }
+      setCall(null);
     } finally {
       setUpdating(false);
+      setIsJoiningStream(false);
     }
   };
 
@@ -416,6 +531,31 @@ export default function ListeningPartyHostPage() {
       setUpdating(true);
       setError(null);
 
+      console.log('[ListeningParty] Ending live stream...');
+
+      // Step 1: End call and disconnect from Stream
+      if (call) {
+        try {
+          await call.endCall();
+          console.log('[ListeningParty] Stream call ended');
+        } catch (e) {
+          console.error('[ListeningParty] Error ending call:', e);
+        }
+      }
+
+      if (videoClient) {
+        try {
+          await videoClient.disconnectUser();
+          console.log('[ListeningParty] Stream client disconnected');
+        } catch (e) {
+          console.error('[ListeningParty] Error disconnecting client:', e);
+        }
+      }
+
+      setCall(null);
+      setVideoClient(null);
+
+      // Step 2: Update database
       const { error: updateError } = await supabase
         .from('listening_parties')
         .update({
@@ -434,14 +574,14 @@ export default function ListeningPartyHostPage() {
         .from('listening_parties')
         .select('*')
         .eq('id', party.id)
-        .single();
+        .maybeSingle();
 
       if (data) {
         setParty(data as Party);
-        console.log('[ListeningPartyHostPage] Party ended.');
+        console.log('[ListeningParty] Party ended successfully');
       }
     } catch (err: any) {
-      console.error('[ListeningPartyHostPage] End Live error:', err);
+      console.error('[ListeningParty] End Live error:', err);
       setError(`Failed to end live: ${err.message}`);
     } finally {
       setUpdating(false);
@@ -710,6 +850,41 @@ export default function ListeningPartyHostPage() {
               {micEnabled ? 'Mic On' : 'Mic Off'}
             </button>
           </div>
+
+          {/* Track Diagnostics */}
+          {stream && (cameraEnabled || micEnabled) && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+              <div className="flex items-start gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-blue-300">Stream Status</p>
+                </div>
+              </div>
+              <div className="space-y-1 text-xs text-blue-200">
+                {micEnabled && (
+                  <div className="flex justify-between">
+                    <span>Audio tracks:</span>
+                    <span className={stream.getAudioTracks().length > 0 ? 'text-green-400' : 'text-red-400'}>
+                      {stream.getAudioTracks().length > 0 ? '✓ Active' : '✗ Missing'}
+                    </span>
+                  </div>
+                )}
+                {cameraEnabled && (
+                  <div className="flex justify-between">
+                    <span>Video tracks:</span>
+                    <span className={stream.getVideoTracks().length > 0 ? 'text-green-400' : 'text-red-400'}>
+                      {stream.getVideoTracks().length > 0 ? '✓ Active' : '✗ Missing'}
+                    </span>
+                  </div>
+                )}
+                {micEnabled && stream.getAudioTracks().length === 0 && (
+                  <p className="text-yellow-300 mt-2">
+                    Warning: No audio track detected. Toggle mic off and on again.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           <p className="text-sm text-gray-400 text-center">
             This is a preview only. Toggle camera and mic to test your setup.
