@@ -73,27 +73,41 @@ export default function AdsDraftDetailPage() {
   async function approveDraft() {
     if (!draft || !user) return;
 
-    if (!confirm('Launch this campaign? It will start spending your budget immediately.')) {
+    if (!confirm('Publish this campaign to Meta? It will be created as PAUSED (you can launch it later).')) {
       return;
     }
 
     setActionLoading(true);
     try {
-      const { error } = await supabase
-        .from('campaign_drafts')
-        .update({
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-        })
-        .eq('id', draft.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('Not authenticated');
+      }
 
-      if (error) throw error;
+      const response = await fetch('/.netlify/functions/ads-publish', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          draft_id: draft.id,
+          mode: 'PAUSED',
+        }),
+      });
 
-      alert('Campaign approved and will be launched shortly!');
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        const errorMsg = result.error || `Publish failed (${response.status})`;
+        throw new Error(errorMsg);
+      }
+
+      alert(`Published to Meta! ✅\nCampaign ID: ${result.meta?.campaign_id || 'N/A'}\n\nYou can now launch it from the Campaigns page.`);
       loadDraft();
     } catch (err: any) {
-      console.error('[DraftDetail] Approve error:', err);
-      alert(`Failed to approve: ${err.message}`);
+      console.error('[DraftDetail] Publish error:', err);
+      alert(`Failed to publish to Meta: ${err.message}`);
     } finally {
       setActionLoading(false);
     }
@@ -236,6 +250,38 @@ export default function AdsDraftDetailPage() {
           </div>
         </div>
 
+        {/* Meta IDs */}
+        {draft.meta_campaign_id && (
+          <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-6 mb-6">
+            <h3 className="text-lg font-semibold text-blue-400 mb-4">Meta Campaign IDs</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Campaign ID:</span>
+                <a
+                  href={`https://business.facebook.com/adsmanager/manage/campaigns?act=${draft.ad_account_id}&selected_campaign_ids=${draft.meta_campaign_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline font-mono"
+                >
+                  {draft.meta_campaign_id}
+                </a>
+              </div>
+              {draft.meta_adset_id && (
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">AdSet ID:</span>
+                  <span className="text-gray-300 font-mono">{draft.meta_adset_id}</span>
+                </div>
+              )}
+              {draft.meta_ad_id && (
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400">Ad ID:</span>
+                  <span className="text-gray-300 font-mono">{draft.meta_ad_id}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Campaign Details */}
         <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-xl p-8 mb-6">
           <h3 className="text-xl font-semibold text-white mb-6">Campaign Summary</h3>
@@ -357,7 +403,7 @@ export default function AdsDraftDetailPage() {
                   disabled={actionLoading}
                   className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded-lg font-medium transition-colors"
                 >
-                  {actionLoading ? 'Processing...' : 'Approve & Launch'}
+                  {actionLoading ? 'Publishing to Meta...' : 'Publish to Meta'}
                 </button>
                 <button
                   onClick={() => navigate('/studio/ads', { state: { editDraft: draft.id } })}
