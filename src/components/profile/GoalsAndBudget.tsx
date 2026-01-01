@@ -74,6 +74,9 @@ export function GoalsAndBudget() {
   // Overall ads goals (canonical)
   const [goalSettings, setGoalSettings] = useState<Record<string, GoalSettings>>({});
 
+  // Tab state (MUST be before any conditional returns)
+  const [activeTab, setActiveTab] = useState<'estimator' | 'ads-goals'>('estimator');
+
   // Load user goals and ads mode settings
   useEffect(() => {
     const loadData = async () => {
@@ -319,8 +322,6 @@ export function GoalsAndBudget() {
       </div>
     );
   }
-
-  const [activeTab, setActiveTab] = useState<'estimator' | 'ads-goals'>('estimator');
 
   return (
     <div className="space-y-6">
