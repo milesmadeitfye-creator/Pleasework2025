@@ -1,7 +1,6 @@
 import { Handler } from '@netlify/functions';
 import { getSupabaseAdmin } from './_supabaseAdmin';
-import { getMetaCredentials } from './_metaCredentialsHelper';
-import { getUserMetaAssets } from './_metaAssetsHelper';
+import { resolveMetaAssets, validateMetaAssets } from './_resolveMetaAssets';
 
 const META_GRAPH_VERSION = 'v21.0';
 
@@ -119,28 +118,38 @@ export const handler: Handler = async (event) => {
       };
     }
 
-    const credentials = await getMetaCredentials(user.id);
-    const assets = await getUserMetaAssets(user.id);
+    console.log('[ads-publish] Resolving Meta assets using canonical resolver...');
 
-    if (!credentials) {
+    // Use canonical Meta asset resolver (same as manual flow)
+    const assets = await resolveMetaAssets(user.id);
+
+    // Validate assets (returns clear error messages)
+    const validation = validateMetaAssets(assets, {
+      requirePixel: false, // Optional for traffic campaigns
+      requireInstagram: false, // Optional
+    });
+
+    if (!validation.valid) {
+      console.error('[ads-publish] Asset validation failed:', {
+        code: validation.code,
+        error: validation.error,
+      });
       return {
         statusCode: 400,
         body: JSON.stringify({
           ok: false,
-          error: 'Meta not connected. Please connect your Meta account first.',
+          error: validation.error,
+          code: validation.code,
         }),
       };
     }
 
-    if (!assets?.ad_account_id) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({
-          ok: false,
-          error: 'No ad account selected. Please configure your Meta account.',
-        }),
-      };
-    }
+    console.log('[ads-publish] ✅ Meta assets validated:', {
+      ad_account_id: assets!.ad_account_id,
+      page_id: assets!.page_id,
+      has_pixel: !!assets!.pixel_id,
+      has_instagram: !!assets!.instagram_actor_id,
+    });
 
     console.log('[ads-publish] Creating Meta campaign');
 
@@ -157,8 +166,8 @@ export const handler: Handler = async (event) => {
     };
 
     const campaignResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets.ad_account_id}/campaigns`,
-      credentials.accessToken,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/campaigns`,
+      assets!.access_token,
       campaignPayload
     );
 
@@ -182,21 +191,17 @@ export const handler: Handler = async (event) => {
     };
 
     const adsetResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets.ad_account_id}/adsets`,
-      credentials.accessToken,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/adsets`,
+      assets!.access_token,
       adsetPayload
     );
 
     console.log('[ads-publish] AdSet created:', adsetResult.id);
 
-    if (!assets.page_id) {
-      throw new Error('No Facebook page configured. Please select a page in your Meta settings.');
-    }
-
     const creativePayload: any = {
       name: `${campaignName} - Creative`,
       object_story_spec: {
-        page_id: assets.page_id,
+        page_id: assets!.page_id,
         link_data: {
           link: destinationUrl,
           message: draft.primary_text || 'Check this out!',
@@ -210,8 +215,8 @@ export const handler: Handler = async (event) => {
     };
 
     const creativeResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets.ad_account_id}/adcreatives`,
-      credentials.accessToken,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/adcreatives`,
+      assets!.access_token,
       creativePayload
     );
 
@@ -225,8 +230,8 @@ export const handler: Handler = async (event) => {
     };
 
     const adResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets.ad_account_id}/ads`,
-      credentials.accessToken,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/ads`,
+      assets!.access_token,
       adPayload
     );
 
