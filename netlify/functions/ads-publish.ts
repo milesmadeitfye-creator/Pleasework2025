@@ -64,20 +64,34 @@ export const handler: Handler = async (event) => {
   }
 
   const authHeader = event.headers.authorization;
+  console.log('[ads-publish] hasAuthHeader:', !!authHeader);
+
   if (!authHeader?.startsWith('Bearer ')) {
+    console.error('[ads-publish] Missing or invalid Authorization header');
     return {
       statusCode: 401,
-      body: JSON.stringify({ error: 'Missing authorization' }),
+      body: JSON.stringify({
+        ok: false,
+        error: 'Missing authorization',
+        code: 'UNAUTHENTICATED'
+      }),
     };
   }
 
   const token = authHeader.substring(7);
   const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
+  console.log('[ads-publish] userId:', user?.id);
+
   if (authError || !user) {
+    console.error('[ads-publish] Auth verification failed:', authError?.message);
     return {
       statusCode: 401,
-      body: JSON.stringify({ error: 'Unauthorized' }),
+      body: JSON.stringify({
+        ok: false,
+        error: 'Unauthorized',
+        code: 'UNAUTHENTICATED'
+      }),
     };
   }
 
@@ -278,7 +292,13 @@ export const handler: Handler = async (event) => {
       body: JSON.stringify(response),
     };
   } catch (error: any) {
-    console.error('[ads-publish] Publish error:', error);
+    console.error('[ads-publish] Publish error:', {
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+      status: error.status,
+      stack: error.stack?.split('\n').slice(0, 3).join('\n'),
+    });
 
     await supabase
       .from('campaign_drafts')
@@ -288,11 +308,14 @@ export const handler: Handler = async (event) => {
       })
       .eq('id', draft_id);
 
+    // Return detailed error info to help debug
     return {
-      statusCode: 500,
+      statusCode: error.status || 500,
       body: JSON.stringify({
         ok: false,
         error: error.message || 'Internal server error',
+        code: error.code || 'PUBLISH_ERROR',
+        details: error.meta || undefined,
       }),
     };
   }

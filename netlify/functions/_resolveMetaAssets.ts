@@ -56,10 +56,10 @@ export async function resolveMetaAssets(
     if (!metaStatus) {
       console.log('[resolveMetaAssets] Querying Meta connection status from tables (server-side)...');
 
-      // Check meta_credentials for auth token
+      // Query meta_credentials for ALL fields (access_token + asset IDs are in same table)
       const { data: credentials, error: credError } = await supabase
         .from('meta_credentials')
-        .select('access_token, token_expires_at')
+        .select('access_token, expires_at, ad_account_id, page_id, instagram_actor_id, pixel_id')
         .eq('user_id', user_id)
         .maybeSingle();
 
@@ -68,36 +68,38 @@ export async function resolveMetaAssets(
         return null;
       }
 
-      // Check user_meta_assets for configured asset IDs
-      const { data: assets, error: assetsError } = await supabase
-        .from('user_meta_assets')
-        .select('ad_account_id, page_id, instagram_id, pixel_id')
-        .eq('user_id', user_id)
-        .maybeSingle();
+      console.log('[resolveMetaAssets] Credentials query result:', {
+        found: !!credentials,
+        hasToken: !!credentials?.access_token,
+        hasAdAccount: !!credentials?.ad_account_id,
+        hasPage: !!credentials?.page_id,
+        hasInstagram: !!credentials?.instagram_actor_id,
+        hasPixel: !!credentials?.pixel_id,
+      });
 
-      if (assetsError) {
-        console.error('[resolveMetaAssets] Error fetching assets:', assetsError);
+      if (!credentials) {
+        console.error('[resolveMetaAssets] No Meta credentials row found for user');
         return null;
       }
 
       // Build metaStatus object matching RPC schema
       const hasToken = !!credentials?.access_token;
-      const tokenValid = credentials?.token_expires_at
-        ? new Date(credentials.token_expires_at) > new Date()
-        : false;
+      const tokenValid = credentials?.expires_at
+        ? new Date(credentials.expires_at) > new Date()
+        : true; // If no expiry, assume valid
 
       metaStatus = {
         auth_connected: hasToken && tokenValid,
-        assets_configured: !!(assets?.ad_account_id && assets?.page_id),
-        ad_account_id: assets?.ad_account_id || null,
-        page_id: assets?.page_id || null,
-        instagram_actor_id: assets?.instagram_id || null,
-        pixel_id: assets?.pixel_id || null,
+        assets_configured: !!(credentials?.ad_account_id && credentials?.page_id),
+        ad_account_id: credentials?.ad_account_id || null,
+        page_id: credentials?.page_id || null,
+        instagram_actor_id: credentials?.instagram_actor_id || null,
+        pixel_id: credentials?.pixel_id || null,
         missing_assets: []
       };
 
       if (!credentials?.access_token) {
-        console.error('[resolveMetaAssets] No Meta credentials found');
+        console.error('[resolveMetaAssets] No access_token found in meta_credentials');
         return null;
       }
     }
@@ -137,9 +139,11 @@ export async function resolveMetaAssets(
       return null;
     }
 
-    console.log('[resolveMetaAssets] ✅ RPC validation passed - fetching access_token...');
+    console.log('[resolveMetaAssets] ✅ Validation passed - fetching access_token...');
 
-    // Step 4: Fetch access_token from meta_credentials (separate from asset IDs)
+    // Step 4: Fetch access_token from meta_credentials
+    // NOTE: We need to fetch the token separately because metaStatus might have been pre-loaded
+    // without the token (for security reasons in some contexts)
     const { data: creds, error: credsError } = await supabase
       .from('meta_credentials')
       .select('access_token')
@@ -160,11 +164,11 @@ export async function resolveMetaAssets(
 
     console.log('[resolveMetaAssets] ✅ Access token fetched successfully');
 
-    // Step 5: Build MetaAssets using RPC data + access_token
+    // Step 5: Build MetaAssets using validated data + access_token
     const assets: MetaAssets = {
       access_token: creds.access_token,
-      ad_account_id: metaStatus.ad_account_id,
-      page_id: metaStatus.page_id,
+      ad_account_id: metaStatus.ad_account_id!,
+      page_id: metaStatus.page_id!,
       instagram_actor_id: metaStatus.instagram_actor_id || null,
       pixel_id: metaStatus.pixel_id || null,
       has_required_assets: true, // We validated above
