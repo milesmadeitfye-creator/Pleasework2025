@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { X, RefreshCw, Database, Terminal, Wifi, AlertTriangle, Copy } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { getMetaConnectionStatus } from '@/lib/meta/getMetaStatus';
 import {
   startAdsDebugTap,
   stopAdsDebugTap,
@@ -61,9 +62,12 @@ export function AdsDebugPanel({ onClose }: AdsDebugPanelProps) {
     setMetaLoading(true);
     setMetaError(null);
     try {
-      const { data, error } = await supabase.rpc('get_meta_connection_status');
-      if (error) throw error;
-      setMetaStatus(data as MetaConnectionStatus);
+      const metaStatusResult = await getMetaConnectionStatus(supabase);
+      if (metaStatusResult.error) {
+        throw new Error(metaStatusResult.error);
+      }
+      console.log('[AdsDebugPanel] Meta status loaded:', metaStatusResult);
+      setMetaStatus(metaStatusResult as MetaConnectionStatus);
     } catch (err) {
       setMetaError(err instanceof Error ? err.message : 'Failed to load Meta status');
     } finally {

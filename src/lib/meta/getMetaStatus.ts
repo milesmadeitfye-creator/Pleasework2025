@@ -21,23 +21,26 @@ export interface MetaConnectionStatus {
 }
 
 /**
- * Get Meta connection status for the current user
+ * Get Meta connection status for the current user (CANONICAL CLIENT HELPER)
+ *
+ * ALL client-side code MUST use this function to get Meta status.
+ * NEVER call the RPC directly or query tables from the client.
  *
  * @param supabase - Supabase client instance (must be authenticated)
  * @returns MetaConnectionStatus object (never throws)
  */
-export async function getMetaStatus(
+export async function getMetaConnectionStatus(
   supabase: SupabaseClient
 ): Promise<MetaConnectionStatus> {
   try {
-    console.log('[getMetaStatus] Fetching Meta connection status via RPC...');
+    console.log('[Meta Status] Fetching connection status via canonical RPC (NO ARGS)...');
 
-    // Call RPC to get Meta connection status
-    // Uses auth.uid() internally - same call as manual wizard
+    // Call canonical RPC with NO parameters
+    // Uses auth.uid() internally - works for both Profile and All-in-One flows
     const { data, error } = await supabase.rpc('get_meta_connection_status');
 
     if (error) {
-      console.error('[getMetaStatus] RPC error:', error);
+      console.error('[Meta Status] ❌ RPC error:', error);
       return {
         auth_connected: false,
         assets_configured: false,
@@ -51,7 +54,7 @@ export async function getMetaStatus(
     }
 
     if (!data) {
-      console.warn('[getMetaStatus] RPC returned null - Meta not connected');
+      console.warn('[Meta Status] ⚠️ RPC returned null - Meta not connected');
       return {
         auth_connected: false,
         assets_configured: false,
@@ -64,15 +67,6 @@ export async function getMetaStatus(
       };
     }
 
-    console.log('[getMetaStatus] ✅ Meta status fetched:', {
-      auth_connected: data.auth_connected,
-      assets_configured: data.assets_configured,
-      has_ad_account: !!data.ad_account_id,
-      has_page: !!data.page_id,
-      has_pixel: !!data.pixel_id,
-      has_instagram: !!data.instagram_actor_id,
-    });
-
     const metaStatus = {
       auth_connected: data.auth_connected ?? false,
       assets_configured: data.assets_configured ?? false,
@@ -83,12 +77,19 @@ export async function getMetaStatus(
       missing_assets: data.missing_assets || null,
     };
 
-    // Debug log to confirm all-in-one flow uses same RPC as manual wizard
-    console.log('[AllInOneMetaStatus]', metaStatus);
+    console.log('[Meta Status] ✅ Connection status loaded:', {
+      auth_connected: metaStatus.auth_connected,
+      assets_configured: metaStatus.assets_configured,
+      has_ad_account: !!metaStatus.ad_account_id,
+      has_page: !!metaStatus.page_id,
+      has_pixel: !!metaStatus.pixel_id,
+      has_instagram: !!metaStatus.instagram_actor_id,
+      missing_assets: metaStatus.missing_assets,
+    });
 
     return metaStatus;
   } catch (err: any) {
-    console.error('[getMetaStatus] Unexpected error:', err);
+    console.error('[Meta Status] 💥 Unexpected error:', err);
     return {
       auth_connected: false,
       assets_configured: false,
@@ -101,3 +102,9 @@ export async function getMetaStatus(
     };
   }
 }
+
+/**
+ * Backward-compatible alias
+ * @deprecated Use getMetaConnectionStatus instead for clarity
+ */
+export const getMetaStatus = getMetaConnectionStatus;

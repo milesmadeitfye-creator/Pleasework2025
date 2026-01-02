@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase.client';
+import { getMetaConnectionStatus } from '@/lib/meta/getMetaStatus';
 import { RefreshCw, Copy, CheckCircle } from 'lucide-react';
 
 interface SessionInfo {
@@ -46,11 +47,12 @@ export function MetaDebugPanel() {
       };
       setUserInfo(user);
 
-      // Check Meta connection via RPC
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_meta_connection_status');
+      // Check Meta connection via canonical helper
+      const metaStatusResult = await getMetaConnectionStatus(supabase);
+      console.log('[MetaDebugPanel] Meta status loaded:', metaStatusResult);
       setRpcInfo({
-        data: rpcData ?? null,
-        error: rpcError ?? null,
+        data: metaStatusResult.error ? null : metaStatusResult,
+        error: metaStatusResult.error ? { message: metaStatusResult.error } : null,
       });
 
       setLastRunAt(now);

@@ -51,23 +51,55 @@ export async function resolveMetaAssets(
   console.log('[resolveMetaAssets] Has preloaded metaStatus:', !!metaStatus);
 
   try {
-    // Step 1: Get connection status from RPC (single source of truth for asset IDs)
+    // Step 1: Get connection status from tables directly (server-side admin query)
+    // NOTE: RPC cannot be used server-side because it requires auth.uid() context
     if (!metaStatus) {
-      console.log('[resolveMetaAssets] Calling get_meta_connection_status RPC...');
-      const { data: rpcData, error: rpcError } = await supabase
-        .rpc('get_meta_connection_status', { input_user_id: user_id });
+      console.log('[resolveMetaAssets] Querying Meta connection status from tables (server-side)...');
 
-      if (rpcError) {
-        console.error('[resolveMetaAssets] RPC error:', rpcError);
+      // Check meta_credentials for auth token
+      const { data: credentials, error: credError } = await supabase
+        .from('meta_credentials')
+        .select('access_token, token_expires_at')
+        .eq('user_id', user_id)
+        .maybeSingle();
+
+      if (credError) {
+        console.error('[resolveMetaAssets] Error fetching credentials:', credError);
         return null;
       }
 
-      if (!rpcData) {
-        console.error('[resolveMetaAssets] RPC returned no data');
+      // Check user_meta_assets for configured asset IDs
+      const { data: assets, error: assetsError } = await supabase
+        .from('user_meta_assets')
+        .select('ad_account_id, page_id, instagram_id, pixel_id')
+        .eq('user_id', user_id)
+        .maybeSingle();
+
+      if (assetsError) {
+        console.error('[resolveMetaAssets] Error fetching assets:', assetsError);
         return null;
       }
 
-      metaStatus = rpcData;
+      // Build metaStatus object matching RPC schema
+      const hasToken = !!credentials?.access_token;
+      const tokenValid = credentials?.token_expires_at
+        ? new Date(credentials.token_expires_at) > new Date()
+        : false;
+
+      metaStatus = {
+        auth_connected: hasToken && tokenValid,
+        assets_configured: !!(assets?.ad_account_id && assets?.page_id),
+        ad_account_id: assets?.ad_account_id || null,
+        page_id: assets?.page_id || null,
+        instagram_actor_id: assets?.instagram_id || null,
+        pixel_id: assets?.pixel_id || null,
+        missing_assets: []
+      };
+
+      if (!credentials?.access_token) {
+        console.error('[resolveMetaAssets] No Meta credentials found');
+        return null;
+      }
     }
 
     console.log('[resolveMetaAssets] metaStatus:', {

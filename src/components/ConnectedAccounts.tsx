@@ -9,6 +9,7 @@ import { useSessionUser } from '../hooks/useSessionUser';
 import PhoneInput from './common/PhoneInput';
 import { MetaConnectWizard } from './meta/MetaConnectWizard';
 import { MetaDebugPanel } from './meta/MetaDebugPanel';
+import { getMetaConnectionStatus } from '@/lib/meta/getMetaStatus';
 
 // 🔒 ABSOLUTE FALLBACK: Prevent ReferenceError in production
 if (typeof window !== 'undefined') {
@@ -385,43 +386,43 @@ export default function ConnectedAccounts({ onNavigateToBilling }: ConnectedAcco
         return;
       }
 
-      // Fetch Meta status via RPC (single source of truth)
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_meta_connection_status');
+      // Fetch Meta status via canonical helper (uses RPC internally)
+      const metaStatusResult = await getMetaConnectionStatus(supabase);
 
       const now = new Date().toISOString();
 
-      if (rpcError) {
-        console.error('[ConnectedAccounts] Meta RPC error:', rpcError);
+      if (metaStatusResult.error) {
+        console.error('[ProfileMetaStatus] ❌ Error loading Meta status:', metaStatusResult.error);
         setMetaRpcStatus({ connected: false, data: null, lastChecked: now });
         setMetaStatus({ connected: false });
         setMetaAssets(null);
       } else {
-        // Use auth_connected for OAuth status (new field from updated RPC)
+        // Use auth_connected for OAuth status
         // auth_connected = true means OAuth is connected (token valid)
         // assets_configured = true means required assets are selected
-        const authConnected = rpcData?.auth_connected === true;
-        const assetsConfigured = rpcData?.assets_configured === true;
+        const authConnected = metaStatusResult.auth_connected === true;
+        const assetsConfigured = metaStatusResult.assets_configured === true;
 
-        console.log('[ConnectedAccounts] Meta status:', {
+        console.log('[ProfileMetaStatus] ✅ Status loaded via canonical helper:', {
           auth_connected: authConnected,
           assets_configured: assetsConfigured,
-          missing_assets: rpcData?.missing_assets,
+          missing_assets: metaStatusResult.missing_assets,
         });
 
         setMetaRpcStatus({
           connected: authConnected,
-          data: rpcData,
+          data: metaStatusResult,
           lastChecked: now,
         });
         setMetaStatus({ connected: authConnected });
 
         // Set assets if auth connected (regardless of whether they're configured)
-        if (authConnected && rpcData) {
+        if (authConnected && metaStatusResult) {
           setMetaAssets({
             connected: true,
-            adAccounts: rpcData.ad_account_id ? [{ id: rpcData.ad_account_id, name: rpcData.ad_account_name || '', account_status: 1 }] : [],
-            pages: rpcData.page_id ? [{ id: rpcData.page_id, name: rpcData.page_name || '' }] : [],
-            instagramAccounts: rpcData.instagram_account_count > 0 ? Array(rpcData.instagram_account_count).fill({}) : [],
+            adAccounts: metaStatusResult.ad_account_id ? [{ id: metaStatusResult.ad_account_id, name: (metaStatusResult as any).ad_account_name || '', account_status: 1 }] : [],
+            pages: metaStatusResult.page_id ? [{ id: metaStatusResult.page_id, name: (metaStatusResult as any).page_name || '' }] : [],
+            instagramAccounts: (metaStatusResult as any).instagram_account_count > 0 ? Array((metaStatusResult as any).instagram_account_count).fill({}) : [],
           } as MetaAssets);
         } else {
           setMetaAssets(null);
