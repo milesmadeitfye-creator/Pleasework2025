@@ -71,3 +71,4 @@ tmp/
 .env
 .env.*
 .DS_Store
+docs/
