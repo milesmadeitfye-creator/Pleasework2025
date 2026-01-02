@@ -159,6 +159,13 @@ export const handler: Handler = async (event) => {
     // Create Stream client (server-side SDK)
     const streamClient = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET);
 
+    // Debug: Verify SDK and method availability
+    console.log('[stream-video-token] StreamClient created:', {
+      hasClient: !!streamClient,
+      hasGenerateUserToken: typeof streamClient.generateUserToken === 'function',
+      clientType: streamClient.constructor.name,
+    });
+
     // Generate user token
     const userId = user.id;
 
@@ -191,17 +198,33 @@ export const handler: Handler = async (event) => {
 
     // Generate token (expires in 24 hours)
     const expirationTime = Math.floor(Date.now() / 1000) + (24 * 60 * 60);
-    const token = streamClient.generateUserToken({
-      user_id: userId,
-      exp: expirationTime,
-    });
 
-    console.log('[stream-video-token] Token generated successfully:', {
-      userId,
-      role,
-      partyId,
-      callType,
-    });
+    let token: string;
+    try {
+      if (typeof streamClient.generateUserToken !== 'function') {
+        throw new Error('generateUserToken method not found on StreamClient. SDK version may be incorrect.');
+      }
+
+      token = streamClient.generateUserToken({
+        user_id: userId,
+        exp: expirationTime,
+      });
+
+      console.log('[stream-video-token] Token generated successfully:', {
+        userId,
+        role,
+        partyId,
+        callType,
+        tokenLength: token?.length || 0,
+      });
+    } catch (tokenErr: any) {
+      console.error('[stream-video-token] Token generation failed:', {
+        error: tokenErr.message,
+        hasMethod: typeof streamClient.generateUserToken === 'function',
+        streamClientKeys: Object.keys(streamClient).slice(0, 10),
+      });
+      throw new Error(`Token generation failed: ${tokenErr.message}`);
+    }
 
     return {
       statusCode: 200,

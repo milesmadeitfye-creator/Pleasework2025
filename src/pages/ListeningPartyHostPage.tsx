@@ -411,9 +411,10 @@ export default function ListeningPartyHostPage() {
         console.error('[ListeningParty] Token fetch failed:', {
           status: tokenRes.status,
           error: tokenData.error,
+          fullResponse: tokenData,
           partyId,
         });
-        throw new Error(`Stream auth failed (${errorCode}). Please refresh and try again.`);
+        throw new Error(`Unable to start live stream. Token service failed: ${tokenData.error || 'Unknown error'}`);
       }
 
       console.log('[ListeningParty] Stream Video token received:', {
@@ -474,7 +475,7 @@ export default function ListeningPartyHostPage() {
           is_public: true,
           status: 'live',
           live_started_at: new Date().toISOString(),
-          stream_app_id: callId,
+          stream_app_id: tokenData.callId,
         })
         .eq('id', party.id);
 
@@ -501,7 +502,7 @@ export default function ListeningPartyHostPage() {
           is_live: true,
           status: 'live',
           is_public: true,
-          stream_app_id: callId,
+          stream_app_id: tokenData.callId,
         } : null);
       }
 
