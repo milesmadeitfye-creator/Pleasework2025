@@ -123,6 +123,16 @@ export const handler: Handler = async (event) => {
     // Use canonical Meta asset resolver (same as manual flow)
     const assets = await resolveMetaAssets(user.id);
 
+    // ✅ DEBUG LOG: Assets resolved
+    console.log('[ads-publish] metaAssetsResolved:', {
+      hasAssets: !!assets,
+      has_required_assets: assets?.has_required_assets,
+      ad_account_id: assets?.ad_account_id,
+      page_id: assets?.page_id,
+      pixel_id: assets?.pixel_id,
+      instagram_actor_id: assets?.instagram_actor_id,
+    });
+
     // Validate assets (returns clear error messages)
     const validation = validateMetaAssets(assets, {
       requirePixel: false, // Optional for traffic campaigns

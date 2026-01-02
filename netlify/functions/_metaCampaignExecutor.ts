@@ -257,10 +257,12 @@ async function fetchMetaAssets(user_id: string, metaStatus?: any): Promise<MetaA
   console.log('[fetchMetaAssets] Has metaStatus passed:', !!metaStatus);
 
   try {
-    // If metaStatus not provided, this is a legacy call - should not happen with new code
+    // If metaStatus not provided, fetch using server-side RPC
     if (!metaStatus) {
-      console.warn('[fetchMetaAssets] ⚠️ Called without metaStatus - using legacy check (NOT RECOMMENDED)');
-      const { data, error } = await supabase.rpc('get_meta_connection_status');
+      console.warn('[fetchMetaAssets] ⚠️ Called without metaStatus - fetching with server RPC');
+      const { data, error } = await supabase.rpc('get_meta_connection_status_for_user', {
+        p_user_id: user_id,
+      });
 
       if (error || !data) {
         console.error('[fetchMetaAssets] ❌ RPC error:', error);

@@ -206,7 +206,7 @@ export function validateMetaAssets(
   if (!assets) {
     return {
       valid: false,
-      error: 'Meta assets not configured. Please connect Meta in Profile → Connected Accounts.',
+      error: 'Meta assets not configured. Go to Profile → Meta/Facebook & Instagram and finish Configure Assets.',
       code: 'META_NOT_CONNECTED',
     };
   }

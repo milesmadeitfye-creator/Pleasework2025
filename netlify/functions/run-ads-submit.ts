@@ -489,21 +489,11 @@ export const handler: Handler = async (event) => {
     // Mode is "publish" - execute Meta campaign creation
     console.log('[run-ads-submit] Mode is publish, executing Meta campaign...');
 
-    // Check Meta connection status using canonical RPC
+    // Check Meta connection status using server-side RPC (service_role)
     console.log('[run-ads-submit] Checking Meta connection status...');
-    const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      global: {
-        headers: {
-          Authorization: authHeader,
-        },
-      },
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
+    const { data: metaStatus, error: metaStatusError } = await supabase.rpc('get_meta_connection_status_for_user', {
+      p_user_id: user.id,
     });
-
-    const { data: metaStatus, error: metaStatusError } = await userSupabase.rpc('get_meta_connection_status');
 
     if (metaStatusError) {
       console.error('[run-ads-submit] Failed to check Meta status:', metaStatusError);
@@ -531,7 +521,7 @@ export const handler: Handler = async (event) => {
     }
 
     console.log('[run-ads-submit] ===== META STATUS RECEIVED =====');
-    console.log('[run-ads-submit] metaStatus:', JSON.stringify(metaStatus, null, 2));
+    console.log('[run-ads-submit] metaStatusForUser:', JSON.stringify(metaStatus, null, 2));
 
     // Check if Meta is ready for publish (ONLY check RPC fields, no legacy checks)
     const hasAuth = metaStatus?.auth_connected === true;
@@ -563,7 +553,7 @@ export const handler: Handler = async (event) => {
       responseData = {
         ok: false,
         campaign_id: ghosteCampaignId,
-        error: 'Meta assets not configured. Connect Meta in Profile → Connected Accounts.',
+        error: 'Meta assets not configured. Go to Profile → Meta/Facebook & Instagram and finish Configure Assets.',
         metaStatus: {
           auth_connected: metaStatus?.auth_connected,
           assets_configured: metaStatus?.assets_configured,
