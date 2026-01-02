@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
-import { StreamVideo, StreamVideoClient, StreamCall, StreamTheme, SpeakerLayout } from '@stream-io/video-react-sdk';
+import { StreamVideo, StreamVideoClient, StreamCall, StreamTheme, LivestreamPlayer } from '@stream-io/video-react-sdk';
 import '@stream-io/video-react-sdk/dist/css/styles.css';
 import { Send, Users, Circle, Music } from 'lucide-react';
 import { parseSpotifyUrl, isSpotifyUrl } from '../utils/spotify';
@@ -329,25 +329,29 @@ export default function PublicListeningParty() {
         const { chat } = data;
 
         const apiKey = chat.apiKey;
+
+        console.log('[LP Viewer] Setting up watch-only mode for livestream:', {
+          partyId: party.id,
+          callType: 'livestream',
+          isLive: party.is_live
+        });
+
+        // ✅ WATCH-ONLY MODE: Create video client but DO NOT join call
+        // Viewers watch the livestream playback, they don't become participants
         const vc = new StreamVideoClient({
           apiKey,
           token: chat.token,
           user: { id: chat.userId, name: chat.userName },
         });
 
-        // Join video call
-        const videoCall = vc.call('default', party.id);
-        await videoCall.join();
+        // Get call reference (DO NOT JOIN)
+        // LivestreamPlayer component handles playback without joining
+        const videoCall = vc.call('livestream', party.id);
 
         setVideoClient(vc);
         setCall(videoCall);
 
-        // Listen for participant count changes
-        videoCall.state.participants$.subscribe((participants) => {
-          setViewerCount(participants.length);
-        });
-
-        console.log('[PublicListeningParty] Successfully joined video stream');
+        console.log('[LP Viewer] Watch mode ready - no join required');
       } catch (err: any) {
         console.error('[PublicListeningParty] Failed to join video stream:', err);
         setPartyError(err?.message || 'Failed to join video stream');
@@ -359,9 +363,8 @@ export default function PublicListeningParty() {
     joinVideoStream();
 
     return () => {
-      if (call) {
-        call.leave().catch(console.error);
-      }
+      // Viewers don't join calls, so no need to leave
+      // Just disconnect the video client
       if (videoClient) {
         videoClient.disconnectUser().catch(console.error);
       }
@@ -492,20 +495,32 @@ export default function PublicListeningParty() {
                   </div>
                 )}
 
-                {/* Video Player */}
+                {/* Video Player - Watch Only (Twitch-style) */}
                 <div className="relative aspect-video w-full overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
                   {joiningVideo ? (
                     <div className="flex h-full items-center justify-center">
                       <div className="text-sm text-slate-400">Connecting to stream...</div>
                     </div>
                   ) : call && videoClient ? (
-                    <StreamVideo client={videoClient}>
-                      <StreamCall call={call}>
-                        <StreamTheme>
-                          <SpeakerLayout participantsBarPosition="bottom" />
-                        </StreamTheme>
-                      </StreamCall>
-                    </StreamVideo>
+                    party?.is_live ? (
+                      <StreamVideo client={videoClient}>
+                        <StreamCall call={call}>
+                          <StreamTheme>
+                            <LivestreamPlayer />
+                          </StreamTheme>
+                        </StreamCall>
+                      </StreamVideo>
+                    ) : (
+                      <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+                        <Circle className="h-8 w-8 fill-slate-700 text-slate-700" />
+                        <div>
+                          <div className="text-sm font-semibold text-slate-300">Stream Offline</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            Waiting for host to go live...
+                          </div>
+                        </div>
+                      </div>
+                    )
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-slate-400">
                       Loading stream...

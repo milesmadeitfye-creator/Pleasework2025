@@ -206,33 +206,39 @@ export const handler: Handler = async (event) => {
       requestingRole: role,
     });
 
-    // Permission checks
-    if (role === 'host') {
-      if (user.id !== ownerId) {
-        console.error('[stream-video-token] Permission denied: User is not party owner', {
-          userId: user.id,
-          ownerId,
-        });
-        return {
-          statusCode: 403,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ok: false, error: "Permission denied: Only party owner can be host" })
-        };
-      }
-    } else {
-      const isOwner = user.id === ownerId;
-      if (!party.is_public && !isOwner) {
-        console.error('[stream-video-token] Permission denied: Party is not public and user is not owner', {
-          userId: user.id,
-          ownerId,
-          isPublic: party.is_public,
-        });
-        return {
-          statusCode: 403,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ok: false, error: "Permission denied: Party is private" })
-        };
-      }
+    // CRITICAL: This endpoint is HOST-ONLY
+    // Viewers NEVER join the call - they watch the livestream playback
+    if (role !== 'host') {
+      console.error('[stream-video-token] Permission denied: This endpoint is host-only', {
+        userId: user.id,
+        requestedRole: role,
+      });
+      return {
+        statusCode: 403,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'HOST_ONLY',
+          message: 'Livestream token is host-only. Viewers do not join calls.'
+        })
+      };
+    }
+
+    // Verify user is the party owner
+    if (user.id !== ownerId) {
+      console.error('[stream-video-token] Permission denied: User is not party owner', {
+        userId: user.id,
+        ownerId,
+      });
+      return {
+        statusCode: 403,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'PERMISSION_DENIED',
+          message: 'Only party owner can be host'
+        })
+      };
     }
 
     console.log('[stream-video-token] Permission check passed for role:', role);

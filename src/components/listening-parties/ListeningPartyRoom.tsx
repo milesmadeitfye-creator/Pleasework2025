@@ -23,6 +23,15 @@ import "@stream-io/video-react-sdk/dist/css/styles.css";
 
 import { requestCameraAndMic } from "../../utils/mediaDevices";
 
+/**
+ * LEGACY COMPONENT - Consider using instead:
+ * - ListeningPartyHostPage.tsx for hosts (with join + goLive)
+ * - PublicListeningParty.tsx for viewers (watch-only, no join)
+ *
+ * This component uses old "sales call" style where all participants join.
+ * New Twitch-style flow: Host broadcasts, viewers watch without joining.
+ */
+
 type ListeningPartyRoomProps = {
   apiKey: string;
   token: string;
