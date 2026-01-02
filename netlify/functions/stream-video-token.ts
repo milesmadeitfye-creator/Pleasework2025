@@ -1,12 +1,13 @@
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
-import { StreamClient } from "@stream-io/node-sdk";
+import jwt from "jsonwebtoken";
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const STREAM_API_KEY = process.env.STREAM_API_KEY!;
-const STREAM_API_SECRET = process.env.STREAM_API_SECRET!;
+const STREAM_API_KEY = process.env.STREAM_API_KEY || '';
+const STREAM_API_SECRET = process.env.STREAM_API_SECRET || '';
 
 /**
  * Generate a server-signed Stream Video user token for Listening Parties
@@ -37,7 +38,35 @@ export const handler: Handler = async (event) => {
     if (event.httpMethod !== "POST") {
       return {
         statusCode: 405,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ok: false, error: "Method not allowed" })
+      };
+    }
+
+    // Validate environment
+    if (!STREAM_API_KEY || !STREAM_API_SECRET) {
+      console.error('[stream-video-token] Missing Stream environment variables');
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'Stream not configured',
+          code: 'STREAM_ENV_MISSING'
+        })
+      };
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('[stream-video-token] Missing Supabase environment variables');
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'Server configuration error',
+          code: 'CONFIG_ERROR'
+        })
       };
     }
 
@@ -46,44 +75,53 @@ export const handler: Handler = async (event) => {
       console.error('[stream-video-token] Missing Authorization header');
       return {
         statusCode: 401,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ok: false, error: "Missing Authorization" })
       };
     }
 
-    const jwt = authHeader.replace("Bearer ", "");
-    const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    // Step 1: Verify JWT with auth client
+    const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
+
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await authClient.auth.getUser(token);
+
+    if (authError || !user) {
+      console.error('[stream-video-token] Invalid auth:', authError?.message);
+      return {
+        statusCode: 401,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ok: false, error: "Invalid auth" })
+      };
+    }
+
+    console.log('[stream-video-token] User verified:', user.id);
+
+    // Step 2: Create admin client for database queries
+    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false }
+    });
 
     // Parse request body
     const body = event.body ? JSON.parse(event.body) : {};
     const partyId = body.partyId || body.callId; // Support both parameter names
     const role = body.role || 'viewer'; // Default to viewer if not specified
-    const callType = 'livestream'; // Always use livestream for listening parties
 
     if (!partyId) {
       console.error('[stream-video-token] Missing partyId in request body');
       return {
         statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ok: false, error: "Missing partyId parameter" })
       };
     }
 
-    console.log('[stream-video-token] Request params:', { partyId, role, callType });
-
-    // Verify auth
-    const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(jwt);
-    if (userErr || !userRes?.user) {
-      console.error('[stream-video-token] Invalid auth:', userErr);
-      return {
-        statusCode: 401,
-        body: JSON.stringify({ ok: false, error: "Invalid auth" })
-      };
-    }
-    const user = userRes.user;
-
-    console.log('[stream-video-token] User verified:', user.id);
+    console.log('[stream-video-token] Request params:', { partyId, role });
 
     // Query listening party to validate permissions
-    const { data: party, error: partyErr } = await supabaseAdmin
+    const { data: party, error: partyErr } = await admin
       .from('listening_parties')
       .select('id, owner_user_id, host_user_id, is_public, status')
       .eq('id', partyId)
@@ -93,6 +131,7 @@ export const handler: Handler = async (event) => {
       console.error('[stream-video-token] Party not found:', partyErr?.message || 'No party');
       return {
         statusCode: 404,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ok: false, error: "Listening party not found" })
       };
     }
@@ -118,6 +157,7 @@ export const handler: Handler = async (event) => {
         });
         return {
           statusCode: 403,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ok: false, error: "Permission denied: Only party owner can be host" })
         };
       }
@@ -134,6 +174,7 @@ export const handler: Handler = async (event) => {
         });
         return {
           statusCode: 403,
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ok: false, error: "Permission denied: Party is private" })
         };
       }
@@ -141,90 +182,37 @@ export const handler: Handler = async (event) => {
 
     console.log('[stream-video-token] Permission check passed for role:', role);
 
-    // Get user profile for display name
-    const { data: profile } = await supabaseAdmin
-      .from('user_profiles')
-      .select('first_name, last_name, display_name, email')
-      .eq('id', user.id)
-      .maybeSingle();
+    // Derive user name from metadata or email
+    const userName =
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email?.split('@')[0] ||
+      'Host';
 
-    const displayName =
-      profile?.display_name ||
-      profile?.first_name ||
-      profile?.email?.split('@')[0] ||
-      `User ${user.id.slice(0, 8)}`;
+    console.log('[stream-video-token] User display name:', userName);
 
-    console.log('[stream-video-token] User display name:', displayName);
-
-    // Create Stream client (server-side SDK)
-    const streamClient = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET);
-
-    // Debug: Verify SDK and method availability
-    console.log('[stream-video-token] StreamClient created:', {
-      hasClient: !!streamClient,
-      hasGenerateUserToken: typeof streamClient.generateUserToken === 'function',
-      clientType: streamClient.constructor.name,
-    });
-
-    // Generate user token
+    // Step 3: Generate Stream Video token by signing JWT directly
     const userId = user.id;
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const expirationTime = issuedAt + (24 * 60 * 60); // 24 hours
 
-    // Create or update user in Stream (upsert)
-    await streamClient.upsertUsers({
-      users: {
-        [userId]: {
-          id: userId,
-          name: displayName,
-          role: 'user',
-        },
-      },
-    });
-
-    console.log('[stream-video-token] User upserted in Stream:', userId);
-
-    // Ensure call exists (idempotent) - use partyId as callId
-    console.log('[stream-video-token] Ensuring call exists:', { callType, callId: partyId });
-    const call = streamClient.video.call(callType, partyId);
-
-    // Create call with proper creator
-    await call.getOrCreate({
-      data: {
-        created_by_id: ownerId, // Use party owner as creator
-        members: role === 'host' ? [{ user_id: userId, role: 'host' }] : undefined,
-      },
-    });
-
-    console.log('[stream-video-token] Call created/verified on Stream servers');
-
-    // Generate token (expires in 24 hours)
-    const expirationTime = Math.floor(Date.now() / 1000) + (24 * 60 * 60);
-
-    let token: string;
-    try {
-      if (typeof streamClient.generateUserToken !== 'function') {
-        throw new Error('generateUserToken method not found on StreamClient. SDK version may be incorrect.');
-      }
-
-      token = streamClient.generateUserToken({
+    const streamToken = jwt.sign(
+      {
         user_id: userId,
+        iat: issuedAt,
         exp: expirationTime,
-      });
+      },
+      STREAM_API_SECRET,
+      { algorithm: 'HS256' }
+    );
 
-      console.log('[stream-video-token] Token generated successfully:', {
-        userId,
-        role,
-        partyId,
-        callType,
-        tokenLength: token?.length || 0,
-      });
-    } catch (tokenErr: any) {
-      console.error('[stream-video-token] Token generation failed:', {
-        error: tokenErr.message,
-        hasMethod: typeof streamClient.generateUserToken === 'function',
-        streamClientKeys: Object.keys(streamClient).slice(0, 10),
-      });
-      throw new Error(`Token generation failed: ${tokenErr.message}`);
-    }
+    console.log('[stream-video-token] Token generated successfully:', {
+      userId,
+      userName,
+      role,
+      partyId,
+      tokenLength: streamToken.length,
+    });
 
     return {
       statusCode: 200,
@@ -234,12 +222,12 @@ export const handler: Handler = async (event) => {
       },
       body: JSON.stringify({
         ok: true,
-        token,
+        token: streamToken,
         userId,
-        userName: displayName,
+        userName,
         apiKey: STREAM_API_KEY,
-        callType,
-        callId: partyId, // Return as callId for client compatibility
+        callType: 'livestream',
+        callId: partyId,
         partyId,
         role,
       }),
