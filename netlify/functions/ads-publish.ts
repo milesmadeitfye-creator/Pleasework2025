@@ -1,8 +1,12 @@
 import { Handler } from '@netlify/functions';
-import { getSupabaseAdmin } from './_supabaseAdmin';
-import { resolveMetaAssets, validateMetaAssets } from './_resolveMetaAssets';
+import { createClient } from '@supabase/supabase-js';
 
 const META_GRAPH_VERSION = 'v21.0';
+
+// Environment variables
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 interface PublishRequest {
   draft_id: string;
@@ -51,17 +55,29 @@ export const handler: Handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return {
       statusCode: 405,
-      body: JSON.stringify({ error: 'Method not allowed' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ok: false, error: 'Method not allowed' }),
     };
   }
 
-  const supabase = getSupabaseAdmin();
-  if (!supabase) {
+  // Validate environment
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error('[ads-publish] Missing Supabase environment variables');
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: 'Database not configured' }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ok: false,
+        error: 'Server configuration error',
+        code: 'CONFIG_ERROR'
+      }),
     };
   }
+
+  // Step 1: Verify JWT with auth client (can use anon key)
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
 
   const authHeader = event.headers.authorization;
   console.log('[ads-publish] hasAuthHeader:', !!authHeader);
@@ -70,6 +86,7 @@ export const handler: Handler = async (event) => {
     console.error('[ads-publish] Missing or invalid Authorization header');
     return {
       statusCode: 401,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ok: false,
         error: 'Missing authorization',
@@ -79,7 +96,7 @@ export const handler: Handler = async (event) => {
   }
 
   const token = authHeader.substring(7);
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  const { data: { user }, error: authError } = await authClient.auth.getUser(token);
 
   console.log('[ads-publish] userId:', user?.id);
 
@@ -87,6 +104,7 @@ export const handler: Handler = async (event) => {
     console.error('[ads-publish] Auth verification failed:', authError?.message);
     return {
       statusCode: 401,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ok: false,
         error: 'Unauthorized',
@@ -94,6 +112,11 @@ export const handler: Handler = async (event) => {
       }),
     };
   }
+
+  // Step 2: Create admin client for database queries (MUST use service role to bypass RLS)
+  const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
 
   let request: PublishRequest;
   try {
@@ -117,7 +140,8 @@ export const handler: Handler = async (event) => {
   try {
     console.log(`[ads-publish] Publishing draft ${draft_id} for user ${user.id}`);
 
-    const { data: draft, error: draftError } = await supabase
+    // Step 3: Fetch draft using admin client
+    const { data: draft, error: draftError } = await admin
       .from('campaign_drafts')
       .select('*')
       .eq('id', draft_id)
@@ -128,51 +152,124 @@ export const handler: Handler = async (event) => {
       console.error('[ads-publish] Draft not found:', draftError);
       return {
         statusCode: 404,
-        body: JSON.stringify({ error: 'Draft not found' }),
-      };
-    }
-
-    console.log('[ads-publish] Resolving Meta assets using canonical resolver...');
-
-    // Use canonical Meta asset resolver (same as manual flow)
-    const assets = await resolveMetaAssets(user.id);
-
-    // ✅ DEBUG LOG: Assets resolved
-    console.log('[ads-publish] metaAssetsResolved:', {
-      hasAssets: !!assets,
-      has_required_assets: assets?.has_required_assets,
-      ad_account_id: assets?.ad_account_id,
-      page_id: assets?.page_id,
-      pixel_id: assets?.pixel_id,
-      instagram_actor_id: assets?.instagram_actor_id,
-    });
-
-    // Validate assets (returns clear error messages)
-    const validation = validateMetaAssets(assets, {
-      requirePixel: false, // Optional for traffic campaigns
-      requireInstagram: false, // Optional
-    });
-
-    if (!validation.valid) {
-      console.error('[ads-publish] Asset validation failed:', {
-        code: validation.code,
-        error: validation.error,
-      });
-      return {
-        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ok: false,
-          error: validation.error,
-          code: validation.code,
+          error: 'Draft not found',
+          code: 'DRAFT_NOT_FOUND'
         }),
       };
     }
 
+    console.log('[ads-publish] Draft found, fetching Meta credentials...');
+
+    // Step 4: Fetch Meta credentials using admin client (bypasses RLS)
+    const { data: metaRow, error: metaError } = await admin
+      .from('meta_credentials')
+      .select('access_token, ad_account_id, page_id, pixel_id, instagram_actor_id, expires_at')
+      .eq('user_id', user.id)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    console.log('[ads-publish] metaRowFound:', !!metaRow);
+    console.log('[ads-publish] metaFields:', {
+      hasToken: !!metaRow?.access_token,
+      ad: !!metaRow?.ad_account_id,
+      page: !!metaRow?.page_id,
+      pixel: !!metaRow?.pixel_id,
+      ig: !!metaRow?.instagram_actor_id,
+    });
+
+    if (metaError) {
+      console.error('[ads-publish] Error fetching meta_credentials:', metaError);
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'Database error fetching Meta credentials',
+          code: 'DB_ERROR',
+          details: metaError
+        }),
+      };
+    }
+
+    if (!metaRow) {
+      console.error('[ads-publish] No meta_credentials row found for user');
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'Meta not connected. Go to Profile → Meta/Facebook & Instagram to connect.',
+          code: 'META_NOT_CONNECTED'
+        }),
+      };
+    }
+
+    // Validate required fields
+    if (!metaRow.access_token) {
+      console.error('[ads-publish] Missing access_token');
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'Meta access token missing. Please reconnect your Meta account.',
+          code: 'MISSING_TOKEN'
+        }),
+      };
+    }
+
+    if (!metaRow.ad_account_id) {
+      console.error('[ads-publish] Missing ad_account_id');
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'No ad account selected. Go to Profile → Meta/Facebook & Instagram → Configure Assets.',
+          code: 'MISSING_AD_ACCOUNT'
+        }),
+      };
+    }
+
+    if (!metaRow.page_id) {
+      console.error('[ads-publish] Missing page_id');
+      return {
+        statusCode: 400,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'No Facebook page selected. Go to Profile → Meta/Facebook & Instagram → Configure Assets.',
+          code: 'MISSING_PAGE'
+        }),
+      };
+    }
+
+    // Check token expiry
+    if (metaRow.expires_at) {
+      const expiresAt = new Date(metaRow.expires_at);
+      if (expiresAt < new Date()) {
+        console.error('[ads-publish] Access token expired');
+        return {
+          statusCode: 400,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ok: false,
+            error: 'Meta access token expired. Please reconnect your Meta account.',
+            code: 'TOKEN_EXPIRED'
+          }),
+        };
+      }
+    }
+
     console.log('[ads-publish] ✅ Meta assets validated:', {
-      ad_account_id: assets!.ad_account_id,
-      page_id: assets!.page_id,
-      has_pixel: !!assets!.pixel_id,
-      has_instagram: !!assets!.instagram_actor_id,
+      ad_account_id: metaRow.ad_account_id,
+      page_id: metaRow.page_id,
+      has_pixel: !!metaRow.pixel_id,
+      has_instagram: !!metaRow.instagram_actor_id,
     });
 
     console.log('[ads-publish] Creating Meta campaign');
@@ -190,8 +287,8 @@ export const handler: Handler = async (event) => {
     };
 
     const campaignResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/campaigns`,
-      assets!.access_token,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${metaRow.ad_account_id}/campaigns`,
+      metaRow.access_token,
       campaignPayload
     );
 
@@ -215,8 +312,8 @@ export const handler: Handler = async (event) => {
     };
 
     const adsetResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/adsets`,
-      assets!.access_token,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${metaRow.ad_account_id}/adsets`,
+      metaRow.access_token,
       adsetPayload
     );
 
@@ -225,7 +322,7 @@ export const handler: Handler = async (event) => {
     const creativePayload: any = {
       name: `${campaignName} - Creative`,
       object_story_spec: {
-        page_id: assets!.page_id,
+        page_id: metaRow.page_id,
         link_data: {
           link: destinationUrl,
           message: draft.primary_text || 'Check this out!',
@@ -239,8 +336,8 @@ export const handler: Handler = async (event) => {
     };
 
     const creativeResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/adcreatives`,
-      assets!.access_token,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${metaRow.ad_account_id}/adcreatives`,
+      metaRow.access_token,
       creativePayload
     );
 
@@ -254,14 +351,14 @@ export const handler: Handler = async (event) => {
     };
 
     const adResult = await metaGraphPost(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${assets!.ad_account_id}/ads`,
-      assets!.access_token,
+      `https://graph.facebook.com/${META_GRAPH_VERSION}/act_${metaRow.ad_account_id}/ads`,
+      metaRow.access_token,
       adPayload
     );
 
     console.log('[ads-publish] Ad created:', adResult.id);
 
-    await supabase
+    await admin
       .from('campaign_drafts')
       .update({
         status: mode === 'ACTIVE' ? 'launched' : 'approved',
@@ -300,17 +397,21 @@ export const handler: Handler = async (event) => {
       stack: error.stack?.split('\n').slice(0, 3).join('\n'),
     });
 
-    await supabase
-      .from('campaign_drafts')
-      .update({
-        status: 'failed',
-        error_message: error.message || 'Unknown publish error',
-      })
-      .eq('id', draft_id);
+    // Mark draft as failed using admin client
+    if (admin && draft_id) {
+      await admin
+        .from('campaign_drafts')
+        .update({
+          status: 'failed',
+          error_message: error.message || 'Unknown publish error',
+        })
+        .eq('id', draft_id);
+    }
 
     // Return detailed error info to help debug
     return {
       statusCode: error.status || 500,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ok: false,
         error: error.message || 'Internal server error',
