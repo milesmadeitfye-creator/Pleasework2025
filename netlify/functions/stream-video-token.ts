@@ -9,12 +9,13 @@ const STREAM_API_KEY = process.env.STREAM_API_KEY!;
 const STREAM_API_SECRET = process.env.STREAM_API_SECRET!;
 
 /**
- * Generate a server-signed Stream Video user token
+ * Generate a server-signed Stream Video user token for Listening Parties
  *
  * This function:
  * 1. Verifies the user's Supabase JWT
- * 2. Creates a Stream user token signed with STREAM_API_SECRET
- * 3. Returns the token + user info for client-side Stream Video SDK initialization
+ * 2. Validates permissions (host must own party, viewers need public access)
+ * 3. Creates a Stream user token signed with STREAM_API_SECRET
+ * 4. Returns the token + user info for client-side Stream Video SDK initialization
  */
 export const handler: Handler = async (event) => {
   console.log('[stream-video-token] Request received');
@@ -54,18 +55,19 @@ export const handler: Handler = async (event) => {
 
     // Parse request body
     const body = event.body ? JSON.parse(event.body) : {};
-    const callType = body.callType || 'livestream';
-    const callId = body.callId;
+    const partyId = body.partyId || body.callId; // Support both parameter names
+    const role = body.role || 'viewer'; // Default to viewer if not specified
+    const callType = 'livestream'; // Always use livestream for listening parties
 
-    if (!callId) {
-      console.error('[stream-video-token] Missing callId in request body');
+    if (!partyId) {
+      console.error('[stream-video-token] Missing partyId in request body');
       return {
         statusCode: 400,
-        body: JSON.stringify({ ok: false, error: "Missing callId parameter" })
+        body: JSON.stringify({ ok: false, error: "Missing partyId parameter" })
       };
     }
 
-    console.log('[stream-video-token] Request params:', { callType, callId });
+    console.log('[stream-video-token] Request params:', { partyId, role, callType });
 
     // Verify auth
     const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(jwt);
@@ -79,6 +81,65 @@ export const handler: Handler = async (event) => {
     const user = userRes.user;
 
     console.log('[stream-video-token] User verified:', user.id);
+
+    // Query listening party to validate permissions
+    const { data: party, error: partyErr } = await supabaseAdmin
+      .from('listening_parties')
+      .select('id, owner_user_id, host_user_id, is_public, status')
+      .eq('id', partyId)
+      .maybeSingle();
+
+    if (partyErr || !party) {
+      console.error('[stream-video-token] Party not found:', partyErr?.message || 'No party');
+      return {
+        statusCode: 404,
+        body: JSON.stringify({ ok: false, error: "Listening party not found" })
+      };
+    }
+
+    // Determine actual owner (prefer owner_user_id, fallback to host_user_id)
+    const ownerId = party.owner_user_id || party.host_user_id;
+
+    console.log('[stream-video-token] Party found:', {
+      partyId: party.id,
+      ownerId,
+      isPublic: party.is_public,
+      status: party.status,
+      requestingRole: role,
+    });
+
+    // Permission checks
+    if (role === 'host') {
+      // Host must be the owner
+      if (user.id !== ownerId) {
+        console.error('[stream-video-token] Permission denied: User is not party owner', {
+          userId: user.id,
+          ownerId,
+        });
+        return {
+          statusCode: 403,
+          body: JSON.stringify({ ok: false, error: "Permission denied: Only party owner can be host" })
+        };
+      }
+    } else {
+      // Viewers can join if:
+      // 1. Party is public, OR
+      // 2. User is the owner
+      const isOwner = user.id === ownerId;
+      if (!party.is_public && !isOwner) {
+        console.error('[stream-video-token] Permission denied: Party is not public and user is not owner', {
+          userId: user.id,
+          ownerId,
+          isPublic: party.is_public,
+        });
+        return {
+          statusCode: 403,
+          body: JSON.stringify({ ok: false, error: "Permission denied: Party is private" })
+        };
+      }
+    }
+
+    console.log('[stream-video-token] Permission check passed for role:', role);
 
     // Get user profile for display name
     const { data: profile } = await supabaseAdmin
@@ -114,12 +175,15 @@ export const handler: Handler = async (event) => {
 
     console.log('[stream-video-token] User upserted in Stream:', userId);
 
-    // Ensure call exists (idempotent)
-    console.log('[stream-video-token] Ensuring call exists:', { callType, callId });
-    const call = streamClient.video.call(callType, callId);
+    // Ensure call exists (idempotent) - use partyId as callId
+    console.log('[stream-video-token] Ensuring call exists:', { callType, callId: partyId });
+    const call = streamClient.video.call(callType, partyId);
+
+    // Create call with proper creator
     await call.getOrCreate({
       data: {
-        created_by_id: userId,
+        created_by_id: ownerId, // Use party owner as creator
+        members: role === 'host' ? [{ user_id: userId, role: 'host' }] : undefined,
       },
     });
 
@@ -132,7 +196,12 @@ export const handler: Handler = async (event) => {
       exp: expirationTime,
     });
 
-    console.log('[stream-video-token] Token generated successfully for user:', userId);
+    console.log('[stream-video-token] Token generated successfully:', {
+      userId,
+      role,
+      partyId,
+      callType,
+    });
 
     return {
       statusCode: 200,
@@ -147,7 +216,9 @@ export const handler: Handler = async (event) => {
         userName: displayName,
         apiKey: STREAM_API_KEY,
         callType,
-        callId,
+        callId: partyId, // Return as callId for client compatibility
+        partyId,
+        role,
       }),
     };
   } catch (e: any) {

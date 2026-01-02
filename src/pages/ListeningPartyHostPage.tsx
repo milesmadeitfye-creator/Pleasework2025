@@ -389,10 +389,9 @@ export default function ListeningPartyHostPage() {
 
       // Step 1: Get Stream Video token from backend
       // IMPORTANT: Call is created server-side with deterministic callId = party.id
-      const callId = party.id;
-      const callType = 'livestream';
+      const partyId = party.id;
 
-      console.log('[ListeningParty] Fetching Stream Video token...', { callType, callId });
+      console.log('[ListeningParty] Fetching Stream Video token as host...', { partyId });
 
       const tokenRes = await fetch('/.netlify/functions/stream-video-token', {
         method: 'POST',
@@ -401,15 +400,19 @@ export default function ListeningPartyHostPage() {
           Authorization: `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          callType,
-          callId,
+          partyId,
+          role: 'host', // Request host token for party owner
         }),
       });
 
       const tokenData = await tokenRes.json();
       if (!tokenRes.ok || !tokenData.ok) {
         const errorCode = tokenData.error || 'TOKEN_ERROR';
-        console.error('[ListeningParty] Token fetch failed:', { status: tokenRes.status, error: tokenData.error });
+        console.error('[ListeningParty] Token fetch failed:', {
+          status: tokenRes.status,
+          error: tokenData.error,
+          partyId,
+        });
         throw new Error(`Stream auth failed (${errorCode}). Please refresh and try again.`);
       }
 
@@ -417,6 +420,7 @@ export default function ListeningPartyHostPage() {
         apiKey: tokenData.apiKey ? '✓' : '✗',
         token: tokenData.token ? '✓' : '✗',
         userId: tokenData.userId,
+        role: tokenData.role,
         callType: tokenData.callType,
         callId: tokenData.callId,
       });
@@ -435,8 +439,8 @@ export default function ListeningPartyHostPage() {
       console.log('[ListeningParty] Stream Video client created');
 
       // Step 3: Get call (already created server-side)
-      const videoCall = vc.call(callType, callId);
-      console.log('[ListeningParty] Retrieved call reference:', callId);
+      const videoCall = vc.call(tokenData.callType, tokenData.callId);
+      console.log('[ListeningParty] Retrieved call reference:', tokenData.callId);
 
       // Step 4: Join call (call already created server-side)
       console.log('[ListeningParty] Joining call...');
