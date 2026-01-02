@@ -1,22 +1,66 @@
 import type { Handler } from "@netlify/functions";
 import { createClient } from "@supabase/supabase-js";
 import jwt from "jsonwebtoken";
+import { StreamClient } from "@stream-io/node-sdk";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-const STREAM_API_KEY = process.env.STREAM_API_KEY || '';
-const STREAM_API_SECRET = process.env.STREAM_API_SECRET || '';
+async function getStreamCredentials(admin: any): Promise<{ apiKey: string; apiSecret: string; source: string }> {
+  try {
+    const { data: keyData } = await admin
+      .from('app_secrets')
+      .select('value')
+      .eq('key', 'STREAM_API_KEY')
+      .maybeSingle();
+
+    const { data: secretData } = await admin
+      .from('app_secrets')
+      .select('value')
+      .eq('key', 'STREAM_API_SECRET')
+      .maybeSingle();
+
+    if (keyData?.value && secretData?.value) {
+      return {
+        apiKey: keyData.value,
+        apiSecret: secretData.value,
+        source: 'app_secrets'
+      };
+    }
+  } catch (err) {
+    console.warn('[stream-video-token] Failed to load from app_secrets:', err);
+  }
+
+  const envKey = process.env.STREAM_API_KEY || '';
+  const envSecret = process.env.STREAM_API_SECRET || '';
+
+  if (envKey && envSecret) {
+    return {
+      apiKey: envKey,
+      apiSecret: envSecret,
+      source: 'env'
+    };
+  }
+
+  throw new Error('Stream credentials not found in app_secrets or environment');
+}
+
+function fingerprint(secret: string): string {
+  if (!secret || secret.length < 10) return '[invalid]';
+  return `${secret.substring(0, 6)}...${secret.substring(secret.length - 4)}`;
+}
 
 /**
  * Generate a server-signed Stream Video user token for Listening Parties
  *
  * This function:
  * 1. Verifies the user's Supabase JWT
- * 2. Validates permissions (host must own party, viewers need public access)
- * 3. Creates a Stream user token signed with STREAM_API_SECRET
- * 4. Returns the token + user info for client-side Stream Video SDK initialization
+ * 2. Loads Stream credentials from Supabase app_secrets table
+ * 3. Validates permissions (host must own party, viewers need public access)
+ * 4. Creates Stream Video call server-side (prevents 404 on client join)
+ * 5. Signs JWT token with STREAM_API_SECRET
+ * 6. Returns the token + user info for client-side Stream Video SDK initialization
  */
 export const handler: Handler = async (event) => {
   console.log('[stream-video-token] Request received');
@@ -40,20 +84,6 @@ export const handler: Handler = async (event) => {
         statusCode: 405,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ok: false, error: "Method not allowed" })
-      };
-    }
-
-    // Validate environment
-    if (!STREAM_API_KEY || !STREAM_API_SECRET) {
-      console.error('[stream-video-token] Missing Stream environment variables');
-      return {
-        statusCode: 500,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ok: false,
-          error: 'Stream not configured',
-          code: 'STREAM_ENV_MISSING'
-        })
       };
     }
 
@@ -104,10 +134,39 @@ export const handler: Handler = async (event) => {
       auth: { autoRefreshToken: false, persistSession: false }
     });
 
+    // Step 3: Load Stream credentials from Supabase
+    let streamApiKey: string;
+    let streamApiSecret: string;
+    let credSource: string;
+
+    try {
+      const creds = await getStreamCredentials(admin);
+      streamApiKey = creds.apiKey;
+      streamApiSecret = creds.apiSecret;
+      credSource = creds.source;
+
+      console.log('[stream-video-token] Stream credentials loaded:', {
+        source: credSource,
+        apiKeyFingerprint: fingerprint(streamApiKey),
+        apiSecretFingerprint: fingerprint(streamApiSecret),
+      });
+    } catch (err: any) {
+      console.error('[stream-video-token] Failed to load Stream credentials:', err.message);
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: 'Stream not configured',
+          code: 'STREAM_ENV_MISSING'
+        })
+      };
+    }
+
     // Parse request body
     const body = event.body ? JSON.parse(event.body) : {};
-    const partyId = body.partyId || body.callId; // Support both parameter names
-    const role = body.role || 'viewer'; // Default to viewer if not specified
+    const partyId = body.partyId || body.callId;
+    const role = body.role || 'viewer';
 
     if (!partyId) {
       console.error('[stream-video-token] Missing partyId in request body');
@@ -149,7 +208,6 @@ export const handler: Handler = async (event) => {
 
     // Permission checks
     if (role === 'host') {
-      // Host must be the owner
       if (user.id !== ownerId) {
         console.error('[stream-video-token] Permission denied: User is not party owner', {
           userId: user.id,
@@ -162,9 +220,6 @@ export const handler: Handler = async (event) => {
         };
       }
     } else {
-      // Viewers can join if:
-      // 1. Party is public, OR
-      // 2. User is the owner
       const isOwner = user.id === ownerId;
       if (!party.is_public && !isOwner) {
         console.error('[stream-video-token] Permission denied: Party is not public and user is not owner', {
@@ -191,10 +246,45 @@ export const handler: Handler = async (event) => {
 
     console.log('[stream-video-token] User display name:', userName);
 
-    // Step 3: Generate Stream Video token by signing JWT directly
+    // Step 4: Create Stream Video call server-side
     const userId = user.id;
+    const callType = 'livestream';
+    const callId = partyId;
+
+    try {
+      console.log('[stream-video-token] Creating Stream client and call:', { callType, callId });
+
+      const streamClient = new StreamClient(streamApiKey, streamApiSecret);
+
+      const call = streamClient.video.call(callType, callId);
+
+      await call.getOrCreate({
+        data: {
+          created_by_id: ownerId,
+          members: role === 'host' ? [{ user_id: userId, role: 'host' }] : undefined,
+        },
+      });
+
+      console.log('[stream-video-token] Stream call created/verified:', { callType, callId, ownerId });
+    } catch (callErr: any) {
+      console.error('[stream-video-token] Failed to create Stream call:', {
+        error: callErr.message,
+        callType,
+        callId,
+      });
+      return {
+        statusCode: 500,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ok: false,
+          error: `Failed to create video call: ${callErr.message}`
+        })
+      };
+    }
+
+    // Step 5: Generate Stream Video token by signing JWT directly
     const issuedAt = Math.floor(Date.now() / 1000);
-    const expirationTime = issuedAt + (24 * 60 * 60); // 24 hours
+    const expirationTime = issuedAt + (24 * 60 * 60);
 
     const streamToken = jwt.sign(
       {
@@ -202,7 +292,7 @@ export const handler: Handler = async (event) => {
         iat: issuedAt,
         exp: expirationTime,
       },
-      STREAM_API_SECRET,
+      streamApiSecret,
       { algorithm: 'HS256' }
     );
 
@@ -211,6 +301,8 @@ export const handler: Handler = async (event) => {
       userName,
       role,
       partyId,
+      callType,
+      callId,
       tokenLength: streamToken.length,
     });
 
@@ -225,9 +317,9 @@ export const handler: Handler = async (event) => {
         token: streamToken,
         userId,
         userName,
-        apiKey: STREAM_API_KEY,
-        callType: 'livestream',
-        callId: partyId,
+        apiKey: streamApiKey,
+        callType,
+        callId,
         partyId,
         role,
       }),

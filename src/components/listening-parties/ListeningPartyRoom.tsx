@@ -66,19 +66,17 @@ const ListeningPartyRoom: React.FC<ListeningPartyRoomProps> = ({
   const [shareUrl, setShareUrl] = useState("");
 
   useEffect(() => {
-    const key = apiKey || import.meta.env.VITE_STREAM_API_KEY;
-
     // Validate credentials before attempting connection
-    if (!key) {
+    if (!apiKey) {
       const diagnostics = {
         hasApiKey: false,
         hasToken: !!token,
         hasUserId: !!userId,
         hasUserName: !!userName,
-        error: "Stream API key is missing",
+        error: "Stream API key missing. Token service did not provide apiKey.",
       };
       setConnectionDiagnostics(diagnostics);
-      setChatError("Stream Chat API key is missing. Please check configuration.");
+      setChatError("Stream API key missing. Token service did not provide apiKey.");
       console.error("[ListeningPartyRoom] Missing API key:", diagnostics);
       return;
     }
@@ -112,7 +110,7 @@ const ListeningPartyRoom: React.FC<ListeningPartyRoomProps> = ({
     }
 
     let mounted = true;
-    const sc = StreamChat.getInstance(key);
+    const sc = StreamChat.getInstance(apiKey);
 
     console.log("[ListeningPartyRoom] Attempting to connect to Stream Chat:", {
       userId,
@@ -206,8 +204,13 @@ const ListeningPartyRoom: React.FC<ListeningPartyRoomProps> = ({
       const stream = mediaResult.stream;
       console.log('[ListeningPartyRoom] Media stream obtained successfully');
 
-      const key = apiKey || import.meta.env.VITE_STREAM_API_KEY;
-      const vc = new StreamVideoClient({ apiKey: key, token, user: { id: userId, name: userName } });
+      if (!apiKey) {
+        setVideoError('Stream API key missing. Token service did not provide apiKey.');
+        setIsJoiningVideo(false);
+        return;
+      }
+
+      const vc = new StreamVideoClient({ apiKey, token, user: { id: userId, name: userName } });
 
       console.log('[ListeningPartyRoom] Attempting to join video call...');
       const videoCall = vc.call("default", partyId);

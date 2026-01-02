@@ -417,14 +417,24 @@ export default function ListeningPartyHostPage() {
         throw new Error(`Unable to start live stream. Token service failed: ${tokenData.error || 'Unknown error'}`);
       }
 
+      // Diagnostic logging with API key fingerprint
+      const apiKeyFingerprint = tokenData.apiKey
+        ? `${tokenData.apiKey.substring(0, 6)}...${tokenData.apiKey.substring(tokenData.apiKey.length - 4)}`
+        : '[missing]';
+
       console.log('[ListeningParty] Stream Video token received:', {
         apiKey: tokenData.apiKey ? '✓' : '✗',
+        apiKeyFingerprint,
         token: tokenData.token ? '✓' : '✗',
         userId: tokenData.userId,
         role: tokenData.role,
         callType: tokenData.callType,
         callId: tokenData.callId,
       });
+
+      if (!tokenData.apiKey) {
+        throw new Error('Stream API key missing. Token service did not provide apiKey.');
+      }
 
       // Step 2: Create Stream Video client
       const vc = new StreamVideoClient({
@@ -440,16 +450,20 @@ export default function ListeningPartyHostPage() {
       console.log('[ListeningParty] Stream Video client created');
 
       // Step 3: Get call (already created server-side)
-      const videoCall = vc.call(tokenData.callType, tokenData.callId);
+      const videoCall = vc.call(tokenData.callType || 'livestream', tokenData.callId);
       console.log('[ListeningParty] Retrieved call reference:', tokenData.callId);
 
-      // Step 4: Join call (call already created server-side)
+      // Step 4: Join call with resilient retry logic
       console.log('[ListeningParty] Joining call...');
-      await videoCall.join({
-        create: false, // Already created server-side in stream-video-token function
-      });
-
-      console.log('[ListeningParty] Call joined successfully');
+      try {
+        await videoCall.join();
+        console.log('[ListeningParty] Call joined successfully');
+      } catch (joinErr: any) {
+        console.warn('[ListeningParty] Join failed, retrying with create=true:', joinErr.message);
+        // Safety net: if server-side creation failed, try creating client-side
+        await videoCall.join({ create: true });
+        console.log('[ListeningParty] Call joined successfully (with create)');
+      }
 
       // Step 5: Enable camera and mic
       if (cameraEnabled) {
