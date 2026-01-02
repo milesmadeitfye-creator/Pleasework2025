@@ -310,11 +310,20 @@ export default function AnalyticsPage() {
         .maybeSingle();
 
       if (artistStats) {
-        setSpotifyStats({
+        const stats = {
           followers: artistStats.followers || null,
           popularity: artistStats.popularity || null,
           artistName: artistStats.artist_name || null,
+        };
+
+        // ✅ DEBUG LOG: Spotify stats loaded
+        console.log('[Analytics][Spotify]', {
+          artistName: stats.artistName,
+          followers: stats.followers,
+          popularity: stats.popularity,
         });
+
+        setSpotifyStats(stats);
       }
     } catch (error) {
       console.error('Error fetching Spotify stats:', error);
@@ -386,6 +395,15 @@ export default function AnalyticsPage() {
       });
 
       const json = await res.json();
+
+      // ✅ DEBUG LOG: Analytics enrichment (Spotify + Songstats combined)
+      console.log('[Analytics][Spotify+Songstats]', {
+        status: json.status,
+        hasCore: !!json.core,
+        hasPlatformSignals: !!json.platformSignals,
+        sources: json.sources,
+        spotifyArtistId: artist.spotify_artist_id,
+      });
 
       setStatus(json.status || "ready");
 

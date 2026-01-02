@@ -169,6 +169,16 @@ export default function SmartLinkEditor({ link, onSave, onCancel }: SmartLinkEdi
 
       const data = await res.json();
 
+      // ✅ DEBUG LOG: Auto-Resolve result (ACR Cloud only - no analytics)
+      console.log('[AutoResolve][ACR]', {
+        ok: data?.ok,
+        title: data?.title,
+        artist: data?.artist,
+        linkCount: Object.values(data?.links || {}).filter(Boolean).length,
+        platforms: Object.keys(data?.links || {}),
+        steps: data?.debug?.steps,
+      });
+
       if (!res.ok || data?.ok === false) {
         console.error('[SmartLink AutoResolve] failed:', data);
         showToast(data?.message || data?.error || 'Auto-resolve failed', 'error');
