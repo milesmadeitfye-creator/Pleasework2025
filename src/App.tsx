@@ -642,6 +642,11 @@ function App() {
             path="/profile/connect"
             element={<Navigate to="/profile/connect-accounts" replace />}
           />
+          {/* Redirect legacy /profile/connected-accounts to correct route */}
+          <Route
+            path="/profile/connected-accounts"
+            element={<Navigate to="/profile/connect-accounts" replace />}
+          />
 
           {/* Public Success Page - must be accessible to unauthenticated users */}
           <Route

@@ -32,26 +32,9 @@ export async function getMetaStatus(
   try {
     console.log('[getMetaStatus] Fetching Meta connection status via RPC...');
 
-    // Get current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      console.error('[getMetaStatus] User not authenticated:', userError);
-      return {
-        auth_connected: false,
-        assets_configured: false,
-        ad_account_id: null,
-        page_id: null,
-        instagram_actor_id: null,
-        pixel_id: null,
-        missing_assets: null,
-        error: 'User not authenticated',
-      };
-    }
-
     // Call RPC to get Meta connection status
-    const { data, error } = await supabase
-      .rpc('get_meta_connection_status', { input_user_id: user.id });
+    // Uses auth.uid() internally - same call as manual wizard
+    const { data, error } = await supabase.rpc('get_meta_connection_status');
 
     if (error) {
       console.error('[getMetaStatus] RPC error:', error);
@@ -90,7 +73,7 @@ export async function getMetaStatus(
       has_instagram: !!data.instagram_actor_id,
     });
 
-    return {
+    const metaStatus = {
       auth_connected: data.auth_connected ?? false,
       assets_configured: data.assets_configured ?? false,
       ad_account_id: data.ad_account_id || null,
@@ -99,6 +82,11 @@ export async function getMetaStatus(
       pixel_id: data.pixel_id || null,
       missing_assets: data.missing_assets || null,
     };
+
+    // Debug log to confirm all-in-one flow uses same RPC as manual wizard
+    console.log('[AllInOneMetaStatus]', metaStatus);
+
+    return metaStatus;
   } catch (err: any) {
     console.error('[getMetaStatus] Unexpected error:', err);
     return {
