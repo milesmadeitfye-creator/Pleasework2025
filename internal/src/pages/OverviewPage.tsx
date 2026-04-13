@@ -10,7 +10,28 @@ import {
   MousePointerClick,
   Users,
   Zap,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
+
+interface BillingData {
+  ok: true;
+  mrr: number;
+  creditsOutstanding: number;
+  creditsUsed: number;
+  platformBreakdown: {
+    ios: number;
+    android: number;
+    web: number;
+  };
+}
+
+interface SystemHealth {
+  status: 'healthy' | 'degraded' | 'critical';
+  errors24h: number;
+  warnings24h: number;
+  lastCheck: string;
+}
 
 interface OverviewData {
   ok: true;
@@ -39,15 +60,27 @@ interface OverviewData {
 
 export default function OverviewPage() {
   const [data, setData] = useState<OverviewData | null>(null);
+  const [billingData, setBillingData] = useState<BillingData | null>(null);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await api<OverviewData>('/.netlify/functions/admin-overview');
+        const [overview, billing] = await Promise.all([
+          api<OverviewData>('/.netlify/functions/admin-overview'),
+          api<BillingData>('/.netlify/functions/admin-billing'),
+        ]);
         if (!cancelled) {
-          setData(res);
+          setData(overview);
+          setBillingData(billing);
+          setSystemHealth({
+            status: overview.health === 'green' ? 'healthy' : overview.health === 'yellow' ? 'degraded' : 'critical',
+            errors24h: overview.metrics.errors24h ?? 0,
+            warnings24h: 0,
+            lastCheck: new Date().toISOString(),
+          });
           setError(null);
         }
       } catch (err) {
@@ -80,6 +113,67 @@ export default function OverviewPage() {
         </div>
       )}
 
+      {billingData && (
+        <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card space-y-4">
+          <h2 className="text-sm font-semibold">Live P&L Position</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-xs text-fg-mute uppercase tracking-wider">Estimated MRR</p>
+              <p className="mt-2 font-mono text-lg font-semibold text-fg">
+                ${formatNumber(billingData.mrr)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-mute uppercase tracking-wider">Credits Outstanding</p>
+              <p className="mt-2 font-mono text-lg font-semibold text-err">
+                {formatNumber(billingData.creditsOutstanding)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-mute uppercase tracking-wider">Credits Used (Revenue)</p>
+              <p className="mt-2 font-mono text-lg font-semibold text-ok">
+                {formatNumber(billingData.creditsUsed)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-mute uppercase tracking-wider">Net Position</p>
+              <p className={`mt-2 font-mono text-lg font-semibold ${
+                billingData.mrr >= 0 ? 'text-ok' : 'text-err'
+              }`}>
+                ${formatNumber(billingData.mrr - billingData.creditsOutstanding)}
+              </p>
+            </div>
+          </div>
+          {billingData.platformBreakdown && (
+            <div className="mt-4 pt-4 border-t border-line">
+              <p className="text-xs text-fg-mute uppercase tracking-wider mb-3">Platform Breakdown</p>
+              <div className="flex gap-2 h-8">
+                <div
+                  className="bg-brand-600 rounded"
+                  style={{width: `${billingData.platformBreakdown.ios}%`}}
+                  title="iOS"
+                />
+                <div
+                  className="bg-blue-500 rounded"
+                  style={{width: `${billingData.platformBreakdown.android}%`}}
+                  title="Android"
+                />
+                <div
+                  className="bg-blue-400 rounded"
+                  style={{width: `${billingData.platformBreakdown.web}%`}}
+                  title="Web"
+                />
+              </div>
+              <div className="flex gap-4 text-xs mt-2">
+                <span>iOS: {billingData.platformBreakdown.ios}%</span>
+                <span>Android: {billingData.platformBreakdown.android}%</span>
+                <span>Web: {billingData.platformBreakdown.web}%</span>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Metric icon={Users} label="Total users" value={data?.metrics.totalUsers} />
         <Metric icon={Activity} label="Active (24h)" value={data?.metrics.activeUsers24h} />
@@ -108,6 +202,35 @@ export default function OverviewPage() {
           accent={data?.metrics.errors24h && data.metrics.errors24h > 0 ? 'warn' : undefined}
         />
       </section>
+
+      {systemHealth && (
+        <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold">System Health</h2>
+            <span className={`text-xs font-medium px-2 py-1 rounded ${
+              systemHealth.status === 'healthy' ? 'text-ok bg-ok/10' :
+              systemHealth.status === 'degraded' ? 'text-warn bg-warn/10' :
+              'text-err bg-err/10'
+            }`}>
+              {systemHealth.status.charAt(0).toUpperCase() + systemHealth.status.slice(1)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-fg-mute">Errors (24h)</p>
+              <p className="mt-1 font-mono text-lg font-semibold text-err">
+                {systemHealth.errors24h}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-fg-mute">Last Check</p>
+              <p className="mt-1 font-mono text-xs text-fg-soft">
+                {relTime(systemHealth.lastCheck)}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="card">
         <div className="flex items-center justify-between px-4 py-3 border-b border-line">

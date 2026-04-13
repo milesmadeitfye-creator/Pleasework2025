@@ -21,13 +21,17 @@ export default function CommandPalette({
 
   const commands = useMemo<Command[]>(
     () => [
-      { id: 'go:overview', label: 'Go to Overview', hint: 'home', run: () => onNavigate('/') },
-      { id: 'go:users', label: 'Open Users', hint: 'control', run: () => onNavigate('/users') },
-      { id: 'go:ai', label: 'Open AI Monitor', run: () => onNavigate('/ai') },
-      { id: 'go:ads', label: 'Open Meta Ads', run: () => onNavigate('/ads') },
-      { id: 'go:links', label: 'Open Links', run: () => onNavigate('/links') },
-      { id: 'go:billing', label: 'Open Billing', run: () => onNavigate('/billing') },
-      { id: 'go:logs', label: 'Open Errors & Logs', run: () => onNavigate('/logs') },
+      { id: 'go:overview', label: 'Go to Overview', hint: 'home dashboard', run: () => onNavigate('/') },
+      { id: 'go:users', label: 'Open Users', hint: 'control members', run: () => onNavigate('/users') },
+      { id: 'go:ai', label: 'Open AI Agent', hint: 'claude autopilot', run: () => onNavigate('/ai') },
+      { id: 'go:billing', label: 'Open Billing & P&L', hint: 'revenue profit credits', run: () => onNavigate('/billing') },
+      { id: 'go:platforms', label: 'Open Platform Stats', hint: 'ios android web apple', run: () => onNavigate('/platforms') },
+      { id: 'go:creatives', label: 'Open Creatives', hint: 'assets media art', run: () => onNavigate('/creatives') },
+      { id: 'go:ads', label: 'Open Meta Ads', hint: 'campaigns facebook instagram', run: () => onNavigate('/ads') },
+      { id: 'go:distribution', label: 'Open Distribution', hint: 'releases music isrc upc', run: () => onNavigate('/distribution') },
+      { id: 'go:links', label: 'Open Links', hint: 'smart clicks analytics', run: () => onNavigate('/links') },
+      { id: 'go:logs', label: 'Open Logs & Security', hint: 'errors sweep audit', run: () => onNavigate('/logs') },
+      { id: 'go:improvements', label: 'Open Improvements', hint: 'queue system todo', run: () => onNavigate('/improvements') },
     ],
     [onNavigate],
   );

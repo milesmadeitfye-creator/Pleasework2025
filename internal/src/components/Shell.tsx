@@ -2,15 +2,18 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import {
   Activity,
+  BarChart3,
+  Bot,
   CreditCard,
   Film,
   LayoutDashboard,
+  Lightbulb,
   Link2,
   LogOut,
   Megaphone,
+  Monitor,
   Music,
   ShieldAlert,
-  Sparkles,
   Terminal,
   Users,
 } from 'lucide-react';
@@ -22,19 +25,28 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   minRole?: ('super_admin' | 'admin' | 'support')[];
+  section?: string;
 }
 
 const NAV: NavItem[] = [
-  { to: '/', label: 'Overview', icon: LayoutDashboard },
-  { to: '/users', label: 'Users', icon: Users },
-  { to: '/ai', label: 'AI Monitor', icon: Sparkles },
-  { to: '/creatives', label: 'Ad Creatives', icon: Film },
-  { to: '/ads', label: 'Meta Ads', icon: Megaphone },
-  { to: '/distribution', label: 'Distribution', icon: Music },
-  { to: '/links', label: 'Links', icon: Link2 },
-  { to: '/billing', label: 'Billing', icon: CreditCard, minRole: ['super_admin', 'admin'] },
-  { to: '/logs', label: 'Errors & Logs', icon: ShieldAlert },
+  // Core
+  { to: '/', label: 'Overview', icon: LayoutDashboard, section: 'Core' },
+  { to: '/users', label: 'Users', icon: Users, section: 'Core' },
+  { to: '/ai', label: 'AI Agent', icon: Bot, section: 'Core' },
+  // Revenue
+  { to: '/billing', label: 'Billing & P&L', icon: CreditCard, section: 'Revenue', minRole: ['super_admin', 'admin'] },
+  { to: '/platforms', label: 'Platform Stats', icon: Monitor, section: 'Revenue' },
+  // Content
+  { to: '/creatives', label: 'Creatives', icon: Film, section: 'Content' },
+  { to: '/ads', label: 'Meta Ads', icon: Megaphone, section: 'Content' },
+  { to: '/distribution', label: 'Distribution', icon: Music, section: 'Content' },
+  { to: '/links', label: 'Links', icon: Link2, section: 'Content' },
+  // System
+  { to: '/logs', label: 'Logs & Security', icon: ShieldAlert, section: 'System' },
+  { to: '/improvements', label: 'Improvements', icon: Lightbulb, section: 'System' },
 ];
+
+const SECTIONS = ['Core', 'Revenue', 'Content', 'System'];
 
 export default function Shell() {
   const { identity, signOut } = useAdminAuth();
@@ -63,24 +75,39 @@ export default function Shell() {
             <div className="text-[10px] text-fg-mute">Operator console</div>
           </div>
         </div>
-        <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-          {NAV.filter((n) => !n.minRole || !identity || n.minRole.includes(identity.role)).map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              end={n.to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-ink-3 text-fg'
-                    : 'text-fg-soft hover:bg-ink-2 hover:text-fg'
-                }`
-              }
-            >
-              <n.icon className="h-4 w-4" />
-              <span>{n.label}</span>
-            </NavLink>
-          ))}
+        <nav className="flex-1 overflow-y-auto px-2 py-3">
+          {SECTIONS.map((section) => {
+            const items = NAV.filter(
+              (n) => n.section === section && (!n.minRole || !identity || n.minRole.includes(identity.role))
+            );
+            if (items.length === 0) return null;
+            return (
+              <div key={section} className="mb-3">
+                <div className="px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-fg-mute">
+                  {section}
+                </div>
+                <div className="space-y-0.5">
+                  {items.map((n) => (
+                    <NavLink
+                      key={n.to}
+                      to={n.to}
+                      end={n.to === '/'}
+                      className={({ isActive }) =>
+                        `flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+                          isActive
+                            ? 'bg-ink-3 text-fg'
+                            : 'text-fg-soft hover:bg-ink-2 hover:text-fg'
+                        }`
+                      }
+                    >
+                      <n.icon className="h-4 w-4" />
+                      <span>{n.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </nav>
         <div className="border-t border-line px-3 py-3">
           <div className="mb-2 text-[11px] text-fg-mute truncate" title={identity?.email ?? ''}>
@@ -130,7 +157,6 @@ export default function Shell() {
 }
 
 function SystemHealthDot() {
-  // Real status wired by Overview; here we just show a passive indicator.
   return (
     <div className="flex items-center gap-1.5 text-[11px] text-fg-soft">
       <span className="h-1.5 w-1.5 rounded-full bg-ok shadow-[0_0_6px_rgba(16,185,129,0.7)]" />
