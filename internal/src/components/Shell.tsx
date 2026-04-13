@@ -13,8 +13,10 @@ import {
   Megaphone,
   Monitor,
   Music,
+  Rocket,
   ShieldAlert,
   Terminal,
+  UserCog,
   Users,
 } from 'lucide-react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
@@ -39,9 +41,11 @@ const NAV: NavItem[] = [
   // Content
   { to: '/creatives', label: 'Creatives', icon: Film, section: 'Content' },
   { to: '/ads', label: 'Meta Ads', icon: Megaphone, section: 'Content' },
+  { to: '/ads-engine', label: 'Ads Engine', icon: Rocket, section: 'Content' },
   { to: '/distribution', label: 'Distribution', icon: Music, section: 'Content' },
   { to: '/links', label: 'Links', icon: Link2, section: 'Content' },
   // System
+  { to: '/team', label: 'Team CRM', icon: UserCog, section: 'System', minRole: ['super_admin', 'admin'] },
   { to: '/logs', label: 'Logs & Security', icon: ShieldAlert, section: 'System' },
   { to: '/improvements', label: 'Improvements', icon: Lightbulb, section: 'System' },
 ];

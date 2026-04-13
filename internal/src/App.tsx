@@ -15,6 +15,8 @@ const LinksPage = lazy(() => import('@/pages/LinksPage'));
 const LogsPage = lazy(() => import('@/pages/LogsPage'));
 const ImprovementsPage = lazy(() => import('@/pages/ImprovementsPage'));
 const PlatformStatsPage = lazy(() => import('@/pages/PlatformStatsPage'));
+const TeamPage = lazy(() => import('@/pages/TeamPage'));
+const AdsEnginePage = lazy(() => import('@/pages/AdsEnginePage'));
 
 function RouteLoading() {
   return (
@@ -46,6 +48,8 @@ export default function App() {
               <Route path="logs" element={<Lazy><LogsPage /></Lazy>} />
               <Route path="improvements" element={<Lazy><ImprovementsPage /></Lazy>} />
               <Route path="platforms" element={<Lazy><PlatformStatsPage /></Lazy>} />
+              <Route path="team" element={<Lazy><TeamPage /></Lazy>} />
+              <Route path="ads-engine" element={<Lazy><AdsEnginePage /></Lazy>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>

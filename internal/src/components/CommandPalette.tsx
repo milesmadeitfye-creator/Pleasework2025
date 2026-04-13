@@ -31,6 +31,8 @@ export default function CommandPalette({
       { id: 'go:distribution', label: 'Open Distribution', hint: 'releases music isrc upc', run: () => onNavigate('/distribution') },
       { id: 'go:links', label: 'Open Links', hint: 'smart clicks analytics', run: () => onNavigate('/links') },
       { id: 'go:logs', label: 'Open Logs & Security', hint: 'errors sweep audit', run: () => onNavigate('/logs') },
+      { id: 'go:ads-engine', label: 'Open Ads Engine', hint: 'sora claude remotion pipeline', run: () => onNavigate('/ads-engine') },
+      { id: 'go:team', label: 'Open Team CRM', hint: 'employees invite permissions', run: () => onNavigate('/team') },
       { id: 'go:improvements', label: 'Open Improvements', hint: 'queue system todo', run: () => onNavigate('/improvements') },
     ],
     [onNavigate],
