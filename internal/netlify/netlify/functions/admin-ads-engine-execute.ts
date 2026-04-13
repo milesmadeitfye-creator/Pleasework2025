@@ -2,6 +2,7 @@ import type { HandlerEvent } from '@netlify/functions';
 import { requireAdmin, json } from './_lib/adminAuth';
 import { getServiceClient } from './_lib/supabaseAdmin';
 import { logAdminAction } from './_lib/audit';
+import { getSecret, getMetaCredentials, getGoogleAdsCredentials } from './_lib/secrets';
 
 /**
  * Ghoste Ads Engine — Pipeline Step Executor
@@ -327,9 +328,9 @@ async function executeCopyStep(
 async function executeVideoStep(
   sb: any, job: any, pipeline: PipelineData
 ): Promise<{ status: string; output?: any; error?: string }> {
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const openaiKey = await getSecret('OPENAI_API_KEY');
   if (!openaiKey) {
-    return { status: 'failed', error: 'OPENAI_API_KEY not configured. Add it to Netlify env vars.' };
+    return { status: 'failed', error: 'OPENAI_API_KEY not found in env vars or app_secrets table.' };
   }
 
   const soraPrompt = pipeline.sora_prompt || job.sora_prompt;
@@ -430,8 +431,8 @@ async function executeVideoStep(
 async function executeCompositeStep(
   sb: any, job: any, pipeline: PipelineData
 ): Promise<{ status: string; output?: any; error?: string }> {
-  const remotionSiteUrl = process.env.REMOTION_SERVE_URL;
-  const remotionToken = process.env.REMOTION_API_TOKEN;
+  const remotionSiteUrl = process.env.REMOTION_SERVE_URL || await getSecret('REMOTION_SERVE_URL');
+  const remotionToken = process.env.REMOTION_API_TOKEN || await getSecret('REMOTION_API_TOKEN');
   const videoUrl = pipeline.sora_video_url || job.sora_video_url;
 
   if (!videoUrl) {
@@ -598,44 +599,41 @@ async function executePublishStep(
   const results: any = { meta: null, google: null };
   let anySuccess = false;
 
-  // ── META MARKETING API ──────────────────────────────────────────────────
-  const metaToken = process.env.META_ACCESS_TOKEN;
-  const metaAdAccountId = process.env.META_AD_ACCOUNT_ID;
-  const metaPageId = process.env.META_PAGE_ID;
+  // ── META MARKETING API (keys from DB or env) ────────────────────────────
+  const metaCreds = await getMetaCredentials();
 
-  if (metaToken && metaAdAccountId) {
+  if (metaCreds.accessToken && metaCreds.adAccountId) {
     try {
       results.meta = await publishToMeta(
-        sb, job, pipeline, metaToken, metaAdAccountId, metaPageId || ''
+        sb, job, pipeline, metaCreds.accessToken, metaCreds.adAccountId, metaCreds.pageId || ''
       );
       if (results.meta.campaign_id) anySuccess = true;
     } catch (err: any) {
       results.meta = { error: err.message };
     }
   } else {
-    results.meta = { skipped: true, reason: 'META_ACCESS_TOKEN or META_AD_ACCOUNT_ID not configured.' };
+    results.meta = { skipped: true, reason: 'No Meta credentials found in env vars or meta_credentials table.' };
   }
 
-  // ── GOOGLE ADS API ──────────────────────────────────────────────────────
-  const googleDevToken = process.env.GOOGLE_ADS_DEVELOPER_TOKEN;
-  const googleCustomerId = process.env.GOOGLE_ADS_CUSTOMER_ID;
-  const googleRefreshToken = process.env.GOOGLE_ADS_REFRESH_TOKEN;
-  const googleClientId = process.env.GOOGLE_ADS_CLIENT_ID;
-  const googleClientSecret = process.env.GOOGLE_ADS_CLIENT_SECRET;
+  // ── GOOGLE ADS API (keys from DB or env) ────────────────────────────────
+  const googleCreds = await getGoogleAdsCredentials();
 
-  if (googleDevToken && googleCustomerId && googleRefreshToken) {
+  if (googleCreds.refreshToken && (googleCreds.customerId || googleCreds.accessToken)) {
     try {
       results.google = await publishToGoogle(
         sb, job, pipeline,
-        googleDevToken, googleCustomerId,
-        googleRefreshToken, googleClientId || '', googleClientSecret || ''
+        googleCreds.developerToken || '',
+        googleCreds.customerId || '',
+        googleCreds.refreshToken,
+        googleCreds.clientId || '',
+        googleCreds.clientSecret || ''
       );
       if (results.google.campaign_id) anySuccess = true;
     } catch (err: any) {
       results.google = { error: err.message };
     }
   } else {
-    results.google = { skipped: true, reason: 'Google Ads API keys not configured.' };
+    results.google = { skipped: true, reason: 'No Google Ads credentials found in env vars or google_ads_credentials table.' };
   }
 
   if (!anySuccess && !results.meta?.skipped && !results.google?.skipped) {
@@ -1022,7 +1020,7 @@ async function pollStep(sb: any, job: any, pipeline: PipelineData, step: string)
 }
 
 async function pollSoraVideo(sb: any, job: any, pipeline: PipelineData) {
-  const openaiKey = process.env.OPENAI_API_KEY;
+  const openaiKey = await getSecret('OPENAI_API_KEY');
   if (!openaiKey) return json(200, { status: 'error', error: 'No OPENAI_API_KEY' });
 
   try {
@@ -1084,7 +1082,7 @@ async function pollSoraVideo(sb: any, job: any, pipeline: PipelineData) {
 }
 
 async function pollRemotionRender(sb: any, job: any, pipeline: PipelineData) {
-  const remotionToken = process.env.REMOTION_API_TOKEN;
+  const remotionToken = process.env.REMOTION_API_TOKEN || await getSecret('REMOTION_API_TOKEN');
   if (!remotionToken) return json(200, { status: 'error', error: 'No REMOTION_API_TOKEN' });
 
   try {

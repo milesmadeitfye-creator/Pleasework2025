@@ -2,6 +2,7 @@ import type { HandlerEvent } from '@netlify/functions';
 import { requireAdmin, json } from './_lib/adminAuth';
 import { getServiceClient } from './_lib/supabaseAdmin';
 import { logAdminAction } from './_lib/audit';
+import { getSecret } from './_lib/secrets';
 
 /**
  * Ghoste AI Ads Engine — Claude-powered full-funnel ad pipeline.
@@ -249,7 +250,7 @@ interface ParsedCampaign {
 // ─── CLAUDE API CALL ────────────────────────────────────────────────────────
 
 async function parseWithClaude(prompt: string): Promise<ParsedCampaign> {
-  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY || await getSecret('ANTHROPIC_API_KEY');
 
   if (!apiKey) {
     return fallbackParse(prompt);
