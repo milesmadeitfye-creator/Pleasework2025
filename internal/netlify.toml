@@ -1,0 +1,36 @@
+# Ghoste Internal — standalone Netlify site config.
+# This file is used when internal.ghoste.one is hosted as its own
+# Netlify site. Point the site's "base directory" to `internal`
+# and Netlify will pick this file up automatically.
+
+[build]
+  command = "npm ci --no-audit --no-fund && npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[dev]
+  framework = "vite"
+
+[functions]
+  node_bundler = "esbuild"
+
+[functions.admin-verify]
+  maxDuration = 10
+
+[functions.admin-users-list]
+  maxDuration = 15
+
+[functions.admin-users-action]
+  maxDuration = 15
+
+[functions.admin-overview]
+  maxDuration = 15
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
