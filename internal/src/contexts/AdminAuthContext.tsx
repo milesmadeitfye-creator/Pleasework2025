@@ -98,17 +98,25 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     };
   }, [verify]);
 
-  const requestMagicLink = useCallback(async (email: string) => {
+  const requestMagicLink = useCallback(async (email: string, password?: string) => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) throw new Error('Enter an email.');
-    const { error: sbError } = await supabase.auth.signInWithOtp({
-      email: trimmed,
-      options: {
-        emailRedirectTo: window.location.origin + '/?access=ghoste',
-        shouldCreateUser: false,
-      },
-    });
-    if (sbError) throw new Error(sbError.message);
+    if (password) {
+      const { error: sbError } = await supabase.auth.signInWithPassword({
+        email: trimmed,
+        password,
+      });
+      if (sbError) throw new Error(sbError.message);
+    } else {
+      const { error: sbError } = await supabase.auth.signInWithOtp({
+        email: trimmed,
+        options: {
+          emailRedirectTo: window.location.origin + '/?access=ghoste',
+          shouldCreateUser: false,
+        },
+      });
+      if (sbError) throw new Error(sbError.message);
+    }
   }, []);
 
   const signOut = useCallback(async (redirect = true) => {

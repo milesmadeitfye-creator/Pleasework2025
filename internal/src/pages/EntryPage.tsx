@@ -33,12 +33,12 @@ function LoginPanel({
   onSubmit,
   error,
 }: {
-  onSubmit: (email: string) => Promise<void>;
+  onSubmit: (email: string, password?: string) => Promise<void>;
   error: string | null;
 }) {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
   async function submit(e: React.FormEvent) {
@@ -46,24 +46,12 @@ function LoginPanel({
     setLocalError(null);
     setSending(true);
     try {
-      await onSubmit(email);
-      setSent(true);
+      await onSubmit(email, password || undefined);
     } catch (err) {
-      setLocalError(err instanceof Error ? err.message : 'Failed to send link.');
+      setLocalError(err instanceof Error ? err.message : 'Sign-in failed.');
     } finally {
       setSending(false);
     }
-  }
-
-  if (sent) {
-    return (
-      <div className="rounded-lg border border-line bg-ink-1 p-6 text-center shadow-card">
-        <p className="text-sm text-fg-soft">
-          If this address is authorized, a sign-in link has been sent.
-        </p>
-        <p className="mt-3 text-xs text-fg-mute">You can close this tab.</p>
-      </div>
-    );
   }
 
   return (
@@ -86,12 +74,25 @@ function LoginPanel({
         className="w-full rounded-md border border-line bg-ink-2 px-3 py-2 text-sm text-fg placeholder:text-fg-mute outline-none focus:border-brand-600"
         required
       />
+      <label className="block text-xs text-fg-soft mt-4 mb-2" htmlFor="password">
+        Password
+      </label>
+      <input
+        id="password"
+        type="password"
+        autoComplete="current-password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        placeholder="••••••••"
+        className="w-full rounded-md border border-line bg-ink-2 px-3 py-2 text-sm text-fg placeholder:text-fg-mute outline-none focus:border-brand-600"
+        required
+      />
       <button
         type="submit"
         disabled={sending}
         className="mt-4 w-full rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50"
       >
-        {sending ? 'Sending…' : 'Send sign-in link'}
+        {sending ? 'Signing in…' : 'Sign in'}
       </button>
       {(localError || error) && (
         <p className="mt-3 text-xs text-err">{localError || error}</p>
