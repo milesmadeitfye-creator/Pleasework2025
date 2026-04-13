@@ -5,56 +5,36 @@ import {
   DollarSign,
   TrendingUp,
   TrendingDown,
+  Loader2,
 } from 'lucide-react';
 
-interface CreditTransaction {
-  id: string;
-  transactionType: 'dispensed' | 'used' | 'refund';
-  amount: number;
-  userId: string | null;
-  createdAt: string;
-}
-
-interface WalletTransaction {
-  id: string;
-  walletId: string;
-  amount: number;
-  type: 'credit' | 'debit';
-  createdAt: string;
-}
-
-interface SubscriptionBreakdown {
-  free: number;
-  pro: number;
-  enterprise: number;
-}
-
-interface PlatformRevenue {
-  web: number;
-  ios: number;
-  android: number;
+interface RecentTransaction {
+  transaction_id: string;
+  user_id: string;
+  budget_type: string;
+  credit_change: number;
+  action_type: string;
+  created_at: string;
 }
 
 interface BillingPageData {
-  ok: true;
-  pnl: {
-    mrr: number;
-    costCreditsDispensed: number;
-    costInfrastructure: number;
-    profit: number;
-    marginPercent: number;
-  };
-  subscriptionBreakdown: SubscriptionBreakdown;
-  creditTransactions: CreditTransaction[];
-  walletTransactions: WalletTransaction[];
+  totalUsers: number;
+  proUsers: number;
+  freeUsers: number;
+  mrr: number;
+  creditsOutstanding: number;
   creditsUsedTotal: number;
-  revenueGenerated: number;
-  stripeOverview: {
-    completedCheckouts: number;
-    pendingCheckouts: number;
-    connectedAccounts: number;
+  stripeCheckouts: {
+    completed: number;
+    pending: number;
   };
-  platformRevenue: PlatformRevenue;
+  recentTransactions: RecentTransaction[];
+  platformBreakdown: {
+    web: number;
+    ios: number;
+    android: number;
+    other: number;
+  };
 }
 
 export default function BillingPage() {
@@ -82,7 +62,10 @@ export default function BillingPage() {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         <div className="rounded-lg border border-line bg-ink-1 p-6 text-center text-sm text-fg-mute">
-          Loading billing data...
+          <div className="flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading billing data...
+          </div>
         </div>
       </div>
     );
@@ -109,39 +92,31 @@ export default function BillingPage() {
             <h2 className="text-sm font-semibold mb-4">P&L Statement</h2>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Revenue (MRR)</p>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Monthly Recurring Revenue</p>
                 <p className="mt-2 font-mono text-lg font-semibold text-ok">
-                  ${formatNumber(data.pnl.mrr)}
+                  ${formatNumber((data?.mrr ?? 0))}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Cost (Credits)</p>
-                <p className="mt-2 font-mono text-lg font-semibold text-err">
-                  ${formatNumber(data.pnl.costCreditsDispensed)}
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Credits Outstanding</p>
+                <p className="mt-2 font-mono text-lg font-semibold text-warn">
+                  ${formatNumber((data?.creditsOutstanding ?? 0))}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Cost (Infrastructure)</p>
-                <p className="mt-2 font-mono text-lg font-semibold text-err">
-                  ${formatNumber(data.pnl.costInfrastructure)}
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Credits Used (Total)</p>
+                <p className="mt-2 font-mono text-lg font-semibold text-fg-soft">
+                  ${formatNumber((data?.creditsUsedTotal ?? 0))}
                 </p>
               </div>
               <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Profit Margin</p>
-                <p className={`mt-2 font-mono text-lg font-semibold ${
-                  data.pnl.marginPercent >= 0 ? 'text-ok' : 'text-err'
-                }`}>
-                  {data.pnl.marginPercent.toFixed(1)}%
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Net</p>
+                <p className="mt-2 font-mono text-lg font-semibold text-ok">
+                  ${formatNumber(
+                    (data?.mrr ?? 0) - (data?.creditsOutstanding ?? 0)
+                  )}
                 </p>
               </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-line">
-              <p className="text-xs text-fg-mute uppercase tracking-wider mb-2">Net Profit</p>
-              <p className={`font-mono text-2xl font-semibold ${
-                data.pnl.profit >= 0 ? 'text-ok' : 'text-err'
-              }`}>
-                ${formatNumber(data.pnl.profit)}
-              </p>
             </div>
           </section>
 
@@ -149,107 +124,89 @@ export default function BillingPage() {
             <h2 className="text-sm font-semibold mb-4">Subscription Breakdown</h2>
             <div className="grid grid-cols-3 gap-4">
               <div className="text-center p-4 bg-ink-2 rounded border border-line/50">
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Free</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-fg">
-                  {data.subscriptionBreakdown.free}
-                </p>
-              </div>
-              <div className="text-center p-4 bg-ink-2 rounded border border-line/50">
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Pro</p>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Pro Users</p>
                 <p className="mt-2 font-mono text-2xl font-semibold text-brand-500">
-                  {data.subscriptionBreakdown.pro}
+                  {(data?.proUsers ?? 0).toLocaleString()}
+                </p>
+                <p className="text-xs text-fg-mute mt-1">
+                  {data?.proUsers && data?.totalUsers
+                    ? ((data.proUsers / data.totalUsers) * 100).toFixed(1)
+                    : '0'}
+                  %
                 </p>
               </div>
               <div className="text-center p-4 bg-ink-2 rounded border border-line/50">
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Enterprise</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-ok">
-                  {data.subscriptionBreakdown.enterprise}
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Usage vs Profit</h2>
-            <div className="flex gap-6">
-              <div className="flex-1">
-                <div className="flex items-end gap-2 h-32 bg-ink-2 rounded p-4 border border-line/50">
-                  <div
-                    className="flex-1 bg-warn rounded-t"
-                    style={{
-                      height: `${Math.min(100, (data.creditsUsedTotal / (data.revenueGenerated || 1)) * 100)}%`
-                    }}
-                    title="Credits Used"
-                  />
-                  <div
-                    className="flex-1 bg-ok rounded-t"
-                    style={{
-                      height: `${Math.min(100, (data.revenueGenerated / (data.creditsUsedTotal || 1)) * 100)}%`
-                    }}
-                    title="Revenue Generated"
-                  />
-                </div>
-                <div className="flex gap-4 text-xs mt-2">
-                  <div className="flex items-center gap-1">
-                    <div className="h-2 w-2 rounded bg-warn" />
-                    <span>Credits: {formatNumber(data.creditsUsedTotal)}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="h-2 w-2 rounded bg-ok" />
-                    <span>Revenue: ${formatNumber(data.revenueGenerated)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Stripe Overview</h2>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Completed Checkouts</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-ok">
-                  {data.stripeOverview.completedCheckouts}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Pending Checkouts</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-warn">
-                  {data.stripeOverview.pendingCheckouts}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Connected Accounts</p>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Free Users</p>
                 <p className="mt-2 font-mono text-2xl font-semibold text-fg">
-                  {data.stripeOverview.connectedAccounts}
+                  {(data?.freeUsers ?? 0).toLocaleString()}
+                </p>
+                <p className="text-xs text-fg-mute mt-1">
+                  {data?.freeUsers && data?.totalUsers
+                    ? ((data.freeUsers / data.totalUsers) * 100).toFixed(1)
+                    : '0'}
+                  %
+                </p>
+              </div>
+              <div className="text-center p-4 bg-ink-2 rounded border border-line/50">
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Total Users</p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-fg-soft">
+                  {(data?.totalUsers ?? 0).toLocaleString()}
                 </p>
               </div>
             </div>
           </section>
 
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Platform Revenue Split</h2>
-            <div className="flex gap-2 h-8 rounded overflow-hidden">
-              <div
-                className="bg-brand-600"
-                style={{width: `${data.platformRevenue.ios}%`}}
-                title={`iOS: ${data.platformRevenue.ios}%`}
-              />
-              <div
-                className="bg-blue-500"
-                style={{width: `${data.platformRevenue.android}%`}}
-                title={`Android: ${data.platformRevenue.android}%`}
-              />
-              <div
-                className="bg-blue-400"
-                style={{width: `${data.platformRevenue.web}%`}}
-                title={`Web: ${data.platformRevenue.web}%`}
-              />
+            <h2 className="text-sm font-semibold mb-4">Stripe Checkout Status</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Completed</p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-ok">
+                  {(data?.stripeCheckouts?.completed ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">Pending</p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-warn">
+                  {(data?.stripeCheckouts?.pending ?? 0).toLocaleString()}
+                </p>
+              </div>
             </div>
-            <div className="flex gap-4 text-xs mt-3">
-              <span>iOS: {data.platformRevenue.ios}%</span>
-              <span>Android: {data.platformRevenue.android}%</span>
-              <span>Web: {data.platformRevenue.web}%</span>
+          </section>
+
+          <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
+            <h2 className="text-sm font-semibold mb-4">Platform Revenue Breakdown</h2>
+            <div className="space-y-3">
+              {['web', 'ios', 'android', 'other'].map((platform) => {
+                const value = (data?.platformBreakdown as any)?.[platform] ?? 0;
+                const total = ((data?.platformBreakdown?.web ?? 0) +
+                  (data?.platformBreakdown?.ios ?? 0) +
+                  (data?.platformBreakdown?.android ?? 0) +
+                  (data?.platformBreakdown?.other ?? 0)) || 1;
+                const percent = ((value / total) * 100).toFixed(1);
+                const colorMap = {
+                  web: 'bg-blue-400',
+                  ios: 'bg-brand-600',
+                  android: 'bg-blue-500',
+                  other: 'bg-fg-mute',
+                };
+                const color = colorMap[platform as keyof typeof colorMap];
+
+                return (
+                  <div key={platform}>
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="text-fg-soft capitalize">{platform}</span>
+                      <span className="font-mono text-fg">${formatNumber(value)}</span>
+                    </div>
+                    <div className="w-full bg-ink-2 rounded h-2 overflow-hidden border border-line/50">
+                      <div
+                        className={`h-full ${color}`}
+                        style={{ width: `${percent}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -259,25 +216,52 @@ export default function BillingPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Type</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Amount</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">User ID</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Date</th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Transaction ID
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      User ID
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Action Type
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Credit Change
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Date
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.creditTransactions.slice(0, 10).map((tx) => (
-                    <tr key={tx.id} className="border-b border-line/50">
-                      <td className="py-2 px-3 text-fg-soft capitalize">{tx.transactionType}</td>
-                      <td className="py-2 px-3 font-mono text-fg">{formatNumber(tx.amount)}</td>
-                      <td className="py-2 px-3 font-mono text-xs text-fg-mute">
-                        {tx.userId ? tx.userId.slice(0, 8) + '...' : '—'}
-                      </td>
-                      <td className="py-2 px-3 text-xs text-fg-soft">
-                        {new Date(tx.createdAt).toLocaleDateString()}
+                  {((data?.recentTransactions ?? []).length > 0) ? (
+                    (data?.recentTransactions ?? []).slice(0, 20).map((tx) => (
+                      <tr key={tx.transaction_id} className="border-b border-line/50">
+                        <td className="py-2 px-3 font-mono text-xs text-fg-soft">
+                          {(tx?.transaction_id ?? '').slice(0, 8)}...
+                        </td>
+                        <td className="py-2 px-3 font-mono text-xs text-fg-soft">
+                          {(tx?.user_id ?? '').slice(0, 8)}...
+                        </td>
+                        <td className="py-2 px-3 text-xs text-fg-soft capitalize">
+                          {tx?.action_type ?? '—'}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-fg">
+                          {(tx?.credit_change ?? 0) > 0 ? '+' : ''}
+                          {(tx?.credit_change ?? 0).toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-xs text-fg-mute">
+                          {new Date(tx?.created_at ?? '').toLocaleDateString()}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-xs text-fg-mute">
+                        No transactions yet.
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>
@@ -289,5 +273,7 @@ export default function BillingPage() {
 }
 
 function formatNumber(n: number): string {
-  return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : n.toLocaleString();
+  return Math.abs(n ?? 0) >= 1000
+    ? ((n ?? 0) / 1000).toFixed(1) + 'k'
+    : (n ?? 0).toLocaleString();
 }

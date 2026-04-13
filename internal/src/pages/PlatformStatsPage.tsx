@@ -4,32 +4,37 @@ import {
   AlertTriangle,
   Smartphone,
   Monitor,
-  Users,
-  MousePointerClick,
+  Loader2,
 } from 'lucide-react';
 
-interface DailyActivity {
+interface DailyBreakdown {
   date: string;
   ios: number;
   android: number;
   web: number;
-}
-
-interface PlatformStats {
-  platform: 'ios' | 'android' | 'web';
-  users: number;
-  clicks: number;
-  activeUsers24h: number;
+  other: number;
 }
 
 interface PlatformStatsData {
-  ok: true;
-  platformStats: {
-    ios: PlatformStats;
-    android: PlatformStats;
-    web: PlatformStats;
+  clicksByPlatform: {
+    ios: number;
+    android: number;
+    web: number;
+    other: number;
   };
-  dailyActivity: DailyActivity[];
+  usersByPlatform: {
+    ios: number;
+    android: number;
+    web: number;
+    other: number;
+  };
+  activityByPlatform: {
+    ios: number;
+    android: number;
+    web: number;
+    other: number;
+  };
+  dailyBreakdown: DailyBreakdown[];
 }
 
 export default function PlatformStatsPage() {
@@ -41,11 +46,17 @@ export default function PlatformStatsPage() {
     const load = async () => {
       try {
         setLoading(true);
-        const res = await api<PlatformStatsData>('/.netlify/functions/admin-platform-stats');
+        const res = await api<PlatformStatsData>(
+          '/.netlify/functions/admin-platform-stats'
+        );
         setData(res);
         setError(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load platform stats.');
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to load platform stats.'
+        );
       } finally {
         setLoading(false);
       }
@@ -57,22 +68,23 @@ export default function PlatformStatsPage() {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         <div className="rounded-lg border border-line bg-ink-1 p-6 text-center text-sm text-fg-mute">
-          Loading platform stats...
+          <div className="flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading platform stats...
+          </div>
         </div>
       </div>
     );
   }
 
-  const maxDaily = (data?.dailyActivity?.length ?? 0) > 0
-    ? Math.max(...(data?.dailyActivity ?? []).map(d => Math.max(d.ios, d.android, d.web)))
-    : 1;
-
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <header>
-        <h1 className="text-xl font-semibold tracking-tight">Cross-Platform Statistics</h1>
+        <h1 className="text-xl font-semibold tracking-tight">
+          Cross-Platform Statistics
+        </h1>
         <p className="text-xs text-fg-mute">
-          iOS, Android, and Web usage and engagement metrics.
+          iOS, Android, Web, and other platform usage metrics.
         </p>
       </header>
 
@@ -84,58 +96,133 @@ export default function PlatformStatsPage() {
 
       {data && (
         <>
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <PlatformCard
-              title="iOS"
-              icon={Smartphone}
-              color="bg-brand-600"
-              stats={data.platformStats.ios}
-            />
-            <PlatformCard
-              title="Android"
-              icon={Smartphone}
-              color="bg-blue-500"
-              stats={data.platformStats.android}
-            />
-            <PlatformCard
-              title="Web"
-              icon={Monitor}
-              color="bg-blue-400"
-              stats={data.platformStats.web}
-            />
+          <section className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {['ios', 'android', 'web', 'other'].map((platform) => {
+              const clicks =
+                (data?.clicksByPlatform as any)?.[platform] ?? 0;
+              const users = (data?.usersByPlatform as any)?.[platform] ?? 0;
+              const activity =
+                (data?.activityByPlatform as any)?.[platform] ?? 0;
+
+              const colorMap = {
+                ios: 'bg-brand-600',
+                android: 'bg-blue-500',
+                web: 'bg-blue-400',
+                other: 'bg-fg-mute',
+              };
+              const color = colorMap[platform as keyof typeof colorMap];
+
+              const iconMap = {
+                ios: Smartphone,
+                android: Smartphone,
+                web: Monitor,
+                other: Monitor,
+              };
+              const Icon = iconMap[platform as keyof typeof iconMap];
+
+              return (
+                <div
+                  key={platform}
+                  className="rounded-lg border border-line bg-ink-1 p-6 shadow-card"
+                >
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className={`${color} h-3 w-3 rounded`} />
+                    <h3 className="text-sm font-semibold capitalize">
+                      {platform}
+                    </h3>
+                  </div>
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-xs text-fg-mute uppercase tracking-wider">
+                        Clicks
+                      </p>
+                      <p className="mt-2 font-mono text-lg font-semibold text-fg">
+                        {formatNumber(clicks)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-fg-mute uppercase tracking-wider">
+                        Users
+                      </p>
+                      <p className="mt-2 font-mono text-lg font-semibold text-fg">
+                        {formatNumber(users)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-fg-mute uppercase tracking-wider">
+                        Activity
+                      </p>
+                      <p className="mt-2 font-mono text-lg font-semibold text-ok">
+                        {formatNumber(activity)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </section>
 
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Daily Activity Breakdown</h2>
+            <h2 className="text-sm font-semibold mb-4">Daily Breakdown</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Date</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">iOS</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Android</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Web</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Total</th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      iOS
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Android
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Web
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Other
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Total
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.dailyActivity.length > 0 ? (
-                    data.dailyActivity.map((day) => (
-                      <tr key={day.date} className="border-b border-line/50 hover:bg-ink-2/50">
+                  {((data?.dailyBreakdown ?? []).length > 0) ? (
+                    (data?.dailyBreakdown ?? []).map((day) => (
+                      <tr key={day?.date} className="border-b border-line/50">
                         <td className="py-2 px-3 text-xs text-fg-mute">
-                          {new Date(day.date).toLocaleDateString()}
+                          {new Date(day?.date ?? '').toLocaleDateString()}
                         </td>
-                        <td className="py-2 px-3 font-mono text-fg">{formatNumber(day.ios)}</td>
-                        <td className="py-2 px-3 font-mono text-fg">{formatNumber(day.android)}</td>
-                        <td className="py-2 px-3 font-mono text-fg">{formatNumber(day.web)}</td>
+                        <td className="py-2 px-3 font-mono text-fg">
+                          {formatNumber((day?.ios ?? 0))}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-fg">
+                          {formatNumber((day?.android ?? 0))}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-fg">
+                          {formatNumber((day?.web ?? 0))}
+                        </td>
+                        <td className="py-2 px-3 font-mono text-fg">
+                          {formatNumber((day?.other ?? 0))}
+                        </td>
                         <td className="py-2 px-3 font-mono font-semibold text-fg">
-                          {formatNumber(day.ios + day.android + day.web)}
+                          {formatNumber(
+                            (day?.ios ?? 0) +
+                              (day?.android ?? 0) +
+                              (day?.web ?? 0) +
+                              (day?.other ?? 0)
+                          )}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-xs text-fg-mute">
+                      <td
+                        colSpan={6}
+                        className="py-6 text-center text-xs text-fg-mute"
+                      >
                         No activity data available.
                       </td>
                     </tr>
@@ -146,29 +233,72 @@ export default function PlatformStatsPage() {
           </section>
 
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Daily Trend by Platform</h2>
+            <h2 className="text-sm font-semibold mb-4">Platform Distribution</h2>
             <div className="space-y-6">
-              {['ios', 'android', 'web'].map((platform) => {
-                const color = platform === 'ios' ? 'bg-brand-600' : platform === 'android' ? 'bg-blue-500' : 'bg-blue-400';
-                const label = platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'Web';
+              {[
+                {
+                  label: 'Clicks Distribution',
+                  data: data?.clicksByPlatform,
+                },
+                {
+                  label: 'Users Distribution',
+                  data: data?.usersByPlatform,
+                },
+                {
+                  label: 'Activity Distribution',
+                  data: data?.activityByPlatform,
+                },
+              ].map((section) => {
+                const total =
+                  ((section?.data as any)?.ios ?? 0) +
+                  ((section?.data as any)?.android ?? 0) +
+                  ((section?.data as any)?.web ?? 0) +
+                  ((section?.data as any)?.other ?? 0);
+
                 return (
-                  <div key={platform}>
-                    <p className="text-xs font-medium text-fg-mute uppercase tracking-wider mb-2">{label}</p>
-                    <div className="flex items-end gap-1 h-24 bg-ink-2 rounded p-3 border border-line/50">
-                      {data.dailyActivity.map((day, idx) => {
-                        const value = platform === 'ios' ? day.ios : platform === 'android' ? day.android : day.web;
+                  <div key={section.label}>
+                    <p className="text-xs font-medium text-fg-mute uppercase tracking-wider mb-3">
+                      {section.label}
+                    </p>
+                    <div className="space-y-2">
+                      {['ios', 'android', 'web', 'other'].map((platform) => {
+                        const value =
+                          ((section?.data as any)?.[platform] ?? 0);
+                        const percent =
+                          total > 0
+                            ? ((value / total) * 100).toFixed(1)
+                            : '0';
+
+                        const colorMap = {
+                          ios: 'bg-brand-600',
+                          android: 'bg-blue-500',
+                          web: 'bg-blue-400',
+                          other: 'bg-fg-mute',
+                        };
+                        const color =
+                          colorMap[platform as keyof typeof colorMap];
+                        const label =
+                          platform === 'ios'
+                            ? 'iOS'
+                            : platform === 'android'
+                              ? 'Android'
+                              : platform === 'web'
+                                ? 'Web'
+                                : 'Other';
+
                         return (
-                          <div
-                            key={idx}
-                            className={`flex-1 ${color} rounded-t hover:opacity-80 transition-opacity relative group`}
-                            style={{
-                              height: `${(value / maxDaily) * 100}%`,
-                              minHeight: '2px',
-                            }}
-                            title={`${new Date(day.date).toLocaleDateString()}: ${value}`}
-                          >
-                            <div className="hidden group-hover:block absolute bottom-full mb-1 bg-ink-0 border border-line rounded px-2 py-1 text-xs text-fg whitespace-nowrap">
-                              {formatNumber(value)}
+                          <div key={platform}>
+                            <div className="flex items-center justify-between text-xs mb-1">
+                              <span className="text-fg-soft">{label}</span>
+                              <span className="font-mono text-fg">
+                                {percent}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-ink-2 rounded h-2 overflow-hidden border border-line/50">
+                              <div
+                                className={`h-full ${color}`}
+                                style={{ width: `${percent}%` }}
+                              />
                             </div>
                           </div>
                         );
@@ -179,94 +309,14 @@ export default function PlatformStatsPage() {
               })}
             </div>
           </section>
-
-          <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Platform Distribution</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {[
-                { label: 'Total Users', key: 'users', stat: data.platformStats },
-                { label: 'Total Clicks', key: 'clicks', stat: data.platformStats },
-              ].map((section) => (
-                <div key={section.label}>
-                  <p className="text-xs text-fg-mute uppercase tracking-wider mb-3">{section.label}</p>
-                  <div className="space-y-2">
-                    {['ios', 'android', 'web'].map((platform) => {
-                      const value = section.stat[platform as keyof typeof section.stat][section.key as any];
-                      const total =
-                        section.stat.ios[section.key as any] +
-                        section.stat.android[section.key as any] +
-                        section.stat.web[section.key as any];
-                      const percent = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
-                      const color = platform === 'ios' ? 'bg-brand-600' : platform === 'android' ? 'bg-blue-500' : 'bg-blue-400';
-                      const label = platform === 'ios' ? 'iOS' : platform === 'android' ? 'Android' : 'Web';
-
-                      return (
-                        <div key={platform}>
-                          <div className="flex items-center justify-between text-xs mb-1">
-                            <span className="text-fg-soft">{label}</span>
-                            <span className="font-mono text-fg">{percent}%</span>
-                          </div>
-                          <div className="w-full bg-ink-2 rounded h-2 overflow-hidden border border-line/50">
-                            <div
-                              className={`h-full ${color}`}
-                              style={{ width: `${percent}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
         </>
       )}
     </div>
   );
 }
 
-function PlatformCard({
-  title,
-  icon: Icon,
-  color,
-  stats,
-}: {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  color: string;
-  stats: PlatformStats;
-}) {
-  return (
-    <div className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-      <div className="flex items-center gap-2 mb-4">
-        <div className={`${color} h-3 w-3 rounded`} />
-        <h3 className="text-sm font-semibold">{title}</h3>
-      </div>
-      <div className="space-y-4">
-        <div>
-          <p className="text-xs text-fg-mute uppercase tracking-wider">Users</p>
-          <p className="mt-2 font-mono text-2xl font-semibold text-fg">
-            {formatNumber(stats.users)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-fg-mute uppercase tracking-wider">Clicks</p>
-          <p className="mt-2 font-mono text-2xl font-semibold text-fg">
-            {formatNumber(stats.clicks)}
-          </p>
-        </div>
-        <div>
-          <p className="text-xs text-fg-mute uppercase tracking-wider">Active (24h)</p>
-          <p className="mt-2 font-mono text-lg font-semibold text-ok">
-            {formatNumber(stats.activeUsers24h)}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function formatNumber(n: number): string {
-  return Math.abs(n) >= 1000 ? (n / 1000).toFixed(1) + 'k' : n.toLocaleString();
+  return Math.abs(n ?? 0) >= 1000
+    ? ((n ?? 0) / 1000).toFixed(1) + 'k'
+    : (n ?? 0).toLocaleString();
 }

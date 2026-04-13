@@ -6,34 +6,33 @@ import {
   Play,
   Pause,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 
-interface Campaign {
+interface RecentCampaign {
   id: string;
+  user_id: string;
+  campaign_id: string;
   name: string;
-  userId: string;
   objective: string;
-  status: 'active' | 'paused' | 'completed' | 'draft';
-  createdAt: string;
-  updatedAt: string;
+  status: string;
 }
 
 interface AdsData {
-  ok: true;
-  campaignStats: {
-    active: number;
-    paused: number;
-    completed: number;
-    draft: number;
+  totalCampaigns: number;
+  metaCampaigns: {
+    statusCounts: {
+      active: number;
+      paused: number;
+      completed: number;
+    };
+    objectiveCounts: Record<string, number>;
+    recentCampaigns: RecentCampaign[];
   };
-  campaigns: Campaign[];
-  objectiveDistribution: Record<string, number>;
-  recentActivity: Array<{
-    id: string;
-    campaignId: string;
-    action: string;
-    timestamp: string;
-  }>;
+  adCampaigns: {
+    statusCounts: Record<string, number>;
+    recentCampaigns: RecentCampaign[];
+  };
 }
 
 export default function AdsPage() {
@@ -58,27 +57,30 @@ export default function AdsPage() {
     load();
   }, []);
 
-  const filteredCampaigns = data?.campaigns.filter((c) => {
-    if (filter === 'all') return true;
-    return c.status === filter;
-  }) || [];
-
   if (loading) {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         <div className="rounded-lg border border-line bg-ink-1 p-6 text-center text-sm text-fg-mute">
-          Loading ads data...
+          <div className="flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading ads data...
+          </div>
         </div>
       </div>
     );
   }
 
+  const campaigns = (data?.metaCampaigns?.recentCampaigns ?? []).filter((c) => {
+    if (filter === 'all') return true;
+    return c.status === filter;
+  });
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <header>
-        <h1 className="text-xl font-semibold tracking-tight">Meta Ads Control Center</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Meta Ads Control</h1>
         <p className="text-xs text-fg-mute">
-          Campaign status, management, and performance overview.
+          Campaign status, performance, and objective distribution.
         </p>
       </header>
 
@@ -90,62 +92,68 @@ export default function AdsPage() {
 
       {data && (
         <>
-          <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="rounded-lg border border-line bg-ink-1 p-4 shadow-card">
-              <div className="flex items-center gap-2 text-fg-mute text-[11px] mb-2">
-                <Play className="h-3.5 w-3.5" />
-                <span className="uppercase tracking-wider">Active</span>
+          <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
+            <h2 className="text-sm font-semibold mb-4">Campaign Summary</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  Total Campaigns
+                </p>
+                <p className="mt-2 font-mono text-3xl font-semibold text-fg">
+                  {(data?.totalCampaigns ?? 0).toLocaleString()}
+                </p>
               </div>
-              <p className="font-mono text-2xl font-semibold tabular-nums text-ok">
-                {data.campaignStats.active}
-              </p>
-            </div>
-            <div className="rounded-lg border border-line bg-ink-1 p-4 shadow-card">
-              <div className="flex items-center gap-2 text-fg-mute text-[11px] mb-2">
-                <Pause className="h-3.5 w-3.5" />
-                <span className="uppercase tracking-wider">Paused</span>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 bg-ink-2 rounded border border-line/50">
+                  <p className="text-xs text-fg-mute uppercase tracking-wider">Active</p>
+                  <p className="mt-1 font-mono text-xl font-semibold text-ok">
+                    {(data?.metaCampaigns?.statusCounts?.active ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-3 bg-ink-2 rounded border border-line/50">
+                  <p className="text-xs text-fg-mute uppercase tracking-wider">Paused</p>
+                  <p className="mt-1 font-mono text-xl font-semibold text-warn">
+                    {(data?.metaCampaigns?.statusCounts?.paused ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="p-3 bg-ink-2 rounded border border-line/50">
+                  <p className="text-xs text-fg-mute uppercase tracking-wider">
+                    Completed
+                  </p>
+                  <p className="mt-1 font-mono text-xl font-semibold text-fg-soft">
+                    {(data?.metaCampaigns?.statusCounts?.completed ?? 0).toLocaleString()}
+                  </p>
+                </div>
               </div>
-              <p className="font-mono text-2xl font-semibold tabular-nums text-warn">
-                {data.campaignStats.paused}
-              </p>
-            </div>
-            <div className="rounded-lg border border-line bg-ink-1 p-4 shadow-card">
-              <div className="flex items-center gap-2 text-fg-mute text-[11px] mb-2">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="uppercase tracking-wider">Completed</span>
-              </div>
-              <p className="font-mono text-2xl font-semibold tabular-nums text-fg">
-                {data.campaignStats.completed}
-              </p>
-            </div>
-            <div className="rounded-lg border border-line bg-ink-1 p-4 shadow-card">
-              <div className="flex items-center gap-2 text-fg-mute text-[11px] mb-2">
-                <Megaphone className="h-3.5 w-3.5" />
-                <span className="uppercase tracking-wider">Draft</span>
-              </div>
-              <p className="font-mono text-2xl font-semibold tabular-nums text-fg-soft">
-                {data.campaignStats.draft}
-              </p>
             </div>
           </section>
 
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
             <h2 className="text-sm font-semibold mb-4">Objective Distribution</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {Object.entries(data.objectiveDistribution).map(([objective, count]) => (
-                <div key={objective} className="p-3 bg-ink-2 rounded border border-line/50">
-                  <p className="text-xs text-fg-mute uppercase tracking-wider">{objective}</p>
-                  <p className="mt-2 font-mono text-lg font-semibold text-fg">{count}</p>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {Object.entries(data?.metaCampaigns?.objectiveCounts ?? {}).map(
+                ([objective, count]) => (
+                  <div
+                    key={objective}
+                    className="p-3 bg-ink-2 rounded border border-line/50"
+                  >
+                    <p className="text-xs text-fg-mute uppercase tracking-wider">
+                      {objective}
+                    </p>
+                    <p className="mt-2 font-mono text-lg font-semibold text-fg">
+                      {(count ?? 0).toLocaleString()}
+                    </p>
+                  </div>
+                )
+              )}
             </div>
           </section>
 
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold">Campaigns</h2>
+              <h2 className="text-sm font-semibold">Recent Campaigns</h2>
               <div className="flex gap-2">
-                {['all', 'active', 'paused', 'completed', 'draft'].map((f) => (
+                {['all', 'active', 'paused', 'completed'].map((f) => (
                   <button
                     key={f}
                     onClick={() => setFilter(f)}
@@ -164,40 +172,57 @@ export default function AdsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line">
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Name</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">User</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Objective</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Status</th>
-                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">Created</th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Name
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      User
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Objective
+                    </th>
+                    <th className="text-left py-2 px-3 text-xs text-fg-mute uppercase tracking-wider">
+                      Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredCampaigns.length > 0 ? (
-                    filteredCampaigns.map((campaign) => (
-                      <tr key={campaign.id} className="border-b border-line/50 hover:bg-ink-2/50">
-                        <td className="py-2 px-3 font-medium text-fg">{campaign.name}</td>
+                  {(campaigns?.length ?? 0) > 0 ? (
+                    campaigns.map((campaign) => (
+                      <tr key={campaign?.id} className="border-b border-line/50">
+                        <td className="py-2 px-3 font-medium text-fg">
+                          {campaign?.name ?? '—'}
+                        </td>
                         <td className="py-2 px-3 font-mono text-xs text-fg-soft">
-                          {campaign.userId.slice(0, 12)}...
+                          {(campaign?.user_id ?? '').slice(0, 8)}...
                         </td>
-                        <td className="py-2 px-3 text-fg-soft text-xs">{campaign.objective}</td>
+                        <td className="py-2 px-3 text-xs text-fg-soft">
+                          {campaign?.objective ?? '—'}
+                        </td>
                         <td className="py-2 px-3">
-                          <span className={`text-xs font-medium px-2 py-1 rounded ${
-                            campaign.status === 'active' ? 'text-ok bg-ok/10' :
-                            campaign.status === 'paused' ? 'text-warn bg-warn/10' :
-                            campaign.status === 'completed' ? 'text-fg-soft bg-fg-soft/10' :
-                            'text-fg-mute bg-fg-mute/10'
-                          }`}>
-                            {campaign.status.charAt(0).toUpperCase() + campaign.status.slice(1)}
+                          <span
+                            className={`text-xs font-medium px-2 py-1 rounded ${
+                              campaign?.status === 'active'
+                                ? 'text-ok bg-ok/10'
+                                : campaign?.status === 'paused'
+                                  ? 'text-warn bg-warn/10'
+                                  : campaign?.status === 'completed'
+                                    ? 'text-fg-soft bg-fg-soft/10'
+                                    : 'text-fg-mute bg-fg-mute/10'
+                            }`}
+                          >
+                            {(campaign?.status ?? 'unknown').charAt(0).toUpperCase() +
+                              (campaign?.status ?? 'unknown').slice(1)}
                           </span>
-                        </td>
-                        <td className="py-2 px-3 text-xs text-fg-mute">
-                          {relTime(campaign.createdAt)}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-xs text-fg-mute">
+                      <td
+                        colSpan={4}
+                        className="py-6 text-center text-xs text-fg-mute"
+                      >
                         No campaigns found.
                       </td>
                     </tr>
@@ -206,38 +231,8 @@ export default function AdsPage() {
               </table>
             </div>
           </section>
-
-          {data.recentActivity.length > 0 && (
-            <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-              <h2 className="text-sm font-semibold mb-4">Recent Activity</h2>
-              <div className="space-y-2">
-                {data.recentActivity.slice(0, 10).map((activity) => (
-                  <div key={activity.id} className="flex items-center justify-between text-sm p-2 bg-ink-2/50 rounded">
-                    <div>
-                      <p className="text-fg-soft">{activity.action}</p>
-                      <p className="text-xs text-fg-mute">Campaign: {activity.campaignId.slice(0, 8)}...</p>
-                    </div>
-                    <span className="text-xs text-fg-mute">{relTime(activity.timestamp)}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </>
       )}
     </div>
   );
-}
-
-function relTime(iso: string): string {
-  const t = new Date(iso).getTime();
-  const diff = Math.max(0, Date.now() - t);
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
 }

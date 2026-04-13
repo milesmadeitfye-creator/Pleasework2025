@@ -7,35 +7,41 @@ import {
   Zap,
   Clock,
   CheckCircle2,
-  XCircle,
+  Loader2,
 } from 'lucide-react';
 
 type Priority = 'low' | 'medium' | 'high' | 'critical';
-type ImprovementStatus = 'queued' | 'in-progress' | 'completed' | 'rejected';
 
 interface Improvement {
   id: string;
-  title: string;
-  description: string;
-  priority: Priority;
-  status: ImprovementStatus;
-  queuedBy: string;
-  createdAt: string;
+  actor_email: string;
+  action: string;
+  target_email: string | null;
+  payload: {
+    name: string;
+    description: string;
+    priority: Priority;
+  };
+  created_at: string;
 }
 
-interface ImprovementsData {
-  ok: true;
-  improvements: Improvement[];
+interface ImprovementsResponse {
+  status: string;
+  action: string;
+  data: {
+    improvements: Improvement[];
+    count: number;
+  };
 }
 
 export default function ImprovementsPage() {
-  const [data, setData] = useState<ImprovementsData | null>(null);
+  const [data, setData] = useState<ImprovementsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [filter, setFilter] = useState<Priority | 'all'>('all');
   const [formData, setFormData] = useState({
-    title: '',
+    name: '',
     description: '',
     priority: 'medium' as Priority,
   });
@@ -44,14 +50,21 @@ export default function ImprovementsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const res = await api<ImprovementsData>('/.netlify/functions/admin-ai-agent', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'list-improvements' }),
-      });
+      const res = await api<ImprovementsResponse>(
+        '/.netlify/functions/admin-ai-agent',
+        {
+          method: 'POST',
+          body: JSON.stringify({ action: 'list-improvements' }),
+        }
+      );
       setData(res);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load improvements.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load improvements.'
+      );
     } finally {
       setLoading(false);
     }
@@ -62,8 +75,8 @@ export default function ImprovementsPage() {
   }, []);
 
   const handleSubmit = async () => {
-    if (!formData.title.trim() || !formData.description.trim()) {
-      setError('Title and description are required.');
+    if (!formData.name.trim() || !formData.description.trim()) {
+      setError('Name and description are required.');
       return;
     }
 
@@ -73,31 +86,40 @@ export default function ImprovementsPage() {
         method: 'POST',
         body: JSON.stringify({
           action: 'queue-improvement',
-          title: formData.title,
-          description: formData.description,
-          priority: formData.priority,
+          payload: {
+            name: formData.name,
+            description: formData.description,
+            priority: formData.priority,
+          },
         }),
       });
-      setFormData({ title: '', description: '', priority: 'medium' });
+      setFormData({ name: '', description: '', priority: 'medium' });
       setShowModal(false);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to queue improvement.');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to queue improvement.'
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const filteredImprovements = data?.improvements.filter((imp) => {
+  const filteredImprovements = (data?.data?.improvements ?? []).filter((imp) => {
     if (filter === 'all') return true;
-    return imp.priority === filter;
-  }) || [];
+    return imp?.payload?.priority === filter;
+  });
 
   if (loading) {
     return (
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         <div className="rounded-lg border border-line bg-ink-1 p-6 text-center text-sm text-fg-mute">
-          Loading improvements...
+          <div className="flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading improvements...
+          </div>
         </div>
       </div>
     );
@@ -107,7 +129,9 @@ export default function ImprovementsPage() {
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <header className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Queued System Improvements</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Queued System Improvements
+          </h1>
           <p className="text-xs text-fg-mute">
             Ideas for system enhancements and optimizations.
           </p>
@@ -117,7 +141,7 @@ export default function ImprovementsPage() {
           className="btn btn-primary text-sm inline-flex items-center gap-2"
         >
           <Plus className="h-4 w-4" />
-          Queue Improvement
+          Queue New
         </button>
       </header>
 
@@ -142,36 +166,62 @@ export default function ImprovementsPage() {
                       : 'border-line/50 text-fg-mute hover:text-fg'
                   }`}
                 >
-                  {p === 'all' ? 'All Priorities' : p.charAt(0).toUpperCase() + p.slice(1)}
+                  {p === 'all'
+                    ? 'All Priorities'
+                    : p.charAt(0).toUpperCase() + p.slice(1)}
                 </button>
               ))}
             </div>
           </section>
 
           <section className="space-y-3">
-            {filteredImprovements.length > 0 ? (
+            {(filteredImprovements?.length ?? 0) > 0 ? (
               filteredImprovements.map((improvement) => (
-                <div key={improvement.id} className="rounded-lg border border-line bg-ink-1 p-4 hover:bg-ink-1/80 transition-colors">
+                <div
+                  key={improvement?.id}
+                  className="rounded-lg border border-line bg-ink-1 p-4 hover:bg-ink-1/80 transition-colors"
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="font-semibold text-fg">{improvement.title}</h3>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded whitespace-nowrap ${
-                          improvement.priority === 'critical' ? 'text-err bg-err/10' :
-                          improvement.priority === 'high' ? 'text-warn bg-warn/10' :
-                          improvement.priority === 'medium' ? 'text-fg-soft bg-fg-soft/10' :
-                          'text-fg-mute bg-fg-mute/10'
-                        }`}>
-                          {improvement.priority.charAt(0).toUpperCase() + improvement.priority.slice(1)}
+                        <h3 className="font-semibold text-fg">
+                          {improvement?.payload?.name ?? '—'}
+                        </h3>
+                        <span
+                          className={`text-xs font-medium px-2 py-0.5 rounded whitespace-nowrap ${
+                            improvement?.payload?.priority === 'critical'
+                              ? 'text-err bg-err/10'
+                              : improvement?.payload?.priority ===
+                                  'high'
+                                ? 'text-warn bg-warn/10'
+                                : improvement?.payload?.priority ===
+                                    'medium'
+                                  ? 'text-fg-soft bg-fg-soft/10'
+                                  : 'text-fg-mute bg-fg-mute/10'
+                          }`}
+                        >
+                          {(
+                            improvement?.payload?.priority ?? 'unknown'
+                          )
+                            .charAt(0)
+                            .toUpperCase() +
+                            (
+                              improvement?.payload?.priority ?? 'unknown'
+                            ).slice(1)}
                         </span>
                       </div>
-                      <p className="text-sm text-fg-soft mb-2">{improvement.description}</p>
+                      <p className="text-sm text-fg-soft mb-2">
+                        {improvement?.payload?.description ?? '—'}
+                      </p>
                       <div className="flex items-center gap-4 text-xs text-fg-mute">
-                        <span>Queued by: {improvement.queuedBy}</span>
-                        <span>{relTime(improvement.createdAt)}</span>
+                        <span>
+                          by: {improvement?.actor_email ?? '—'}
+                        </span>
+                        <span>
+                          {relTime(improvement?.created_at ?? '')}
+                        </span>
                       </div>
                     </div>
-                    <StatusBadge status={improvement.status} />
                   </div>
                 </div>
               ))
@@ -200,13 +250,15 @@ export default function ImprovementsPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs text-fg-mute uppercase tracking-wider mb-2">
-                  Title
+                  Name
                 </label>
                 <input
                   type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  placeholder="Brief title for improvement"
+                  value={formData.name}
+                  onChange={(e) =>
+                    setFormData({ ...formData, name: e.target.value })
+                  }
+                  placeholder="Brief name for improvement"
                   className="input w-full"
                 />
               </div>
@@ -217,7 +269,12 @@ export default function ImprovementsPage() {
                 </label>
                 <textarea
                   value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      description: e.target.value,
+                    })
+                  }
                   placeholder="Detailed description of the improvement..."
                   className="input w-full h-24 p-3 text-sm resize-none"
                 />
@@ -229,7 +286,12 @@ export default function ImprovementsPage() {
                 </label>
                 <select
                   value={formData.priority}
-                  onChange={(e) => setFormData({ ...formData, priority: e.target.value as Priority })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      priority: e.target.value as Priority,
+                    })
+                  }
                   className="input w-full"
                 >
                   <option value="low">Low</option>
@@ -262,26 +324,8 @@ export default function ImprovementsPage() {
   );
 }
 
-function StatusBadge({ status }: { status: ImprovementStatus }) {
-  const config = {
-    queued: { className: 'text-fg-soft bg-fg-soft/10', icon: Clock },
-    'in-progress': { className: 'text-warn bg-warn/10', icon: Zap },
-    completed: { className: 'text-ok bg-ok/10', icon: CheckCircle2 },
-    rejected: { className: 'text-err bg-err/10', icon: XCircle },
-  } as const;
-
-  const cfg = config[status];
-  const Icon = cfg.icon;
-
-  return (
-    <span className={`text-xs font-medium px-2 py-1 rounded inline-flex items-center gap-1 ${cfg.className}`}>
-      <Icon className="h-3 w-3" />
-      {status === 'in-progress' ? 'In Progress' : status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
-
 function relTime(iso: string): string {
+  if (!iso) return 'unknown';
   const t = new Date(iso).getTime();
   const diff = Math.max(0, Date.now() - t);
   const s = Math.floor(diff / 1000);

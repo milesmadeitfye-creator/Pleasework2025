@@ -7,49 +7,64 @@ import {
   Clock,
   Plus,
   X,
+  Loader2,
 } from 'lucide-react';
 
-interface AgentStatus {
-  isActive: boolean;
-  lastAction: string | null;
-  tasksCompletedToday: number;
-  lastActionTime: string | null;
-}
-
-interface AutonomousTask {
+interface RecentTask {
   id: string;
-  description: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  createdAt: string;
-  completedAt: string | null;
+  user_id: string;
+  trigger_type: string;
+  status: string;
+  created_at: string;
 }
 
-interface AIAgentData {
-  ok: true;
-  agentStatus: AgentStatus;
-  recentTasks: AutonomousTask[];
-  recommendations: string[];
+interface AutonomousTaskStats {
+  total: number;
+  statusCounts: {
+    completed: number;
+    pending: number;
+    running: number;
+  };
+  recentTasks: RecentTask[];
+}
+
+interface SystemHealth {
+  timestamp: string;
+  status: string;
+}
+
+interface AIAgentResponse {
+  status: string;
+  action: string;
+  data: {
+    autonomousTasksStats: AutonomousTaskStats;
+    systemHealth: SystemHealth;
+  };
 }
 
 export default function AIMonitorPage() {
-  const [data, setData] = useState<AIAgentData | null>(null);
+  const [data, setData] = useState<AIAgentResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showTaskModal, setShowTaskModal] = useState(false);
-  const [taskDescription, setTaskDescription] = useState('');
   const [submittingTask, setSubmittingTask] = useState(false);
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const res = await api<AIAgentData>('/.netlify/functions/admin-ai-agent', {
-        method: 'POST',
-        body: JSON.stringify({ action: 'status' }),
-      });
+      const res = await api<AIAgentResponse>(
+        '/.netlify/functions/admin-ai-agent',
+        {
+          method: 'POST',
+          body: JSON.stringify({ action: 'status' }),
+        }
+      );
       setData(res);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load AI agent data.');
+      setError(
+        err instanceof Error ? err.message : 'Failed to load AI agent data.'
+      );
     } finally {
       setLoading(false);
     }
@@ -57,46 +72,66 @@ export default function AIMonitorPage() {
 
   useEffect(() => {
     loadData();
-    const t = setInterval(loadData, 30_000);
+    const t = setInterval(loadData, 30000);
     return () => clearInterval(t);
   }, []);
 
-  const handleRunTask = async () => {
-    if (!taskDescription.trim()) return;
+  const handleQueueImprovement = async () => {
     try {
       setSubmittingTask(true);
       await api('/.netlify/functions/admin-ai-agent', {
         method: 'POST',
         body: JSON.stringify({
-          action: 'queue-task',
-          description: taskDescription,
+          action: 'queue-improvement',
+          payload: {
+            name: 'System Improvement',
+            description: 'Queued from monitoring dashboard',
+            priority: 'medium',
+          },
         }),
       });
-      setTaskDescription('');
-      setShowTaskModal(false);
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to queue task.');
+      setError(err instanceof Error ? err.message : 'Failed to queue improvement.');
     } finally {
       setSubmittingTask(false);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="p-6 space-y-6 max-w-7xl mx-auto">
+        <div className="rounded-lg border border-line bg-ink-1 p-6 text-center text-sm text-fg-mute">
+          <div className="flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading agent status...
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const stats = data?.data?.autonomousTasksStats;
+  const health = data?.data?.systemHealth;
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       <header className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">AI Agent Monitor</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            AI Agent Monitor
+          </h1>
           <p className="text-xs text-fg-mute">
-            Claude auto-pilot dashboard, task queue, and recommendations.
+            Autonomous task queue, system health, and improvements.
           </p>
         </div>
         <button
-          onClick={() => setShowTaskModal(true)}
+          onClick={handleQueueImprovement}
+          disabled={submittingTask}
           className="btn btn-primary text-sm inline-flex items-center gap-2"
         >
           <Plus className="h-4 w-4" />
-          Run Task
+          {submittingTask ? 'Queueing...' : 'Queue Improvement'}
         </button>
       </header>
 
@@ -106,62 +141,113 @@ export default function AIMonitorPage() {
         </div>
       )}
 
-      {loading && (
-        <div className="rounded-lg border border-line bg-ink-1 p-6 text-center text-sm text-fg-mute">
-          Loading agent status...
-        </div>
-      )}
-
-      {data && !loading && (
+      {data && (
         <>
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
             <h2 className="text-sm font-semibold mb-4">Agent Status</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Status</p>
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  System Health
+                </p>
                 <div className="mt-2 flex items-center gap-2">
-                  <div className={`h-2 w-2 rounded-full ${data.agentStatus.isActive ? 'bg-ok' : 'bg-fg-mute'}`} />
+                  <div
+                    className={`h-2 w-2 rounded-full ${
+                      health?.status === 'operational'
+                        ? 'bg-ok'
+                        : 'bg-warn'
+                    }`}
+                  />
                   <span className="text-sm font-medium text-fg">
-                    {data.agentStatus.isActive ? 'Active' : 'Idle'}
+                    {(health?.status ?? 'unknown')
+                      .charAt(0)
+                      .toUpperCase() +
+                      (health?.status ?? 'unknown').slice(1)}
                   </span>
                 </div>
               </div>
               <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Tasks Completed (24h)</p>
-                <p className="mt-2 font-mono text-2xl font-semibold text-fg">
-                  {data.agentStatus.tasksCompletedToday}
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  Last Check
                 </p>
-              </div>
-              <div>
-                <p className="text-xs text-fg-mute uppercase tracking-wider">Last Action</p>
-                <p className="mt-2 text-xs text-fg-soft truncate">
-                  {data.agentStatus.lastAction
-                    ? `${data.agentStatus.lastAction} (${relTime(data.agentStatus.lastActionTime || '')})`
-                    : 'None'}
+                <p className="mt-2 text-xs text-fg-soft">
+                  {health?.timestamp
+                    ? relTime(health.timestamp)
+                    : 'unknown'}
                 </p>
               </div>
             </div>
           </section>
 
           <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-            <h2 className="text-sm font-semibold mb-4">Autonomous Tasks</h2>
+            <h2 className="text-sm font-semibold mb-4">Task Statistics</h2>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="p-4 bg-ink-2 rounded border border-line/50">
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  Total Tasks
+                </p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-fg">
+                  {(stats?.total ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="p-4 bg-ink-2 rounded border border-line/50">
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  Completed
+                </p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-ok">
+                  {(stats?.statusCounts?.completed ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="p-4 bg-ink-2 rounded border border-line/50">
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  Running
+                </p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-warn">
+                  {(stats?.statusCounts?.running ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="p-4 bg-ink-2 rounded border border-line/50">
+                <p className="text-xs text-fg-mute uppercase tracking-wider">
+                  Pending
+                </p>
+                <p className="mt-2 font-mono text-2xl font-semibold text-fg-soft">
+                  {(stats?.statusCounts?.pending ?? 0).toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
+            <h2 className="text-sm font-semibold mb-4">Recent Tasks</h2>
             <div className="space-y-3">
-              {data.recentTasks.length > 0 ? (
-                data.recentTasks.map((task) => (
-                  <div key={task.id} className="flex items-start justify-between p-3 bg-ink-2 rounded border border-line/50">
+              {((stats?.recentTasks ?? []).length > 0) ? (
+                (stats?.recentTasks ?? []).slice(0, 10).map((task) => (
+                  <div
+                    key={task?.id}
+                    className="flex items-start justify-between p-3 bg-ink-2 rounded border border-line/50"
+                  >
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm text-fg">{task.description}</p>
+                      <p className="text-sm text-fg font-mono">
+                        {(task?.id ?? '').slice(0, 8)}...
+                      </p>
                       <p className="text-xs text-fg-mute mt-1">
-                        Created {relTime(task.createdAt)}
+                        {task?.trigger_type ?? '—'} - Created{' '}
+                        {relTime(task?.created_at ?? '')}
                       </p>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded whitespace-nowrap ml-2 ${
-                      task.status === 'completed' ? 'text-ok bg-ok/10' :
-                      task.status === 'failed' ? 'text-err bg-err/10' :
-                      task.status === 'running' ? 'text-warn bg-warn/10' :
-                      'text-fg-soft bg-fg-soft/10'
-                    }`}>
-                      {task.status.charAt(0).toUpperCase() + task.status.slice(1)}
+                    <span
+                      className={`text-xs font-medium px-2 py-1 rounded whitespace-nowrap ml-2 ${
+                        task?.status === 'completed'
+                          ? 'text-ok bg-ok/10'
+                          : task?.status === 'running'
+                            ? 'text-warn bg-warn/10'
+                            : 'text-fg-soft bg-fg-soft/10'
+                      }`}
+                    >
+                      {(task?.status ?? 'unknown')
+                        .charAt(0)
+                        .toUpperCase() +
+                        (task?.status ?? 'unknown').slice(1)}
                     </span>
                   </div>
                 ))
@@ -172,58 +258,7 @@ export default function AIMonitorPage() {
               )}
             </div>
           </section>
-
-          {data.recommendations.length > 0 && (
-            <section className="rounded-lg border border-line bg-ink-1 p-6 shadow-card">
-              <h2 className="text-sm font-semibold mb-4">AI Recommendations</h2>
-              <div className="space-y-3">
-                {data.recommendations.map((rec, idx) => (
-                  <div key={idx} className="flex gap-3 p-3 bg-ink-2 rounded border border-line/50">
-                    <Zap className="h-4 w-4 text-brand-500 flex-shrink-0 mt-0.5" />
-                    <p className="text-sm text-fg-soft">{rec}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
         </>
-      )}
-
-      {showTaskModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-          <div className="bg-ink-2 rounded-lg border border-line p-6 max-w-md w-full mx-4">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Queue New Task</h3>
-              <button
-                onClick={() => setShowTaskModal(false)}
-                className="text-fg-mute hover:text-fg"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <textarea
-              value={taskDescription}
-              onChange={(e) => setTaskDescription(e.target.value)}
-              placeholder="Describe the task for the AI agent..."
-              className="input w-full h-24 p-3 text-sm resize-none"
-            />
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => setShowTaskModal(false)}
-                className="btn flex-1"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRunTask}
-                disabled={submittingTask || !taskDescription.trim()}
-                className="btn btn-primary flex-1"
-              >
-                {submittingTask ? 'Submitting...' : 'Submit Task'}
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
