@@ -68,16 +68,12 @@ export default function OverviewPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [overview, billing] = await Promise.all([
-          api<OverviewData>('/.netlify/functions/admin-overview'),
-          api<BillingData>('/.netlify/functions/admin-billing'),
-        ]);
+        const overview = await api<OverviewData>('/.netlify/functions/admin-overview');
         if (!cancelled) {
           setData(overview);
-          setBillingData(billing);
           setSystemHealth({
             status: overview.health === 'green' ? 'healthy' : overview.health === 'yellow' ? 'degraded' : 'critical',
-            errors24h: overview.metrics.errors24h ?? 0,
+            errors24h: overview.metrics?.errors24h ?? 0,
             warnings24h: 0,
             lastCheck: new Date().toISOString(),
           });
@@ -85,6 +81,13 @@ export default function OverviewPage() {
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Load failed.');
+      }
+      // Billing is best-effort — don't crash if it fails
+      try {
+        const billing = await api<BillingData>('/.netlify/functions/admin-billing');
+        if (!cancelled) setBillingData(billing);
+      } catch {
+        // billing data unavailable, continue without it
       }
     }
     load();
@@ -120,31 +123,31 @@ export default function OverviewPage() {
             <div>
               <p className="text-xs text-fg-mute uppercase tracking-wider">Estimated MRR</p>
               <p className="mt-2 font-mono text-lg font-semibold text-fg">
-                ${formatNumber(billingData.mrr)}
+                ${formatNumber(billingData.mrr ?? 0)}
               </p>
             </div>
             <div>
               <p className="text-xs text-fg-mute uppercase tracking-wider">Credits Outstanding</p>
               <p className="mt-2 font-mono text-lg font-semibold text-err">
-                {formatNumber(billingData.creditsOutstanding)}
+                {formatNumber(billingData.creditsOutstanding ?? 0)}
               </p>
             </div>
             <div>
               <p className="text-xs text-fg-mute uppercase tracking-wider">Credits Used (Revenue)</p>
               <p className="mt-2 font-mono text-lg font-semibold text-ok">
-                {formatNumber(billingData.creditsUsed)}
+                {formatNumber(billingData.creditsUsed ?? 0)}
               </p>
             </div>
             <div>
               <p className="text-xs text-fg-mute uppercase tracking-wider">Net Position</p>
               <p className={`mt-2 font-mono text-lg font-semibold ${
-                billingData.mrr >= 0 ? 'text-ok' : 'text-err'
+                (billingData.mrr ?? 0) >= 0 ? 'text-ok' : 'text-err'
               }`}>
-                ${formatNumber(billingData.mrr - billingData.creditsOutstanding)}
+                ${formatNumber((billingData.mrr ?? 0) - (billingData.creditsOutstanding ?? 0))}
               </p>
             </div>
           </div>
-          {billingData.platformBreakdown && (
+          {billingData.platformBreakdown && (billingData.platformBreakdown.ios > 0 || billingData.platformBreakdown.android > 0 || billingData.platformBreakdown.web > 0) && (
             <div className="mt-4 pt-4 border-t border-line">
               <p className="text-xs text-fg-mute uppercase tracking-wider mb-3">Platform Breakdown</p>
               <div className="flex gap-2 h-8">
@@ -324,7 +327,8 @@ function HealthBadge({ level }: { level: 'green' | 'yellow' | 'red' }) {
   );
 }
 
-function formatNumber(n: number): string {
+function formatNumber(n: number | null | undefined): string {
+  if (n == null) return '0';
   return n.toLocaleString();
 }
 
