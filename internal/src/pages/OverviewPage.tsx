@@ -202,7 +202,7 @@ export default function OverviewPage() {
           icon={AlertTriangle}
           label="Errors (24h)"
           value={data?.metrics.errors24h}
-          accent={data?.metrics.errors24h && data.metrics.errors24h > 0 ? 'warn' : undefined}
+          accent={(data?.metrics.errors24h ?? 0) > 0 ? 'warn' : undefined}
         />
       </section>
 
@@ -244,7 +244,7 @@ export default function OverviewPage() {
         </div>
         <div className="divide-y divide-line-soft">
           {data?.activity?.length ? (
-            data.activity.map((a) => (
+            data?.activity?.map((a) => (
               <div key={a.id} className="flex items-start justify-between px-4 py-2.5 text-sm">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">

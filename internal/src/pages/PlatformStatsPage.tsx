@@ -63,8 +63,8 @@ export default function PlatformStatsPage() {
     );
   }
 
-  const maxDaily = data && data.dailyActivity.length > 0
-    ? Math.max(...data.dailyActivity.map(d => Math.max(d.ios, d.android, d.web)))
+  const maxDaily = (data?.dailyActivity?.length ?? 0) > 0
+    ? Math.max(...(data?.dailyActivity ?? []).map(d => Math.max(d.ios, d.android, d.web)))
     : 1;
 
   return (
